@@ -1,29 +1,27 @@
-# Android / Gradle
-*.iml
+﻿# Gradle
 .gradle/
+build/
 local.properties
-/build
-/captures
-.externalNativeBuild
-.cxx
+captures/
+.externalNativeBuild/
+.cxx/
 
-# IDE / Android Studio
+# Android Studio / IntelliJ
 .idea/
 *.iml
 .DS_Store
 
-# Kotlin Multiplatform generated
+# Kotlin Multiplatform generated (超重要！)
 .kotlin/
 
-# Logs and temporary build/test artifacts from our development cycles
+# 我們之前 cycle 產生的垃圾
 *.log
 log/
 build-check-*.log
-cycle*
 build_p*.log
+cycle*
 
 # OS
-.DS_Store
 Thumbs.db
 
 # Misc
