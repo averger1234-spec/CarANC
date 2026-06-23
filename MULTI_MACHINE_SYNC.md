@@ -157,6 +157,25 @@
   # 之後在 GitHub 開 PR 或直接 merge 回 main
   ```
 
+## Grok CLI / AI 助手 跨機器使用注意事項
+
+**Grok 的對話紀錄不會自動跨機器同步**。
+
+Grok CLI（或 Android Studio 內建的 Grok Terminal 助手）的對話歷史、session 紀錄是**儲存在本地機器**（通常在 `~/.grok/sessions/` 或類似路徑）。
+
+- 在另一台電腦（Windows B 或 Mac）開啟 Grok 時，會是**全新 session**，不會自動看到這台機器的完整對話歷史。
+- **程式碼**靠 Git 同步（上面已說明）。
+- **AI 對話上下文**要手動帶過去。
+
+### 推薦做法
+1. 每次在**新機器**第一次開 Grok 時：
+   - 先 `git pull origin main`（拿到最新文件）
+   - 讀取 `MULTI_MACHINE_SYNC.md`
+   - 把 `GROK_RESUME_CONTEXT.md` 裡的 Resume Context 區塊**整段複製貼上**給 Grok 作為開頭提示。
+2. 我會在需要時幫你更新 `GROK_RESUME_CONTEXT.md`，讓你用 Git 同步帶過去。
+
+這樣在任何一台機器開 Grok 都能快速恢復目前專案狀態與進行中的任務。
+
 - **iOS 目前狀態**：只有 stub（Android 完整實作）。建 framework 成功後，在 Xcode 裡主要用來驗證 KMP 整合 + 未來擴充 iOS audio 迴路。
 
 ---
