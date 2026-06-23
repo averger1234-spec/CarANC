@@ -307,11 +307,18 @@ class AudioEngine(
                 // P2: Audio (processor) creation now goes through light AncSessionFactory (common + platform actual).
                 // This centralizes component creation for scoping / future DI (see AncSessionFactory.kt).
                 // On android: dispatches to MultiBandANCProcessor; on iOS skeleton: IosAncProcessorFacade pass-through.
+                // Re-snapshot tier close to creation (user may switch in UI during early route/calib setup) to ensure
+                // correct initialTier for processor (fixes pre-start tier switch to STANDARD/PRO causing flash on start).
+                val initialTier = sessionContext.tierManager.currentTier.value
                 val procFactory = AncSessionFactory(sessionContext)
                 ancProcessor = procFactory.createAncProcessor(
                     sampleRate = sampleRate,
                     bufferSize = bufferSize,
-                    initialTier = currentTier
+                    initialTier = initialTier
+                )
+                AncSessionLogger.log(
+                    phase = "processor_created",
+                    fields = mapOf("initialTier" to initialTier.name)
                 )
                 ancProcessor?.applyCabinModel(applyMimoTrial(cabinModel))
                 currentLatency?.let { ancProcessor?.setEstimatedLatencyMs(it.totalMs) }
@@ -354,27 +361,37 @@ class AudioEngine(
                     )
                 )
 
-                if (currentTier != UserTier.LIGHT) {
+                if (initialTier != UserTier.LIGHT) {
                     sessionContext.stateManager.updateState(AncState.Learning())
                     onUpdateNotification("正在學習車內音場...")
                     AncSessionLogger.log(
                         phase = "learning_start",
                         fields = mapOf(
-                            "tier" to currentTier.name,
+                            "tier" to initialTier.name,
                             "durationMs" to LEARNING_DURATION_MS
                         )
                     )
-                    delay(LEARNING_DURATION_MS)
+                    // Feed silence to audioTrack during the learning delay to prevent buffer underrun/starvation
+                    // (higher tiers take this path; long gap after calib caused "no sound" / silent output start).
+                    // Keeps track continuous so anti-noise output is audible immediately after finishLearning.
+                    val learnSilence = ShortArray(PROCESSING_READ_SIZE)
+                    val feedIntervalMs = 20L
+                    val numFeeds = (LEARNING_DURATION_MS / feedIntervalMs).toInt().coerceAtLeast(1)
+                    for (k in 0 until numFeeds) {
+                        if (!isActive) break
+                        audioTrack?.write(learnSilence, 0, learnSilence.size)
+                        delay(feedIntervalMs)
+                    }
                     ancProcessor?.finishLearning()
                     AncSessionLogger.log(phase = "learning_complete")
                 }
 
                 sessionContext.stateManager.updateState(AncState.Running())
-                onUpdateNotification("主動降噪運作中 [${getTierLabel(currentTier)}]")
+                onUpdateNotification("主動降噪運作中 [${getTierLabel(initialTier)}]")
 
                 val readSize = PROCESSING_READ_SIZE
                 val input = ShortArray(readSize)
-                var lastActiveTier = currentTier
+                var lastActiveTier = initialTier
                 var lastLoggedState: AncState = AncState.Running()
 
                 processingStartedAtMs = System.currentTimeMillis()
@@ -578,9 +595,16 @@ class AudioEngine(
                         val outputGain = audioRouteManager?.ancOutputGain ?: 1f
                         // P2: output safety - always cap gain + soft clip (even at nominal gain=1 for DSP guard)
                         val cappedGain = outputGain.coerceAtMost(MAX_ANC_OUTPUT_GAIN)
+                        // Reduce audible "white noise" artifact from anti-output (fdaf + low) when latency high and
+                        // maxCancel low (<60Hz): only very low rumble cancellable, the played residual anti sounds like
+                        // hiss (esp. LIGHT + free path using normal mode). Lower play gain for artifact; full when good latency.
+                        // Affects LIGHT (white noise complaint) and higher tiers equally in high-latency routes.
+                        val limits = ancProcessor?.getLatencyBandLimits()
+                        val antiArtifactGain = if ((limits?.maxCancelFrequencyHz ?: 100f) < 60f) 0.28f else 1f
+                        val finalWriteGain = cappedGain * antiArtifactGain
                         // reuse buffer (hot-path opt, similar to push buffer reuse)
                         if (outputBufferReuse.size < read) outputBufferReuse = ShortArray(read)
-                        scaleSamplesInto(processed, read, cappedGain, outputBufferReuse)
+                        scaleSamplesInto(processed, read, finalWriteGain, outputBufferReuse)
                         val output = outputBufferReuse
 
                         // occasional known signal insert (for runtime real latency meas round-trip in ANC loop)
