@@ -1,8 +1,0 @@
-CYCLE3_P2_ANCSTATEMANAGER_NONsingleton: completed.
-- Refactored AncStateManager.kt: object -> class + detailed ctor comments for scoping.
-- Updated AncSessionContext (in TierManager.kt) to ctor-inject stateManager + other managers (with defaults + dep wiring for noiseBand).
-- GlobalAncSessionContext remains for compat.
-- All call sites (MainActivity via context, ANCService/AudioEngine/MainViewModel already using context.stateManager, processors via factory) use scoped.
-- Added CYCLE3_ comments throughout.
-- Relative paths used exclusively.
-- See also cycle3_extra_more_managers_scoped for the analyzers/models.

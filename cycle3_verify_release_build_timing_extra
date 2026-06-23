@@ -1,9 +1,0 @@
-CYCLE3_VERIFY_RELEASE_BUILD_TIMING (extra for native):
-- Extended AudioEngine loop timing monitoring: now full loop ms (every block), EMA, probe corr compute time, LMS update/process counts (from processor profiling), per-mode block/ema, nativeLowAvail.
-- Exposed via new sessionContext.perfMetrics (AncPerfMetrics class with update helpers; flows-ready).
-- More frequent/conditional logging ( %20 + mode change + slow blocks + periodic AncSessionLogger "perf_timing").
-- Processor updates: better counter exposure on facade (getLowLms* + lastPfx) + impls (Multi + Ios stub) + low processors (Fdaf/Multirate counters).
-- Timing part ties to native proto (counters for kotlin-vs-native compare later; native build timing in release via verifyReleaseBuildTiming).
-- See AudioEngine changes (t0 always, metrics push, logs), TierManager (metrics), processor facade/impls.
-- Relative compile + release timing tasks still valid (app:verifyReleaseBuildTiming chains to proguard one).
-- To re-verify post native wire: .\gradlew.bat :app:verifyReleaseBuildTiming (will capture NDK overhead in BUILD time).

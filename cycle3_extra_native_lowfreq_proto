@@ -1,9 +1,0 @@
-CYCLE3_EXTRA_NATIVE_LOWFREQ_PROTO: completed.
-- Created NativeLowBandProcessor.kt (expect in commonMain/latency, actual android JNI stub + ios stub).
-- Added prototype C++: src/androidMain/cpp/CMakeLists.txt + NativeLowBandLms.cpp (detailed comments for LMS low band impl: time-domain FXLMS / overlap-save NLMS, NEON, no-alloc RT constraints, counters).
-- JNI load + external funs; isNativeAvailable(); processLowBand stub.
-- Integrated: MultiBandANCProcessor now holds nativeLow, exercises in low path (no-op call for proto).
-- Updated FdafLowBandProcessor + MultirateLowBandFxLms with counters + native notes.
-- Build notes + commented enable steps added to shared/build.gradle.kts (also minor in app/build + proguard/consumer-rules for native methods).
-- Relative paths, no forced native build in kotlin compile.
-- Also: cycle3_verify_release_build_timing relevant (see note in verify task when cmake enabled).

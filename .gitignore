@@ -1,15 +1,30 @@
+# Android / Gradle
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
+.gradle/
+local.properties
 /build
 /captures
 .externalNativeBuild
 .cxx
+
+# IDE / Android Studio
+.idea/
+*.iml
+.DS_Store
+
+# Kotlin Multiplatform generated
+.kotlin/
+
+# Logs and temporary build/test artifacts from our development cycles
+*.log
+log/
+build-check-*.log
+cycle*
+build_p*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
 local.properties
