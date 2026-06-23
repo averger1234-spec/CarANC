@@ -7,9 +7,12 @@ import android.bluetooth.BluetoothSocket
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.Manifest
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.example.caranc.shared.AncTestPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,42 +68,57 @@ class ObdRpmProvider(
 
         val address = AncTestPreferences.getObdDeviceAddress(context)
         pollJob = scope.launch(Dispatchers.IO) {
-            var connected = false
-            if (!address.isBlank()) {
-                // Keep existing manual address path
-                Log.i(TAG, "phase: manual_address_try $address")
-                obdState = ObdState.CONNECTING
-                snapshot = RpmSnapshot(source = "connecting")
-                connected = connect(address)
-            } else {
-                // Auto scan + discovery path (Cycle3 P2)
-                Log.i(TAG, "phase: auto_scan_start")
-                obdState = ObdState.SCANNING
-                snapshot = RpmSnapshot(source = "scanning")
-                connected = autoDiscoverAndConnect()
-            }
-            if (!connected) {
-                Log.w(TAG, "phase: obd_connect_failed_fallback")
-                obdState = ObdState.FALLBACK
-                snapshot = RpmSnapshot(source = "fallback")
-                // Fallback to manual RPM path (if caller has set it post-start; or use snapshot valid=false for engine fallback)
-                return@launch
-            }
-            obdState = ObdState.CONNECTED
-            Log.i(TAG, "phase: connected_polling")
-            while (isActive) {
-                try {
-                    val rpm = queryRpm()
-                    snapshot = if (rpm > 0f) {
-                        RpmSnapshot(rpm = rpm, valid = true, source = "elm327")
-                    } else {
-                        RpmSnapshot(source = "elm327_invalid")
+            try {
+                var connected = false
+                if (!address.isBlank()) {
+                    // Keep existing manual address path
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        Log.w(TAG, "phase: no_bluetooth_connect_perm (manual addr path)")
+                        obdState = ObdState.FALLBACK
+                        snapshot = RpmSnapshot(source = "no_bt_perm")
+                        return@launch
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "OBD poll exception (non-fatal): ${e.message}")
-                    snapshot = RpmSnapshot(source = "elm327_error")
+                    Log.i(TAG, "phase: manual_address_try $address")
+                    obdState = ObdState.CONNECTING
+                    snapshot = RpmSnapshot(source = "connecting")
+                    connected = connect(address)
+                } else {
+                    // Auto scan + discovery path (Cycle3 P2)
+                    connected = autoDiscoverAndConnect()
                 }
-                delay(1000)
+                if (!connected) {
+                    Log.w(TAG, "phase: obd_connect_failed_fallback")
+                    obdState = ObdState.FALLBACK
+                    snapshot = RpmSnapshot(source = "fallback")
+                    // Fallback to manual RPM path (if caller has set it post-start; or use snapshot valid=false for engine fallback)
+                    return@launch
+                }
+                obdState = ObdState.CONNECTED
+                Log.i(TAG, "phase: connected_polling")
+                while (isActive) {
+                    try {
+                        val rpm = queryRpm()
+                        snapshot = if (rpm > 0f) {
+                            RpmSnapshot(rpm = rpm, valid = true, source = "elm327")
+                        } else {
+                            RpmSnapshot(source = "elm327_invalid")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "OBD poll exception (non-fatal): ${e.message}")
+                        snapshot = RpmSnapshot(source = "elm327_error")
+                    }
+                    delay(1000)
+                }
+            } catch (se: SecurityException) {
+                Log.e(TAG, "SecurityException in OBD BT (missing BLUETOOTH_CONNECT or SCAN at runtime?): ${se.message}. Using fallback, no crash.")
+                obdState = ObdState.FALLBACK
+                snapshot = RpmSnapshot(source = "bt_security_error")
+            } catch (e: Exception) {
+                Log.w(TAG, "Unexpected error in OBD pollJob (non-fatal): ${e.message}")
+                obdState = ObdState.FALLBACK
+                snapshot = RpmSnapshot(source = "error")
             }
         }
         return snapshot
@@ -119,6 +137,12 @@ class ObdRpmProvider(
 
     @SuppressLint("MissingPermission")
     private suspend fun connect(address: String): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w(TAG, "phase: no_bluetooth_connect_perm (in connect)")
+            return false
+        }
         val adapter = BluetoothAdapter.getDefaultAdapter() ?: return false
         val device = try {
             adapter.getRemoteDevice(address)
@@ -178,6 +202,17 @@ class ObdRpmProvider(
 
     @SuppressLint("MissingPermission", "UnspecifiedRegisterReceiverFlag")
     private suspend fun autoDiscoverAndConnect(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val hasConnect = ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+            val hasScan = ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
+            if (!hasConnect || !hasScan) {
+                Log.w(TAG, "phase: missing_bluetooth_permissions connect=$hasConnect scan=$hasScan , fallback (no crash)")
+                obdState = ObdState.FALLBACK
+                snapshot = RpmSnapshot(source = "no_bt_perm")
+                return false
+            }
+        }
+
         val adapter = BluetoothAdapter.getDefaultAdapter() ?: run {
             Log.w(TAG, "phase: no_bluetooth_adapter")
             return false

@@ -29,7 +29,7 @@ enum class CommercialFeature(val id: String, val title: String) {
     MUSIC_BYPASS("music_bypass", "音樂底噪 bypass"),
     CALL_BYPASS("call_bypass", "通話語音保護"),
     MIMO_TRIAL("mimo_trial", "AMBEEO-lite 多區域"),
-    OBD_RPM("obd_rpm", "OBD 引擎諧波參考"),
+    OBD_RPM("obd_rpm", "OBD 引擎諧波參考（藍牙自動已移除，僅手動 RPM）"),
     LATENCY_OPTIMIZED("latency_optimized", "低延遲演算法套件"),
     GUIDED_TEST_FULL("guided_test_full", "完整實車引導測試 v3"),
     LOG_EXPORT("log_export", "測試 Log 匯出"),

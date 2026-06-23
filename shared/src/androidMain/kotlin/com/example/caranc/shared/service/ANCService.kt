@@ -122,8 +122,8 @@ class ANCService : LifecycleService() {
             phase = "service_start",
             fields = mapOf(
                 "subscriptionPlan" to sessionContext.entitlementManager.currentPlan.id,
-                "mimoEnabled" to sessionContext.entitlementManager.canUseFeature(CommercialFeature.MIMO_TRIAL),
-                "obdEnabled" to sessionContext.entitlementManager.canUseFeature(CommercialFeature.OBD_RPM)
+                "mimoEnabled" to sessionContext.entitlementManager.canUseFeature(CommercialFeature.MIMO_TRIAL)
+                // OBD RPM (Bluetooth) removed - manual RPM via test prefs only
             )
         )
 

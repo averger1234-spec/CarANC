@@ -16,7 +16,6 @@ import com.example.caranc.shared.model.CabinTransferModel
 import com.example.caranc.shared.model.CabinZoneId
 // (CYCLE3: direct NoiseBandClassifier import removed; use sessionContext.noiseBandClassifier instead)
 import com.example.caranc.shared.model.ProfileAgingMonitor
-import com.example.caranc.shared.obd.ObdRpmProvider
 import com.example.caranc.shared.signal.MediaPlaybackCapture
 import com.example.caranc.shared.signal.ReferenceSignalPipeline
 import com.example.caranc.shared.signal.SirenDetector
@@ -39,7 +38,7 @@ import kotlin.math.sqrt
  *  - AudioRecord / AudioTrack initialization, buffer sizing (low-latency), release (with error guards + synchronized)
  *  - AncProcessorFacade (via AncSessionFactory P2) creation, cabin model application (mimo trial), tier updates, mode, siren override, energy, latency
  *    (P2: processor creation routed through light SessionComponentFactory for DI/scoping prep; iOS gets stub facade)
- *  - ReferenceSignalPipeline, SirenDetector, MediaPlaybackCapture, ObdRpmProvider
+ *  - ReferenceSignalPipeline, SirenDetector, MediaPlaybackCapture (OBD Bluetooth auto RPM removed - only manual test RPM from prefs for engine comb FF)
  *  - Full calibration flow: loadOrCalibrateCabinModel (stored profile check, log-chirp playback+record, impulse estimate via AudioSignalUtils, resonance detect, fallback, mimo profile enrich, CabinProfileStore save)
  *  - The main real-time processing loop: route refresh, tier change, speed/rpm snapshot, music/call/road mode decision + state update + processor config, ref preprocess, siren detect+log, rms/energy tracking + bump + maybeRecal, ANC process, output gain scale, write to track, updateVisualization (which also does band classify, latency monitor, 2s snapshot logs)
  *  - Route management: resolve, prepare mix, apply preferred, retryOutputRoute, maybeRefreshAudioRoute, calib focus
@@ -77,7 +76,6 @@ class AudioEngine(
     private var acousticDelaySamples = 0
     private var referencePipeline: ReferenceSignalPipeline? = null
     private var mediaPlaybackCapture: MediaPlaybackCapture? = null
-    private var obdRpmProvider: ObdRpmProvider? = null
     private var sirenDetector: SirenDetector? = null
     private var lastAntiNoise = ShortArray(PROCESSING_READ_SIZE)
     private var playbackRefBuffer = ShortArray(PROCESSING_READ_SIZE)
@@ -227,20 +225,16 @@ class AudioEngine(
                     )
                 )
 
-                obdRpmProvider = if (sessionContext.entitlementManager.canUseFeature(CommercialFeature.OBD_RPM)) {
-                    ObdRpmProvider(appContext, lifecycleScope)
-                } else {
-                    null
-                }
-                val rpmSnapshot = obdRpmProvider?.start()
-                val obdEnabled = obdRpmProvider != null
+                // OBD Bluetooth RPM removed (not needed). Only manual test RPM from prefs is supported for engine harmonic feedforward (EngineCombCanceller).
+                // Useful for dev/testing PRO-like engine noise cancellation without hardware.
+                val manualRpm = AncTestPreferences.getManualTestRpm(appContext)
+                val rpmValid = manualRpm > 0f
                 AncSessionLogger.log(
-                    phase = if (obdEnabled) "obd_rpm_start" else "obd_rpm_gated",
+                    phase = "rpm_config",
                     fields = mapOf(
-                        "rpm" to (rpmSnapshot?.rpm ?: 0f),
-                        "valid" to (rpmSnapshot?.valid == true),
-                        "source" to (rpmSnapshot?.source ?: if (obdEnabled) "none" else "plan_gated"),
-                        "manualRpm" to AncTestPreferences.getManualTestRpm(appContext),
+                        "manualRpm" to manualRpm,
+                        "valid" to rpmValid,
+                        "source" to if (rpmValid) "manual_test" else "none",
                         "plan" to sessionContext.entitlementManager.currentPlan.id
                     )
                 )
@@ -325,6 +319,13 @@ class AudioEngine(
                 logMimoProfile(cabinModel)
                 logLatencyOptimization()
 
+                val willDoLearning = initialTier != UserTier.LIGHT
+                if (willDoLearning) {
+                    // Early state for paid tiers so UI reflects "learning" during the post-calib power meas too.
+                    sessionContext.stateManager.updateState(AncState.Learning())
+                    onUpdateNotification("正在學習車內音場...")
+                }
+
                 val calibrationBuffer = ShortArray(256)
                 var totalPower = 0.0
                 var samples = 0
@@ -347,6 +348,18 @@ class AudioEngine(
                         Log.e("ANCService", "校正時讀取失敗: $readLen")
                         throw IllegalStateException("校正時音訊讀取失敗 ($readLen)")
                     }
+
+                    // For STANDARD/PRO: keep feeding silence during this ~2s post-calib power measurement.
+                    // Prevents output underrun/starvation gap before the dedicated learning feed (real devices
+                    // can starve the track buffer during long no-write periods, leading to no-sound or bad state on resume).
+                    if (willDoLearning && (readLen and 3) == 0) {
+                        try {
+                            audioTrack?.play()
+                            audioTrack?.write(ShortArray(PROCESSING_READ_SIZE), 0, PROCESSING_READ_SIZE)
+                        } catch (e: Exception) {
+                            Log.w("ANCService", "power_meas silence feed write error (non-fatal): ${e.message}")
+                        }
+                    }
                 }
 
                 val avgPower = if (samples > 0) totalPower / samples else 1000000.0
@@ -361,9 +374,7 @@ class AudioEngine(
                     )
                 )
 
-                if (initialTier != UserTier.LIGHT) {
-                    sessionContext.stateManager.updateState(AncState.Learning())
-                    onUpdateNotification("正在學習車內音場...")
+                if (willDoLearning) {
                     AncSessionLogger.log(
                         phase = "learning_start",
                         fields = mapOf(
@@ -379,7 +390,12 @@ class AudioEngine(
                     val numFeeds = (LEARNING_DURATION_MS / feedIntervalMs).toInt().coerceAtLeast(1)
                     for (k in 0 until numFeeds) {
                         if (!isActive) break
-                        audioTrack?.write(learnSilence, 0, learnSilence.size)
+                        try {
+                            audioTrack?.play()
+                            audioTrack?.write(learnSilence, 0, learnSilence.size)
+                        } catch (e: Exception) {
+                            Log.w("ANCService", "learning silence write error (non-fatal, continuing): ${e.message}")
+                        }
                         delay(feedIntervalMs)
                     }
                     ancProcessor?.finishLearning()
@@ -445,10 +461,10 @@ class AudioEngine(
                         sessionContext.roadNoiseReferenceModel.classify(speedSnapshot.speedKmh, speedSnapshot.valid) ==
                         NoiseSourceType.ROAD
 
-                    val rpmSnapshot = obdRpmProvider?.currentSnapshot()
+                    val manualRpm = AncTestPreferences.getManualTestRpm(appContext)
                     ancProcessor?.setEngineRpm(
-                        rpm = rpmSnapshot?.rpm ?: 0f,
-                        valid = rpmSnapshot?.valid == true
+                        rpm = manualRpm,
+                        valid = manualRpm > 0f
                     )
 
                     when {
@@ -1024,7 +1040,7 @@ class AudioEngine(
             lastSessionLogUpdate = now
             val route = currentRoute
             val latency = latencySnapshot
-            val rpmSnapshot = obdRpmProvider?.currentSnapshot()
+            val manualRpm = AncTestPreferences.getManualTestRpm(appContext)
             AncSessionLogger.log(
                 phase = "running_snapshot",
                 fields = latencyLogFields(
@@ -1055,9 +1071,9 @@ class AudioEngine(
                         "mimoZoneCount" to (ancProcessor?.getMimoZoneCount() ?: 1),
                         "mimoTrialEnabled" to mimoTrialEnabled,
                         "sirenOverride" to (ancProcessor?.isSirenOverrideActive() == true),
-                        "engineRpm" to (rpmSnapshot?.rpm ?: 0f),
-                        "engineRpmValid" to (rpmSnapshot?.valid == true),
-                        "engineRpmSource" to (rpmSnapshot?.source ?: "none"),
+                        "engineRpm" to manualRpm,
+                        "engineRpmValid" to (manualRpm > 0f),
+                        "engineRpmSource" to if (manualRpm > 0f) "manual_test" else "none",
                         "mediaCaptureActive" to (mediaPlaybackCapture?.isAvailable == true),
                         "aecErleDb" to (referencePipeline?.snapshotMetrics()?.aecErleDb ?: 0f),
                         "mediaCorrelation" to (referencePipeline?.snapshotMetrics()?.mediaCorrelation ?: 0f),
@@ -1340,8 +1356,6 @@ class AudioEngine(
             try {
                 Log.d("ANCService", "正在釋放音訊資源...")
                 vehicleSpeedProvider?.stop()
-                obdRpmProvider?.stop()
-                obdRpmProvider = null
                 mediaPlaybackCapture?.stop()
                 mediaPlaybackCapture = null
                 referencePipeline = null
