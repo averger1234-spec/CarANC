@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<host-validators xmlns:android="http://schemas.android.com/apk/res/android">
+    <host-filter name="androidx.car.app">
+        <package name="com.google.android.projection.gearhead" />
+        <package name="com.google.android.apps.automotive.carusb" />
+    </host-filter>
+</host-validators>

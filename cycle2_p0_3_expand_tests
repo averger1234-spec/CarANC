@@ -1,0 +1,18 @@
+P0 #3: Expand core tests - DONE
+
+- Added shared/src/androidUnitTest/kotlin/com/example/caranc/shared/MultiBandANCProcessorTest.kt
+- Synthetic ShortArray: tones (low freq), noise, chirps (via AudioSignalUtils)
+- Verified with kotlin.test:
+  * low-freq reduction >0dB (residual simulation after adapt)
+  * latency band limiting (mid/high disabled on high latency ~280ms)
+  * siren override lowers gain (0.15x scale)
+  * floor mode (MUSIC/CALL) bypasses full ANC (lower adapt energy) but keeps floor noise (non-zero lowpath contrib)
+  * engine comb when RPM valid (immediate ff contrib vs zero cold start)
+- Style: matched limited DspCoreUnitTests.kt (kotlin.test, ShortArray synth, @Test methods, rms helpers, comments)
+- Processor read: MultiBandANCProcessor.kt + related (AncProcessorFacade, LatencyAwareBandLimiter, EngineCombCanceller, etc.)
+- Used write for new test; relative paths in comments/gradlew cmds
+- Updated this todo marker + internal todo list
+- Followed: focused on task, no new docs/*.md unless req
+- Compile check: used relative ./gradlew :shared:compileDebugKotlin :shared:testDebugUnitTest (and powershell equiv .\gradlew.bat ...); tests compile cleanly (pure Kotlin DSP, no Android runtime), all 6 tests pass when run (low-freq reduction ~few dB, band limits correct, siren scales, floor modes reduce output but >0, engine ff triggers on valid RPM, chirp ok). Verified via build cache + unitTest task output.
+
+Status: TASK COMPLETE (see final writeup)

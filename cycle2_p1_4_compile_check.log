@@ -1,0 +1,14 @@
+P1 #4 compile check using RELATIVE gradlew (windows powershell):
+.\gradlew :shared:compileDebugKotlinAndroid :shared:compileDebugKotlinMetadata --console=plain
+
+> Task :shared:compileDebugKotlinAndroid
+> Task :shared:compileDebugKotlinMetadata
+BUILD SUCCESSFUL in 12s
+3 actionable tasks: 3 executed
+
+All direct version strings removed from shared/build.gradle.kts; now using libs.* catalog refs from gradle/libs.versions.toml
+Versions/behavior preserved (coroutines 1.8.1, core-ktx 1.13.1, lifecycles 2.8.6, car 1.4.0, location 21.3.0)
+Limited reads performed on both files only for edits/verification via read_file (offset+limit).
+Used search_replace exclusively for modifications.
+Comments added in both files.
+TASK COMPLETE.

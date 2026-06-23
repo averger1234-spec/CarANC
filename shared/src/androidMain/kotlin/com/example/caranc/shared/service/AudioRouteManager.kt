@@ -1,0 +1,468 @@
+package com.example.caranc.shared.service
+
+import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.media.AudioRecord
+import android.media.AudioTrack
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+
+data class AudioRouteInfo(
+    val routeLabel: String,
+    val inputDeviceName: String?,
+    val outputDeviceName: String?,
+    val preferredOutput: AudioDeviceInfo?,
+    val preferredInput: AudioDeviceInfo?,
+    val audioSource: Int,
+    val availableOutputs: List<String> = emptyList(),
+    val availableInputs: List<String> = emptyList()
+)
+
+data class RouteApplyResult(
+    val route: AudioRouteInfo,
+    val outputPreferredApplied: Boolean,
+    val inputPreferredApplied: Boolean,
+    val routedOutputType: Int?,
+    val routedOutputName: String?,
+    val routedInputType: Int?,
+    val routedInputName: String?,
+    val carSinkRouted: Boolean
+) {
+    fun toLogFields(): Map<String, Any?> = mapOf(
+        "routeLabel" to route.routeLabel,
+        "preferredOutput" to route.outputDeviceName,
+        "preferredInput" to route.inputDeviceName,
+        "outputPreferredApplied" to outputPreferredApplied,
+        "inputPreferredApplied" to inputPreferredApplied,
+        "routedOutput" to routedOutputName,
+        "routedOutputType" to routedOutputType,
+        "routedInput" to routedInputName,
+        "routedInputType" to routedInputType,
+        "carSinkRouted" to carSinkRouted,
+        "availableOutputs" to route.availableOutputs,
+        "availableInputs" to route.availableInputs
+    )
+}
+
+class AudioRouteManager(context: Context) {
+
+    private val appContext = context.applicationContext
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var focusRequest: AudioFocusRequest? = null
+    private var hasAudioFocus = false
+    private var deviceCallback: AudioDeviceCallback? = null
+    private var routeChangeListener: ((RouteApplyResult) -> Unit)? = null
+
+    @Volatile
+    var ancOutputGain: Float = 1f
+        private set
+
+    fun setRouteChangeListener(listener: ((RouteApplyResult) -> Unit)?) {
+        routeChangeListener = listener
+    }
+
+    fun registerDeviceCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || deviceCallback != null) return
+        deviceCallback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+                Log.i(TAG, "Audio devices added: ${addedDevices.joinToString { describeDevice(it) }}")
+            }
+
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+                Log.i(TAG, "Audio devices removed: ${removedDevices.joinToString { describeDevice(it) }}")
+            }
+        }
+        audioManager.registerAudioDeviceCallback(deviceCallback!!, mainHandler)
+    }
+
+    fun unregisterDeviceCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        deviceCallback?.let { audioManager.unregisterAudioDeviceCallback(it) }
+        deviceCallback = null
+        routeChangeListener = null
+    }
+
+    fun resolveRoute(isAaConnected: Boolean): AudioRouteInfo {
+        val outputs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        } else {
+            emptyArray()
+        }
+        val inputs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+        } else {
+            emptyArray()
+        }
+
+        val preferredOutput = pickPreferredOutput(outputs, isAaConnected)
+        val preferredInput = pickPreferredInput(inputs, isAaConnected)
+        val routeLabel = routeLabelFor(preferredOutput, isAaConnected)
+
+        val audioSource = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.N ->
+                android.media.MediaRecorder.AudioSource.UNPROCESSED
+            else ->
+                android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION
+        }
+
+        return AudioRouteInfo(
+            routeLabel = routeLabel,
+            inputDeviceName = preferredInput?.productName?.toString()
+                ?: inputs.firstOrNull()?.productName?.toString(),
+            outputDeviceName = preferredOutput?.productName?.toString()
+                ?: outputs.firstOrNull { it.isSink }?.productName?.toString(),
+            preferredOutput = preferredOutput,
+            preferredInput = preferredInput,
+            audioSource = audioSource,
+            availableOutputs = describeDevices(outputs.filter { it.isSink }),
+            availableInputs = describeDevices(inputs.filter { it.isSource })
+        )
+    }
+
+    fun buildTrackAudioAttributes(isAaConnected: Boolean): AudioAttributes {
+        val builder = AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+        if (isAaConnected) {
+            // AA 投影時與車機媒體走同一 mixer path，較容易進入 car sink。
+            builder.setUsage(AudioAttributes.USAGE_MEDIA)
+        } else {
+            builder.setUsage(AudioAttributes.USAGE_MEDIA)
+        }
+        return builder.build()
+    }
+
+    fun prepareRunningAudioMix(isAaConnected: Boolean): Boolean {
+        ancOutputGain = 1f
+        if (isAaConnected) {
+            audioManager.mode = AudioManager.MODE_NORMAL
+            @Suppress("DEPRECATION")
+            audioManager.isSpeakerphoneOn = false
+        }
+        return true
+    }
+
+    fun requestCalibrationAudioFocus(): Boolean {
+        if (hasAudioFocus) return true
+
+        val listener = AudioManager.OnAudioFocusChangeListener { change ->
+            when (change) {
+                AudioManager.AUDIOFOCUS_LOSS,
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> ancOutputGain = 0.15f
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> ancOutputGain = 0.35f
+                AudioManager.AUDIOFOCUS_GAIN,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK -> ancOutputGain = 1f
+            }
+        }
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setAudioAttributes(attrs)
+                .setAcceptsDelayedFocusGain(true)
+                .setOnAudioFocusChangeListener(listener)
+                .build()
+            focusRequest = request
+            val result = audioManager.requestAudioFocus(request)
+            hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            hasAudioFocus
+        } else {
+            @Suppress("DEPRECATION")
+            val result = audioManager.requestAudioFocus(
+                listener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            )
+            hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            hasAudioFocus
+        }
+    }
+
+    fun abandonAudioFocus() {
+        if (!hasAudioFocus) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(null)
+        }
+        hasAudioFocus = false
+        focusRequest = null
+        ancOutputGain = 1f
+    }
+
+    fun describeOutputDevices(): List<String> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return emptyList()
+        return describeDevices(audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).filter { it.isSink })
+    }
+
+    fun applyPreferredDevices(
+        audioRecord: AudioRecord,
+        audioTrack: AudioTrack,
+        route: AudioRouteInfo
+    ): RouteApplyResult = applyRoute(audioRecord, audioTrack, route)
+
+    fun ensureOutputRoute(
+        audioRecord: AudioRecord?,
+        audioTrack: AudioTrack,
+        isAaConnected: Boolean
+    ): RouteApplyResult {
+        val route = resolveRoute(isAaConnected)
+        return if (audioRecord != null) {
+            applyRoute(audioRecord, audioTrack, route)
+        } else {
+            applyTrackRoute(audioTrack, route)
+        }
+    }
+
+    fun isCarSinkRouted(audioTrack: AudioTrack?, isAaConnected: Boolean = false): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || audioTrack == null) return false
+        val routed = audioTrack.routedDevice ?: return false
+        if (isCarOutputType(routed.type)) return true
+        if (!isAaConnected) return false
+        return isAaOutputHeuristic(routed)
+    }
+
+    fun getActiveInputDeviceName(audioRecord: AudioRecord?): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || audioRecord == null) return null
+        return audioRecord.routedDevice?.let { describeDevice(it) }
+    }
+
+    fun getActiveOutputDeviceName(audioTrack: AudioTrack?): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || audioTrack == null) return null
+        return audioTrack.routedDevice?.let { describeDevice(it) }
+    }
+
+    private fun applyRoute(
+        audioRecord: AudioRecord,
+        audioTrack: AudioTrack,
+        route: AudioRouteInfo
+    ): RouteApplyResult {
+        val outputApplied = applyTrackPreferredDevice(audioTrack, route.preferredOutput)
+        val inputApplied = applyRecordPreferredDevice(audioRecord, route.preferredInput)
+        return buildRouteResult(route, outputApplied, inputApplied, audioRecord, audioTrack)
+    }
+
+    private fun applyTrackRoute(audioTrack: AudioTrack, route: AudioRouteInfo): RouteApplyResult {
+        val outputApplied = applyTrackPreferredDevice(audioTrack, route.preferredOutput)
+        return buildRouteResult(route, outputApplied, inputPreferredApplied = false, audioRecord = null, audioTrack)
+    }
+
+    private fun buildRouteResult(
+        route: AudioRouteInfo,
+        outputApplied: Boolean,
+        inputPreferredApplied: Boolean,
+        audioRecord: AudioRecord?,
+        audioTrack: AudioTrack
+    ): RouteApplyResult {
+        val routedOutput = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) audioTrack.routedDevice else null
+        val routedInput = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) audioRecord?.routedDevice else null
+        val isAaConnected = route.routeLabel.startsWith("android_auto") ||
+            route.routeLabel.startsWith("usb_") ||
+            route.routeLabel == "bluetooth_a2dp"
+        return RouteApplyResult(
+            route = route,
+            outputPreferredApplied = outputApplied,
+            inputPreferredApplied = inputPreferredApplied,
+            routedOutputType = routedOutput?.type,
+            routedOutputName = routedOutput?.let { describeDevice(it) },
+            routedInputType = routedInput?.type,
+            routedInputName = routedInput?.let { describeDevice(it) },
+            carSinkRouted = isCarSinkRouted(audioTrack, isAaConnected)
+        )
+    }
+
+    private fun applyTrackPreferredDevice(audioTrack: AudioTrack, device: AudioDeviceInfo?): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || device == null) return false
+        val applied = audioTrack.setPreferredDevice(device)
+        Log.i(TAG, "AudioTrack preferred device: ${describeDevice(device)} applied=$applied")
+        return applied
+    }
+
+    private fun applyRecordPreferredDevice(audioRecord: AudioRecord, device: AudioDeviceInfo?): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || device == null) return false
+        val applied = audioRecord.setPreferredDevice(device)
+        Log.i(TAG, "AudioRecord preferred device: ${describeDevice(device)} applied=$applied")
+        return applied
+    }
+
+    private fun pickPreferredOutput(
+        outputs: Array<AudioDeviceInfo>,
+        isAaConnected: Boolean
+    ): AudioDeviceInfo? {
+        val sinks = outputs.filter { it.isSink }
+        if (sinks.isEmpty()) return null
+
+        if (isAaConnected) {
+            val scored = sinks
+                .filterNot { isPhoneLocalOutput(it) }
+                .map { device -> device to scoreOutputDevice(device, isAaConnected) }
+                .sortedByDescending { it.second }
+            scored.firstOrNull { it.second > 0 }?.first?.let { return it }
+
+            // AA 已連線但沒有外接 sink 時，不 fallback 到手機喇叭，改走媒體預設路由。
+            Log.w(TAG, "AA connected but no external sink found; available=${describeDevices(sinks)}")
+            return null
+        }
+
+        val priority = listOf(
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_BUS,
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+        )
+        for (type in priority) {
+            sinks.firstOrNull { it.type == type }?.let { return it }
+        }
+        return sinks.firstOrNull()
+    }
+
+    private fun pickPreferredInput(
+        inputs: Array<AudioDeviceInfo>,
+        isAaConnected: Boolean
+    ): AudioDeviceInfo? {
+        val sources = inputs.filter { it.isSource }
+        if (sources.isEmpty()) return null
+
+        val priority = if (isAaConnected) {
+            listOf(
+                AudioDeviceInfo.TYPE_BUILTIN_MIC,
+                AudioDeviceInfo.TYPE_USB_DEVICE,
+                AudioDeviceInfo.TYPE_USB_HEADSET,
+                AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                AudioDeviceInfo.TYPE_WIRED_HEADSET
+            )
+        } else {
+            listOf(
+                AudioDeviceInfo.TYPE_BUILTIN_MIC,
+                AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                AudioDeviceInfo.TYPE_USB_HEADSET,
+                AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+            )
+        }
+        for (type in priority) {
+            sources.firstOrNull { it.type == type }?.let { return it }
+        }
+        return sources.firstOrNull()
+    }
+
+    private fun scoreOutputDevice(device: AudioDeviceInfo, isAaConnected: Boolean): Int {
+        var score = 0
+        score += when (device.type) {
+            AudioDeviceInfo.TYPE_BUS -> 1000
+            AudioDeviceInfo.TYPE_USB_DEVICE -> 900
+            AudioDeviceInfo.TYPE_USB_HEADSET -> 850
+            AudioDeviceInfo.TYPE_HDMI -> 800
+            AudioDeviceInfo.TYPE_HDMI_ARC -> 780
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> 700
+            AudioDeviceInfo.TYPE_REMOTE_SUBMIX -> 650
+            AudioDeviceInfo.TYPE_LINE_ANALOG -> 500
+            AudioDeviceInfo.TYPE_AUX_LINE -> 500
+            else -> 0
+        }
+        if (isAaConnected && isPhoneLocalOutput(device)) {
+            score -= 10_000
+        }
+        score += nameHintScore(device)
+        return score
+    }
+
+    private fun nameHintScore(device: AudioDeviceInfo): Int {
+        val text = buildString {
+            append(device.productName?.toString().orEmpty().lowercase())
+            append(' ')
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                append(device.address.orEmpty().lowercase())
+            }
+        }
+        var score = 0
+        if ("usb" in text) score += 80
+        if ("car" in text || "auto" in text || "automotive" in text) score += 60
+        if ("headunit" in text || "head unit" in text) score += 60
+        if ("a2dp" in text) score += 40
+        if ("speaker" in text && "built" !in text) score += 20
+        return score
+    }
+
+    private fun isPhoneLocalOutput(device: AudioDeviceInfo): Boolean {
+        return device.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ||
+            device.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE ||
+            device.type == AudioDeviceInfo.TYPE_TELEPHONY
+    }
+
+    private fun isCarOutputType(type: Int): Boolean {
+        return when (type) {
+            AudioDeviceInfo.TYPE_BUS,
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_HDMI,
+            AudioDeviceInfo.TYPE_HDMI_ARC,
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> true
+            else -> false
+        }
+    }
+
+    private fun isAaOutputHeuristic(device: AudioDeviceInfo): Boolean {
+        if (isPhoneLocalOutput(device)) return false
+        val text = device.productName?.toString().orEmpty().lowercase()
+        return device.type == AudioDeviceInfo.TYPE_REMOTE_SUBMIX ||
+            "usb" in text ||
+            "car" in text ||
+            "auto" in text
+    }
+
+    private fun routeLabelFor(device: AudioDeviceInfo?, isAaConnected: Boolean): String {
+        if (device == null) {
+            return if (isAaConnected) "android_auto_media_default" else "phone_local"
+        }
+        return when (device.type) {
+            AudioDeviceInfo.TYPE_BUS -> "android_auto_bus"
+            AudioDeviceInfo.TYPE_USB_DEVICE -> "usb_car"
+            AudioDeviceInfo.TYPE_USB_HEADSET -> "usb_headset"
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "bluetooth_a2dp"
+            AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC -> "hdmi_car"
+            AudioDeviceInfo.TYPE_REMOTE_SUBMIX -> "remote_submix"
+            else -> if (isAaConnected) "android_auto_scored" else "phone_local"
+        }
+    }
+
+    private fun describeDevices(devices: List<AudioDeviceInfo>): List<String> =
+        devices.map { describeDevice(it) }
+
+    private fun describeDevice(device: AudioDeviceInfo): String {
+        val address = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            device.address.orEmpty()
+        } else {
+            ""
+        }
+        return "${deviceTypeName(device.type)}:${device.productName}:$address:id=${device.id}"
+    }
+
+    private fun deviceTypeName(type: Int): String = when (type) {
+        AudioDeviceInfo.TYPE_BUS -> "BUS"
+        AudioDeviceInfo.TYPE_USB_DEVICE -> "USB"
+        AudioDeviceInfo.TYPE_USB_HEADSET -> "USB_HEADSET"
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "A2DP"
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "SPEAKER"
+        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "EARPIECE"
+        AudioDeviceInfo.TYPE_REMOTE_SUBMIX -> "SUBMIX"
+        AudioDeviceInfo.TYPE_HDMI -> "HDMI"
+        AudioDeviceInfo.TYPE_LINE_ANALOG -> "LINE"
+        else -> type.toString()
+    }
+
+    companion object {
+        private const val TAG = "AudioRouteManager"
+    }
+}

@@ -1,0 +1,16 @@
+P1 #6+7 compile check using RELATIVE gradlew (windows powershell):
+
+.\gradlew.bat :shared:compileDebugKotlinAndroid :shared:compileDebugKotlinMetadata :shared:compileDebugUnitTestKotlinAndroid --console=plain
+
+> Task :shared:compileDebugKotlinAndroid
+> Task :shared:compileDebugKotlinMetadata
+> Task :shared:compileDebugUnitTestKotlinAndroid
+BUILD SUCCESSFUL in 17s
+3 actionable tasks: 3 executed
+
+Runtime latency meas (insertKnownProbe + measureRoundTripLatencyIfDue + history bufs + occasional in engine loop) + setEstimated update.
+LMS profiling counters in BandFxLms.processSample.
+Hot opt: fdaf push reuse bufs (no alloc in processBlock), engine outputBufferReuse + scaleInto, notes.
+Edited existing only (AudioEngine, MultiBandANCProcessor, FdafLowBandProcessor) + todo marker; multiple limited reads before each search_replace.
+Relative path gradle cmd as specified.
+TASK COMPLETE.

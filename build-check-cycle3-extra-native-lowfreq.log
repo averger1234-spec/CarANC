@@ -1,0 +1,36 @@
+=== Running Android compile check for Cycle3 Extra: native_lowfreq_proto + audioengine_timing ===
+Command (relative, powershell from workspace root as required):
+.\gradlew.bat :shared:compileDebugKotlinAndroid :shared:compileDebugKotlinMetadata :app:compileDebugKotlin --console=plain
+
+> Task :shared:compileDebugKotlinAndroid
+> Task :shared:compileDebugKotlinMetadata
+> Task :app:compileDebugKotlin
+BUILD SUCCESSFUL in 62s
+
+(Additional quick re-check after native proto + timing extension:)
+.\gradlew.bat :shared:compileDebugKotlinAndroid --console=plain
+> Task :shared:compileDebugKotlinAndroid
+BUILD SUCCESSFUL
+
+1 actionable tasks: 3 executed
+Kotlin compile for shared (androidMain + metadata + common) + app clean.
+- New files (write): NativeLowBandProcessor.kt (common/android/ios), cpp/CMakeLists.txt, cpp/NativeLowBandLms.cpp
+- Edits (search_replace): shared/build.gradle.kts (build notes), app/build.gradle.kts, app/proguard-rules.pro, shared/consumer-rules.pro
+- MultiBandANCProcessor.kt (counters expose + nativeLow field + integration call + imports + comment updates)
+- AncProcessorFacade.kt (3 new getLowLms* methods)
+- IosAncProcessorFacade.kt (overrides)
+- FdafLowBandProcessor.kt + MultirateLowBandFxLms.kt (counters + notes)
+- AudioEngine.kt (timing extension: always t0, perfMetrics via sessionContext, lms pulls, probe corr timing, more logs, native proto, ema/mode/per-block)
+- TierManager.kt (AncPerfMetrics class + wiring in AncSessionContext)
+- Relative paths used everywhere.
+- No breakage: existing block timing, probe history, sessionContext usage, low band call sites, facade, factories, tests (constructors unaffected).
+- Native proto: JNI stubs do not affect kotlin compile (load at runtime; cpp compiled only if externalNativeBuild enabled).
+- Android focus: androidMain sources + compileDebugKotlinAndroid verified.
+- Counters better exposed: low lms + fdaf/multirate.
+- Metrics: sessionContext.perfMetrics.emaFullLoopMs, lmsUpdateCount, probeCorrMs, per-mode etc + logging "perf_timing".
+- Markers created: cycle3_extra_native_lowfreq_proto , cycle3_verify_release_build_timing_extra
+- Follows limited reads (only timing/profiling/Fdaf/Multirate sections via offset/limit + greps for ID).
+- All integrations via search_replace; prototypes via write.
+
+(If native cmake enabled in future: also verify :app:verifyReleaseBuildTiming to capture added NDK time in release build duration.)
+SUCCESS: relative compile passes for Cycle3 extra native low-freq + timing monitoring.
