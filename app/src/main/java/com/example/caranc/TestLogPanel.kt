@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +43,7 @@ fun TestLogPanel(
     var connectionType by remember { mutableStateOf("") }
     var manualRpm by remember { mutableStateOf("") }
     var obdAddress by remember { mutableStateOf("") }
+    var forceNormalMode by remember { mutableStateOf(false) }
     var latestLogName by remember { mutableStateOf(TestLogExporter.latestLogFileName(context)) }
 
     fun persistEnvironment() {
@@ -65,6 +67,7 @@ fun TestLogPanel(
             if (rpm > 0f) rpm.toInt().toString() else ""
         }
         obdAddress = AncTestPreferences.getObdDeviceAddress(context)
+        forceNormalMode = AncTestPreferences.isForceNormalMode(context)
     }
 
     Card(modifier = modifier.fillMaxWidth()) {
@@ -166,6 +169,22 @@ fun TestLogPanel(
                 placeholder = { Text("例：00:1A:7D:DA:71:13") },
                 singleLine = true
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = forceNormalMode,
+                    onCheckedChange = {
+                        forceNormalMode = it
+                        AncTestPreferences.setForceNormalMode(context, it)
+                    }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "強制正常模式（忽略音樂/通話偵測，用於比較 LIGHT/中/重 tier 差異，AA 環境推薦開啟）",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 

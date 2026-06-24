@@ -13,6 +13,7 @@ object AncTestPreferences {
     private const val KEY_MANUAL_TEST_RPM = "manual_test_rpm"
     private const val KEY_OBD_DEVICE_ADDRESS = "obd_device_address"
     private const val KEY_MIMO_TRIAL_ENABLED = "mimo_trial_enabled"
+    private const val KEY_FORCE_NORMAL_MODE = "force_normal_mode"
 
     fun isLoggingEnabled(context: Context): Boolean {
         return prefs(context).getBoolean(KEY_LOGGING_ENABLED, true)
@@ -63,6 +64,14 @@ object AncTestPreferences {
 
     fun setMimoTrialEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_MIMO_TRIAL_ENABLED, enabled).apply()
+    }
+
+    fun isForceNormalMode(context: Context): Boolean {
+        return prefs(context).getBoolean(KEY_FORCE_NORMAL_MODE, false)
+    }
+
+    fun setForceNormalMode(context: Context, force: Boolean) {
+        prefs(context).edit().putBoolean(KEY_FORCE_NORMAL_MODE, force).apply()
     }
 
     private fun prefs(context: Context) =

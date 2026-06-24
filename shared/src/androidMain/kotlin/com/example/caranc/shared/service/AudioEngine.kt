@@ -449,9 +449,10 @@ class AudioEngine(
                         sessionContext.stateManager.updateVehicleSpeed(speed.speedKmh, speed.valid)
                     }
 
-                    val isMusic = audioManager.isMusicActive &&
+                    val forceNormal = AncTestPreferences.isForceNormalMode(appContext)
+                    val isMusic = !forceNormal && audioManager.isMusicActive &&
                         sessionContext.entitlementManager.canUseFeature(CommercialFeature.MUSIC_BYPASS)
-                    val isCall = audioManager.mode != AudioManager.MODE_NORMAL &&
+                    val isCall = !forceNormal && audioManager.mode != AudioManager.MODE_NORMAL &&
                         sessionContext.entitlementManager.canUseFeature(CommercialFeature.CALL_BYPASS)
                     val gpsRoadEnabled = sessionContext.entitlementManager.canUseFeature(CommercialFeature.GPS_ROAD_ANC)
                     val speedSnapshot = speedProvider.currentSnapshot()
