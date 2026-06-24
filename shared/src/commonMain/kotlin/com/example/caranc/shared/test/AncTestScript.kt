@@ -24,8 +24,8 @@ object CarAncTestScript {
             instructions = listOf(
                 "確認手機已 USB 連接 Android Auto（或記錄本機模式）",
                 "填寫上方「實車測試 Log」的車型、手機位置",
-                "（可選）在測試設定填入手動 RPM（怠速約 800）或 OBD 藍牙位址",
-                "點主畫面「開始降噪」，允許麥克風、定位與藍牙權限",
+                "（可選）在測試設定填入手動 RPM（用於引擎諧波測試，怠速約 800）",
+                "點主畫面「開始降噪」，允許麥克風、定位權限",
                 "等待校正完成，狀態顯示「降噪中」",
                 "每步需手動按「完成這步」才會往下（適合上下班分段測）"
             ),
@@ -38,7 +38,7 @@ object CarAncTestScript {
                 "latency_optimization_applied",
                 "mimo_profile_applied",
                 "media_ref_start",
-                "obd_rpm_start"
+                "rpm_config"
             )
         ),
         TestScriptStep(
@@ -88,18 +88,18 @@ object CarAncTestScript {
             logPhases = listOf("running_snapshot", "test_step_snapshot")
         ),
         TestScriptStep(
-            id = "idle_obd",
-            title = "怠速 OBD / 引擎諧波 feedforward",
+            id = "idle_engine",
+            title = "怠速引擎諧波（手動 RPM，可選）",
             instructions = listOf(
-                "維持怠速，確認 engineRpmValid=true（手動 RPM 或 ELM327）",
-                "觀察 running_snapshot 的 engineRpm、engineRpmSource",
-                "低頻 reductionDb 應有變化（comb feedforward 輔助）",
-                "保持 30 秒"
+                "（可選）在 TestLogPanel 設定手動 RPM（怠速約 800~1500）",
+                "維持怠速 30 秒",
+                "觀察 running_snapshot 的 engineRpmSource 是否為 \"manual_test\"",
+                "若設定 RPM，低頻 reductionDb 可能有 engine comb 輔助變化（可跳過此步）"
             ),
             durationSec = 30,
             suggestedTier = UserTier.STANDARD,
-            checklist = listOf("engineRpmValid", "怠速穩定", "reductionDb > 0"),
-            logPhases = listOf("obd_rpm_start", "running_snapshot", "test_step_snapshot")
+            checklist = listOf("（可選）已設定手動 RPM", "怠速穩定"),
+            logPhases = listOf("rpm_config", "running_snapshot", "test_step_snapshot")
         ),
         TestScriptStep(
             id = "idle_standard",
@@ -232,7 +232,7 @@ object CarAncTestScript {
         "test_step_complete",
         "mimo_profile_applied",
         "media_ref_start",
-        "obd_rpm_start",
+        "rpm_config",
         "siren_detected",
         "bump_detected",
         "profile_aging_detected"
@@ -252,7 +252,6 @@ object CarAncTestScript {
         "processingReadSize",
         "reductionDb",
         "mimoZoneCount",
-        "engineRpmValid",
         "playbackRefActive",
         "aecErleDb",
         "sirenOverride"

@@ -127,7 +127,7 @@ fun GuidedTestPanel(
 @Composable
 private fun IdleScriptView(onStart: () -> Unit) {
     Text(
-        "${CarAncTestScript.SCRIPT_NAME}：延遲驗證 → MIMO → 怠速/OBD → 市區 → 高速 → 音樂 → 通話 → 匯出",
+        "${CarAncTestScript.SCRIPT_NAME}：延遲驗證 → MIMO → 怠速（引擎可選） → 市區 → 高速 → 音樂 → 通話 → 匯出",
         style = MaterialTheme.typography.bodySmall
     )
     Text(

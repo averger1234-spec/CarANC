@@ -165,7 +165,7 @@ fun TestLogPanel(
                     AncTestPreferences.setObdDeviceAddress(context, obdAddress)
                 },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("ELM327 藍牙位址（可選）") },
+                label = { Text("手動 RPM 藍牙位址（已移除自動 OBD，僅 legacy）") },
                 placeholder = { Text("例：00:1A:7D:DA:71:13") },
                 singleLine = true
             )
