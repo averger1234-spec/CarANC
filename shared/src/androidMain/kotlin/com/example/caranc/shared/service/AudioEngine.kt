@@ -590,6 +590,7 @@ class AudioEngine(
                                     "frozen" to true
                                 )
                             )
+                            Log.d("ANCService", "bump_detected: blockRms=${"%.4f".format(blockRms)} -> freezeWeightUpdates set (lms may pause)")
                         }
 
                         val processed = ancProcessor?.process(preprocessed) ?: preprocessed

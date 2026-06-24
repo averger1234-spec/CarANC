@@ -257,7 +257,7 @@ class MultiBandANCProcessor(
         }
         val ratio = rms / blockEnergyEma.coerceAtLeast(1e-6f)
         blockEnergyEma = 0.95f * blockEnergyEma + 0.05f * rms
-        if (ratio > 8.0f && rms > 0.02f) {
+        if (ratio > 12.0f && rms > 0.02f) {
             freezeWeightUpdates = (sampleRate / bufferSize.coerceAtLeast(256)).coerceIn(4, 12)
             bumpDetectedFlag = true
             return true
