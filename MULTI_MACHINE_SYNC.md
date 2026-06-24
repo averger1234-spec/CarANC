@@ -73,6 +73,15 @@
 ## Mac 設定步驟（開發 iOS framework + 測試）
 
 1. **安裝**：Git + Android Studio（或 Xcode 命令列工具）。
+
+   **舊硬體注意（例如 2015 MacBook Pro 跑 Big Sur）**：
+   - 這台 Mac 最多只能安裝 Xcode 13.4.1（Big Sur 最後支援版本）。
+   - Xcode 14+ 需要 macOS 12.5 (Monterey) 以上。
+   - 建議使用 **OpenCore Legacy Patcher (OCLP)** 升級到 macOS Monterey 或 Ventura（2015 MBP 支援），這樣就能用 Xcode 14/15 + 現代 iOS SDK/simulator。
+   - 如果不升級 macOS：用 Xcode 13.4.1 下載安裝（需 Apple Developer 帳號從 https://developer.apple.com/download/all/ 取舊版）。
+   - 建置 framework 時用 `sudo xcode-select -s /Applications/Xcode_13.4.1.app/Contents/Developer` 切換。
+   - 限制：只能建置/測試較舊 iOS 版本（iOS 15 左右），新功能/simulator 無法用。但對目前 stub + KMP 驗證足夠。
+   - Flutter 在 Big Sur 上可以用較舊版本，但對這個專案（KMP + 複雜 Kotlin DSP）改用 Flutter 會差很多（詳見下方）。
 2. **Clone**（同 Windows）：
    ```bash
    git clone https://github.com/averger1234-spec/CarANC.git
