@@ -16,6 +16,7 @@ interface AncProcessorFacade : AudioProcessor {
     fun updateTier(tier: UserTier)
     fun registerBlockEnergy(rms: Float): Boolean
     fun isWeightUpdateFrozen(): Boolean
+    fun getCurrentFreezeBlocksRemaining(): Int = 0  // debug: remaining blocks of LMS freeze due to bump detection
     fun adjustMu(newMu: Float)
     fun finishLearning()
     fun applyCabinModel(model: CabinTransferModel)

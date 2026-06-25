@@ -60,7 +60,14 @@
   - 開頭有 chooser 分享舊 session log。
   - 結論：LMS 不更新問題不限於 AA remote（bump 凍結太敏感 ratio>8 即 freeze 4-12 blocks，或 muScale 在 low band 為 0，或測試環境能量不足）。對 tire/wind rumble 仍是主要瓶頸（即使避開 AA 地獄，學習仍停）。
   - 對應 code：MultiBandANCProcessor BandFxLms.processSample 需 !freeze && muScale>0 才 ++ lmsUpdateCount；registerBlockEnergy 是主凍結來源。
-  - 已針對此問題小幅調整（2026-06-25）：把 bump ratio threshold 從 8.0f 放寬到 12.0f（較不敏感於穩態 rumble），並在 AudioEngine 加上 Log.d("ANCService", "bump_detected...") 讓 logcat 也能看到 freeze 事件。後續可再調或依 speed 動態。
+  - 已針對此問題多次調整（2026-06-25）：
+    - bump ratio threshold 從 8→12→15/18（高速>50km/h 用 18，更不敏感穩態 rumble）。
+    - 改為「連續 3 個 block 高 ratio 才觸發 freeze」（避免單次 spike 就停 LMS）。
+    - 高速時 freeze 持續時間縮短（base * 0.6，最少 2 block），讓穩態 tire/wind rumble 時 LMS 能持續學習。
+    - 在 registerBlockEnergy 內部追蹤 consecutiveHighEnergyRatio。
+    - AudioEngine + perf log 現在會印 "freezeRem=XX" 以及 "freeze_state: remaining=..."（每 200 block 或 freeze>0 時），bump_detected snapshot 也帶 freezeRemaining。
+    - 方便 logcat 即時看到凍結狀態，不用只靠 JSONL。
+  - 使用者回饋（分析 2501/2502 log 後）：log 顯示 LMS 已更新（數萬次，非 0），但主觀「沒有太大感覺」，只在怠速時聽到類似電台/電流聲。要求**強化低頻降噪**。
 - 2026-06-25 進一步修改（最新，針對音樂模式 + maxCancel + anti 輸出）：
   - **Music 偵測 / MusicMode 邏輯大改**（最重要）：不要一偵測到音樂就幾乎關掉 anti-noise。
     - 新增 `musicLowAncEnabled`（TestLogPanel 開關，預設 true）：音樂模式仍抗低頻路噪。
@@ -76,6 +83,17 @@
     - 新邏輯後，低頻 anti 應明顯較強（lowAnti 不被 lowpass，mu 滿血）。
     - 建議：開 musicLowAnc 開關，跑 AA+音樂+路噪，觀察 antiNoiseDb / reductionDb 在低頻的變化。
   - 腳本更新：移除 OBD/ELM327 強制，RPM 偵測步驟改「可選手動」，符合「不用偵測轉速」意見。
+- 2026-06-25 後續強化低頻降噪 + bump 調校（依 2501/2502 log 分析 + 使用者主觀回饋）：
+  - **強化 musicLowAnc 低頻效果**：在 floor music 時，lowAnti 多乘 1.25x boost；若同時 roadMode 還額外加入 roadWiener feedforward（*0.8），針對 tire/wind rumble 加強低頻抗噪。
+  - **antiArtifactGain**：因為 maxCancel 現在 150Hz，條件 <60Hz 幾乎不觸發，global gain 維持 1f（不再過度保守壓低頻 anti）。
+  - **bump 繼續調**（如上，15/18 + consecutive3 + speed dynamic + freezeRem debug log）。
+  - **其他**：保留 road_wiener/prelearned 用於 tire/wind；建議後續可針對 tire/wind profile 加強 blend 或 capture 更多 rumble 專用 bank。
+  - **測試指引**（強烈建議）：
+    - 用 TestLogPanel 開 logging + musicLowAnc 開關 + forceNormalMode。
+    - 記錄時在 scenario 欄位註明「musicLowAnc=ON」或「OFF」。
+    - 用 guided test 固定場景：idle（無音樂） vs 行駛+音樂 on/off，重跑產生乾淨對比。
+    - 理想配 spectrum 截圖（看 50-250Hz rumble 能量是否被壓）或主觀評分（0-10 分 low freq 降低程度）。
+    - 目標：怠速電流聲/廣播聲（可能是 residual anti 或 high latency artifact）也要壓制；行駛時 tire/wind rumble 有明顯差異。
 - 現在準備切到 Mac 建置 iOS framework + Xcode 測試專案（iOS 端仍是 stub，OBD 移除無影響）
 - 下一步：用 AS 開該資料夾 → Sync Gradle → Clean/Rebuild → **完全 uninstall 舊 APK** 再安裝測試（CommercialPanel 切付費方案 → 切中/重度 tier → 開始降噪）。注意裝置安裝雜訊（alignment / cache GID mismatch / AppsFilter BLOCKED 其他測試 app / attributionTag warning 仍會出現但 harmless，ANC 本身正常）。
 - 之後目標：去 Mac 建置 iOS framework（./gradlew linkDebugFrameworkIosSimulatorArm64），建立最小 Xcode 測試 App 驗證 stub + 未來擴充 iOS audio。給朋友測試時建議給 GitHub 連結讓他們自己 clone 建 framework。

@@ -584,15 +584,23 @@ class AudioEngine(
 
                         maybeRecalibrateProfile(blockRms.toDouble())
 
-                        if (ancProcessor?.registerBlockEnergy(blockRms) == true) {
+                        val freezeTriggered = ancProcessor?.registerBlockEnergy(blockRms) == true
+                        val freezeRemaining = ancProcessor?.getCurrentFreezeBlocksRemaining() ?: 0
+                        if (freezeTriggered) {
                             AncSessionLogger.log(
                                 phase = "bump_detected",
                                 fields = mapOf(
                                     "blockRms" to blockRms,
-                                    "frozen" to true
+                                    "frozen" to true,
+                                    "freezeRemaining" to freezeRemaining
                                 )
                             )
-                            Log.d("ANCService", "bump_detected: blockRms=${"%.4f".format(blockRms)} -> freezeWeightUpdates set (lms may pause)")
+                            Log.d("ANCService", "bump_detected: blockRms=${"%.4f".format(blockRms)} -> freeze set, remaining=$freezeRemaining (lms may pause)")
+                        }
+
+                        // always expose current freeze state in perf for diagnosis (even if not newly triggered)
+                        if (blockCount % 200 == 0L || freezeRemaining > 0) {
+                            Log.d("ANCService", "freeze_state: remaining=$freezeRemaining blockRms=${"%.4f".format(blockRms)}")
                         }
 
                         val processed = ancProcessor?.process(preprocessed) ?: preprocessed
@@ -665,10 +673,12 @@ class AudioEngine(
                             val lmsU = sessionContext.perfMetrics.lmsUpdateCount
                             val probeC = sessionContext.perfMetrics.lastProbeCorrMs
                             val nativeAvail = NativeLowBandProcessor.isNativeAvailable()
+                            val freezeRem = ancProcessor?.getCurrentFreezeBlocksRemaining() ?: 0
+                            val musicLow = AncTestPreferences.isMusicLowAncEnabled(appContext)
                             Log.d(
                                 "ANCService",
                                 "perf: block#${blockCount} fullLoop=${"%.2f".format(dtMs)}ms ema=${"%.2f".format(ema)}ms mode=$modeName " +
-                                    "lmsUpdates=$lmsU probeCorrMs=${"%.2f".format(probeC)} nativeLowAvail=$nativeAvail"
+                                    "lmsUpdates=$lmsU probeCorrMs=${"%.2f".format(probeC)} nativeLowAvail=$nativeAvail freezeRem=$freezeRem musicLowAnc=$musicLow"
                             )
                             // also log to session logger occasionally for persistent trace
                             if (blockCount % 100 == 0L) {
@@ -682,7 +692,9 @@ class AudioEngine(
                                         "lmsUpdateCount" to lmsU,
                                         "lmsProcessCalls" to sessionContext.perfMetrics.lmsProcessCalls,
                                         "probeCorrMs" to probeC,
-                                        "nativeLowProto" to nativeAvail
+                                        "nativeLowProto" to nativeAvail,
+                                        "freezeBlocksRemaining" to (ancProcessor?.getCurrentFreezeBlocksRemaining() ?: 0),
+                                        "musicLowAncEnabled" to AncTestPreferences.isMusicLowAncEnabled(appContext)
                                     )
                                 )
                             }

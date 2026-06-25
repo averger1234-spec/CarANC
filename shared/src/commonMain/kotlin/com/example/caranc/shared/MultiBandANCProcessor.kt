@@ -146,6 +146,7 @@ class MultiBandANCProcessor(
     private var blockEnergyEma = 0f
     private var freezeWeightUpdates = 0
     private var bumpDetectedFlag = false
+    private var consecutiveHighEnergyRatio = 0  // for consecutive high-ratio requirement (less sensitive to single spikes)
 
     init {
         updateTier(initialTier)
@@ -259,19 +260,37 @@ class MultiBandANCProcessor(
     override fun registerBlockEnergy(rms: Float): Boolean {
         if (blockEnergyEma < 1e-6f) {
             blockEnergyEma = rms
+            consecutiveHighEnergyRatio = 0
             return false
         }
         val ratio = rms / blockEnergyEma.coerceAtLeast(1e-6f)
         blockEnergyEma = 0.95f * blockEnergyEma + 0.05f * rms
-        if (ratio > 12.0f && rms > 0.02f) {
-            freezeWeightUpdates = (sampleRate / bufferSize.coerceAtLeast(256)).coerceIn(4, 12)
-            bumpDetectedFlag = true
-            return true
+
+        // Dynamic threshold: higher (less freeze) at highway speeds for steady tire/wind rumble
+        val speed = vehicleSpeedKmh
+        val threshold = if (speed > 50f) 18.0f else 15.0f
+        val minRms = if (speed > 50f) 0.015f else 0.02f
+
+        if (ratio > threshold && rms > minRms) {
+            consecutiveHighEnergyRatio++
+            if (consecutiveHighEnergyRatio >= 3) {  // require consecutive high ratios to reduce single-spike freezes
+                // Shorter freeze at high speed (steady rumble should not pause LMS as much)
+                val baseFreeze = (sampleRate / bufferSize.coerceAtLeast(256)).coerceIn(3, 10)
+                val freezeDur = if (speed > 50f) (baseFreeze * 0.6f).toInt().coerceAtLeast(2) else baseFreeze
+                freezeWeightUpdates = freezeDur
+                bumpDetectedFlag = true
+                consecutiveHighEnergyRatio = 0
+                return true
+            }
+        } else {
+            consecutiveHighEnergyRatio = 0
         }
         return false
     }
 
     override fun isWeightUpdateFrozen(): Boolean = freezeWeightUpdates > 0
+
+    override fun getCurrentFreezeBlocksRemaining(): Int = freezeWeightUpdates  // for debug/perf log of bump freeze state
 
     override fun adjustMu(newMu: Float) {
         baseMu = newMu.coerceAtMost(0.01f)
@@ -391,9 +410,12 @@ class MultiBandANCProcessor(
             val combined = when {
                 floorMode && (processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC || processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD) && musicLowAncEnabled -> {
                     // low freq full ANC + mid/high protected (lowpassed)
-                    val lowAnti = lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f
+                    // extra boost to low band anti for stronger tire/wind rumble cancellation even in music (user request for more noticeable low-freq effect)
+                    val lowBoost = 1.25f
+                    val lowAnti = (lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f) * lowBoost
                     val higherAnti = midOut + highOut
-                    - (lowAnti + lowPassOutput(higherAnti)) + engineFf
+                    val roadFfInMusicLow = if (roadMode) roadWiener.feedforwardSample(lowSample) * roadWiener.blendGain() * 0.8f else 0f  // extra road rumble feedforward for tire/wind
+                    - (lowAnti + lowPassOutput(higherAnti)) + engineFf + roadFfInMusicLow
                 }
                 floorMode -> -lowPassOutput(adaptiveCombined) + engineFf
                 roadMode -> -roadLowPassOutput(adaptiveCombined) + roadFf + engineFf * 0.3f
