@@ -118,6 +118,8 @@ class MultiBandANCProcessor(
     private var estimatedLatencyMs = 150f
     private var learningCaptured = false
 
+    private var musicLowAncEnabled = true
+
     // hot-path opt (P1 #6+7): push buffer reuse to processor layer (fdafLow + multirateLow buffers conceptually
     // owned/reused at this MultiBandANCProcessor layer for low-band; see fdaf internal reuse too)
     // NOTE for native low-freq: fdafLow, multirateLow, roadWiener, lowBand LMS are critical hot for rumble<250Hz;
@@ -187,6 +189,10 @@ class MultiBandANCProcessor(
 
     override fun setEngineRpm(rpm: Float, valid: Boolean) {
         engineComb.setRpm(rpm, valid)
+    }
+
+    override fun setMusicLowAncEnabled(enabled: Boolean) {
+        musicLowAncEnabled = enabled
     }
 
     override fun isSirenOverrideActive(): Boolean = sirenOverride
@@ -383,6 +389,12 @@ class MultiBandANCProcessor(
                 midOut + highOut + fdafOut * 0.45f
 
             val combined = when {
+                floorMode && (processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC || processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD) && musicLowAncEnabled -> {
+                    // low freq full ANC + mid/high protected (lowpassed)
+                    val lowAnti = lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f
+                    val higherAnti = midOut + highOut
+                    - (lowAnti + lowPassOutput(higherAnti)) + engineFf
+                }
                 floorMode -> -lowPassOutput(adaptiveCombined) + engineFf
                 roadMode -> -roadLowPassOutput(adaptiveCombined) + roadFf + engineFf * 0.3f
                 else -> -adaptiveCombined + engineFf
@@ -455,10 +467,10 @@ class MultiBandANCProcessor(
     ): Float {
         val modeScale = when (processingMode) {
             AncProcessingMode.NORMAL -> 1f
-            AncProcessingMode.FLOOR_NOISE_MUSIC -> 0.38f
+            AncProcessingMode.FLOOR_NOISE_MUSIC -> if (band.label == "low" && musicLowAncEnabled) 1f else 0.38f
             AncProcessingMode.FLOOR_NOISE_CALL -> 0.08f
             AncProcessingMode.ROAD_NOISE_GPS -> 0.75f
-            AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD -> 0.55f
+            AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD -> if (band.label == "low" && musicLowAncEnabled) 1f else 0.55f
         }
         val resonanceScale = CabinResonanceDetector.resonanceMuScale(band.centerHz, resonancePeaks)
         return band.baseMuScale * modeScale * speedMuScale() * resonanceScale

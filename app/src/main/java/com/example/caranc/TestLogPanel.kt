@@ -44,6 +44,7 @@ fun TestLogPanel(
     var manualRpm by remember { mutableStateOf("") }
     var obdAddress by remember { mutableStateOf("") }
     var forceNormalMode by remember { mutableStateOf(false) }
+    var musicLowAnc by remember { mutableStateOf(true) }
     var latestLogName by remember { mutableStateOf(TestLogExporter.latestLogFileName(context)) }
 
     fun persistEnvironment() {
@@ -68,6 +69,7 @@ fun TestLogPanel(
         }
         obdAddress = AncTestPreferences.getObdDeviceAddress(context)
         forceNormalMode = AncTestPreferences.isForceNormalMode(context)
+        musicLowAnc = AncTestPreferences.isMusicLowAncEnabled(context)
     }
 
     Card(modifier = modifier.fillMaxWidth()) {
@@ -182,6 +184,22 @@ fun TestLogPanel(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     "強制正常模式（忽略音樂/通話偵測，用於比較 LIGHT/中/重 tier 差異，AA 環境推薦開啟）",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = musicLowAnc,
+                    onCheckedChange = {
+                        musicLowAnc = it
+                        AncTestPreferences.setMusicLowAncEnabled(context, it)
+                    }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "音樂模式仍抗低頻路噪（低頻持續 ANC，中高頻保護音樂）",
                     style = MaterialTheme.typography.bodySmall
                 )
             }

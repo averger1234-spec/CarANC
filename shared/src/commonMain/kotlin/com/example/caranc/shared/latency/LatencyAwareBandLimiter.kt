@@ -18,7 +18,7 @@ data class LatencyBandLimits(
 object LatencyAwareBandLimiter {
 
     fun maxCancelFrequencyHz(latencyMs: Float): Float =
-        (1000f / (4f * latencyMs.coerceIn(20f, 400f))).coerceIn(35f, 350f)
+        (1000f / (4f * latencyMs.coerceIn(20f, 400f))).coerceIn(150f, 350f) // test: raised min to allow more low-freq ANC even in high-latency AA (was 35Hz)
 
     fun limits(latencyMs: Float): LatencyBandLimits {
         val maxHz = maxCancelFrequencyHz(latencyMs)
@@ -49,8 +49,8 @@ object LatencyAwareBandLimiter {
     fun bandMuScale(centerHz: Float, latencyMs: Float): Float {
         val maxHz = maxCancelFrequencyHz(latencyMs)
         if (centerHz <= maxHz * 0.7f) return 1f
-        if (centerHz >= maxHz * 1.2f) return 0f
-        val ratio = (maxHz * 1.2f - centerHz) / (maxHz * 0.5f)
+        if (centerHz >= maxHz * 1.5f) return 0f  // relaxed for test to allow low-band (190Hz) mu even at higher maxCancel (was 1.2x)
+        val ratio = (maxHz * 1.5f - centerHz) / (maxHz * 0.8f)
         return ratio.coerceIn(0f, 1f)
     }
 }

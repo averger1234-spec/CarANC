@@ -454,6 +454,7 @@ class AudioEngine(
                         sessionContext.entitlementManager.canUseFeature(CommercialFeature.MUSIC_BYPASS)
                     val isCall = !forceNormal && audioManager.mode != AudioManager.MODE_NORMAL &&
                         sessionContext.entitlementManager.canUseFeature(CommercialFeature.CALL_BYPASS)
+                    val musicLowAnc = AncTestPreferences.isMusicLowAncEnabled(appContext)
                     val gpsRoadEnabled = sessionContext.entitlementManager.canUseFeature(CommercialFeature.GPS_ROAD_ANC)
                     val speedSnapshot = speedProvider.currentSnapshot()
 
@@ -531,6 +532,7 @@ class AudioEngine(
                         }
                     }
 
+                    ancProcessor?.setMusicLowAncEnabled(musicLowAnc)
                     referencePipeline?.setContext(musicActive = isMusic, callActive = isCall)
 
                     val read = audioRecord?.read(input, 0, readSize) ?: 0

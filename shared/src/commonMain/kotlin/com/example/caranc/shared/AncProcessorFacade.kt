@@ -39,4 +39,7 @@ interface AncProcessorFacade : AudioProcessor {
     // CYCLE3_EXTRA for low band extra (Fdaf/Multirate)
     fun getFdafLmsUpdateCount(): Long = 0L
     fun getMultirateDecimUpdateCount(): Long = 0L
+
+    // For music mode low freq ANC option
+    fun setMusicLowAncEnabled(enabled: Boolean)
 }

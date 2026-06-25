@@ -14,6 +14,7 @@ object AncTestPreferences {
     private const val KEY_OBD_DEVICE_ADDRESS = "obd_device_address"
     private const val KEY_MIMO_TRIAL_ENABLED = "mimo_trial_enabled"
     private const val KEY_FORCE_NORMAL_MODE = "force_normal_mode"
+    private const val KEY_MUSIC_LOW_ANC = "music_low_anc"
 
     fun isLoggingEnabled(context: Context): Boolean {
         return prefs(context).getBoolean(KEY_LOGGING_ENABLED, true)
@@ -72,6 +73,14 @@ object AncTestPreferences {
 
     fun setForceNormalMode(context: Context, force: Boolean) {
         prefs(context).edit().putBoolean(KEY_FORCE_NORMAL_MODE, force).apply()
+    }
+
+    fun isMusicLowAncEnabled(context: Context): Boolean {
+        return prefs(context).getBoolean(KEY_MUSIC_LOW_ANC, true)
+    }
+
+    fun setMusicLowAncEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_MUSIC_LOW_ANC, enabled).apply()
     }
 
     private fun prefs(context: Context) =
