@@ -675,10 +675,14 @@ class AudioEngine(
                             val nativeAvail = NativeLowBandProcessor.isNativeAvailable()
                             val freezeRem = ancProcessor?.getCurrentFreezeBlocksRemaining() ?: 0
                             val musicLow = AncTestPreferences.isMusicLowAncEnabled(appContext)
+                            // finer low-band contribution for debugging rumble (tire/wind) vs overall (Tesla quiet zone focus + Bose RNC low freq)
+                            val lowLmsU = (ancProcessor as? MultiBandANCProcessor)?.getLowBandLmsUpdateCount() ?: lmsU
+                            val fdafU = ancProcessor?.getFdafLmsUpdateCount() ?: 0
+                            val multirateU = ancProcessor?.getMultirateDecimUpdateCount() ?: 0
                             Log.d(
                                 "ANCService",
                                 "perf: block#${blockCount} fullLoop=${"%.2f".format(dtMs)}ms ema=${"%.2f".format(ema)}ms mode=$modeName " +
-                                    "lmsUpdates=$lmsU probeCorrMs=${"%.2f".format(probeC)} nativeLowAvail=$nativeAvail freezeRem=$freezeRem musicLowAnc=$musicLow"
+                                    "lmsUpdates=$lmsU lowLms=$lowLmsU fdafU=$fdafU multirateU=$multirateU probeCorrMs=${"%.2f".format(probeC)} nativeLowAvail=$nativeAvail freezeRem=$freezeRem musicLowAnc=$musicLow"
                             )
                             // also log to session logger occasionally for persistent trace
                             if (blockCount % 100 == 0L) {
@@ -691,6 +695,9 @@ class AudioEngine(
                                         "mode" to modeName,
                                         "lmsUpdateCount" to lmsU,
                                         "lmsProcessCalls" to sessionContext.perfMetrics.lmsProcessCalls,
+                                        "lowBandLmsUpdateCount" to ((ancProcessor as? MultiBandANCProcessor)?.getLowBandLmsUpdateCount() ?: 0),
+                                        "fdafLmsUpdateCount" to (ancProcessor?.getFdafLmsUpdateCount() ?: 0),
+                                        "multirateDecimUpdateCount" to (ancProcessor?.getMultirateDecimUpdateCount() ?: 0),
                                         "probeCorrMs" to probeC,
                                         "nativeLowProto" to nativeAvail,
                                         "freezeBlocksRemaining" to (ancProcessor?.getCurrentFreezeBlocksRemaining() ?: 0),

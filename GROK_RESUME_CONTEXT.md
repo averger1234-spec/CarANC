@@ -94,6 +94,13 @@
     - 用 guided test 固定場景：idle（無音樂） vs 行駛+音樂 on/off，重跑產生乾淨對比。
     - 理想配 spectrum 截圖（看 50-250Hz rumble 能量是否被壓）或主觀評分（0-10 分 low freq 降低程度）。
     - 目標：怠速電流聲/廣播聲（可能是 residual anti 或 high latency artifact）也要壓制；行駛時 tire/wind rumble 有明顯差異。
+  - **新優化（依 Tesla quiet zone + Bose RNC 啟發）**：
+    - musicLowAnc low band 動態 boost：lowBoost 現在依 lowRumbleEnergy + speed 動態（1.25f + energy*0.4 + speed/120 *0.4），更高 rumble 時更強抗噪。
+    - road_wiener 在 musicLow 權重調高到 *1.5f（Bose feedforward 風格，用 speed/road model 作為 vibration proxy 加強 tire/wind）。
+    - perf log 細分 low-band contribution：新增 lowBandLmsUpdateCount, fdafLms, multirateDecim, musicLowAncEnabled, freezeBlocksRemaining（logcat + JSONL 都可看到 rumble 專用 LMS 進度）。
+    - Quiet zone 模擬：利用現有 4-zone MIMO + VirtualSensing，musicLow 時 low band 優先（boost + roadFf），未來可 per-zone virtual error 加強乘客周圍安靜區（Tesla 用座椅 mic 建 quiet zones）。
+  - **研究參照**：Bose RNC 用 accelerometer feedforward (chassis vibration) + cabin mic feedback + audio system 做 broadband road/tire 取消，適應路面/輪胎/車齡；我們的 FdafLowBandProcessor + MultirateLowBandFxLms + RoadNoiseWiener 已是類似 FxLMS 變形（filtered-x 處理 secondary path 延遲）。Tesla in-house 用 seat mics + speakers 建 quiet zones，類似我們 MIMO + virtual sensing。建議後續加 phone accel 作為額外 feedforward ref（若可用）。
+  - **測試指引更新**：比較 musicLowAnc ON/OFF + 不同 speed 的 log，觀察 low-band lms 更新率、fdaf/multirate 貢獻、低頻 reduction（用 spectrum 看 50-250Hz）。記錄 scenario 含 "musicLow=ON, speed=XX, rumble=high" 。Tesla 風格：focus driver/front passenger quiet。
 - 現在準備切到 Mac 建置 iOS framework + Xcode 測試專案（iOS 端仍是 stub，OBD 移除無影響）
 - 下一步：用 AS 開該資料夾 → Sync Gradle → Clean/Rebuild → **完全 uninstall 舊 APK** 再安裝測試（CommercialPanel 切付費方案 → 切中/重度 tier → 開始降噪）。注意裝置安裝雜訊（alignment / cache GID mismatch / AppsFilter BLOCKED 其他測試 app / attributionTag warning 仍會出現但 harmless，ANC 本身正常）。
 - 之後目標：去 Mac 建置 iOS framework（./gradlew linkDebugFrameworkIosSimulatorArm64），建立最小 Xcode 測試 App 驗證 stub + 未來擴充 iOS audio。給朋友測試時建議給 GitHub 連結讓他們自己 clone 建 framework。

@@ -411,10 +411,15 @@ class MultiBandANCProcessor(
                 floorMode && (processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC || processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD) && musicLowAncEnabled -> {
                     // low freq full ANC + mid/high protected (lowpassed)
                     // extra boost to low band anti for stronger tire/wind rumble cancellation even in music (user request for more noticeable low-freq effect)
-                    val lowBoost = 1.25f
-                    val lowAnti = (lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f) * lowBoost
+                    // Dynamic boost for low band in musicLowAnc: higher when rumble energy or speed indicates tire/wind dominant (Tesla-like focus on low-freq quiet zones)
+                    val lowRumbleEnergy = kotlin.math.abs(lowOut) * bandGains.low
+                    val speedBoost = (vehicleSpeedKmh / 120f).coerceIn(0f, 0.4f)
+                    val dynamicLowBoost = 1.25f + (lowRumbleEnergy * 0.4f).coerceAtMost(0.5f) + speedBoost
+                    val lowAnti = (lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f) * dynamicLowBoost
                     val higherAnti = midOut + highOut
-                    val roadFfInMusicLow = if (roadMode) roadWiener.feedforwardSample(lowSample) * roadWiener.blendGain() * 0.8f else 0f  // extra road rumble feedforward for tire/wind
+                    // Higher road_wiener weight in musicLow to strengthen tire/wind feedforward (Bose RNC style feedforward from "vibration" proxy via speed/road model)
+                    val roadMusicWeight = if (roadMode) roadWiener.blendGain() * 1.5f else 0f
+                    val roadFfInMusicLow = if (roadMode) roadWiener.feedforwardSample(lowSample) * roadMusicWeight else 0f
                     - (lowAnti + lowPassOutput(higherAnti)) + engineFf + roadFfInMusicLow
                 }
                 floorMode -> -lowPassOutput(adaptiveCombined) + engineFf
