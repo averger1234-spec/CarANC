@@ -61,6 +61,21 @@
   - 結論：LMS 不更新問題不限於 AA remote（bump 凍結太敏感 ratio>8 即 freeze 4-12 blocks，或 muScale 在 low band 為 0，或測試環境能量不足）。對 tire/wind rumble 仍是主要瓶頸（即使避開 AA 地獄，學習仍停）。
   - 對應 code：MultiBandANCProcessor BandFxLms.processSample 需 !freeze && muScale>0 才 ++ lmsUpdateCount；registerBlockEnergy 是主凍結來源。
   - 已針對此問題小幅調整（2026-06-25）：把 bump ratio threshold 從 8.0f 放寬到 12.0f（較不敏感於穩態 rumble），並在 AudioEngine 加上 Log.d("ANCService", "bump_detected...") 讓 logcat 也能看到 freeze 事件。後續可再調或依 speed 動態。
+- 2026-06-25 進一步修改（最新，針對音樂模式 + maxCancel + anti 輸出）：
+  - **Music 偵測 / MusicMode 邏輯大改**（最重要）：不要一偵測到音樂就幾乎關掉 anti-noise。
+    - 新增 `musicLowAncEnabled`（TestLogPanel 開關，預設 true）：音樂模式仍抗低頻路噪。
+    - 策略：「低頻持續抗噪 + 中高頻降低 gain」。
+    - 在 floor music/road 時，low band (lowOut + fdaf low) 用 full mu=1 且不 lowpass lowAnti；mid/high 繼續 lowpass 保護音樂。
+    - effectiveMuScale 裡 FLOOR_MUSIC / FLOOR_MUSIC_ROAD 的 low band 若開關啟用則 modeScale=1f（滿血）。
+    - AudioEngine 讀 prefs 後 set 到 processor。
+    - 解決 AA 永遠 music:true 導致 floor 壓制 anti 的問題（log 裡 antiNoiseDb 常 -50~-90，甚至更低）。
+  - **提高 maxCancelFrequencyHz**：從 35Hz 調到 min 150Hz（coerceIn(150f,350f)），bandMuScale 放寬到 1.5x 讓 low band (190Hz) 在較高 maxHz 時仍有 mu。
+    - 測試目的：觀察低頻路噪是否被有效壓制（即使高延遲 AA）。
+    - 影響：mid/high band 可能開始貢獻（若 latency 允許）；log 裡 maxCancel 會報 150+。
+  - **確認 anti-noise 輸出**：在有音樂狀態下，antiNoiseDb 若一直很低（-80~-200）表示輸出被壓制（lowpass + 低 mu + 0.28x artifact gain + floor 策略）。
+    - 新邏輯後，低頻 anti 應明顯較強（lowAnti 不被 lowpass，mu 滿血）。
+    - 建議：開 musicLowAnc 開關，跑 AA+音樂+路噪，觀察 antiNoiseDb / reductionDb 在低頻的變化。
+  - 腳本更新：移除 OBD/ELM327 強制，RPM 偵測步驟改「可選手動」，符合「不用偵測轉速」意見。
 - 現在準備切到 Mac 建置 iOS framework + Xcode 測試專案（iOS 端仍是 stub，OBD 移除無影響）
 - 下一步：用 AS 開該資料夾 → Sync Gradle → Clean/Rebuild → **完全 uninstall 舊 APK** 再安裝測試（CommercialPanel 切付費方案 → 切中/重度 tier → 開始降噪）。注意裝置安裝雜訊（alignment / cache GID mismatch / AppsFilter BLOCKED 其他測試 app / attributionTag warning 仍會出現但 harmless，ANC 本身正常）。
 - 之後目標：去 Mac 建置 iOS framework（./gradlew linkDebugFrameworkIosSimulatorArm64），建立最小 Xcode 測試 App 驗證 stub + 未來擴充 iOS audio。給朋友測試時建議給 GitHub 連結讓他們自己 clone 建 framework。
