@@ -62,7 +62,11 @@ class NoiseBandClassifier(
         val highRatio = highEnergy / total
 
         val dominantBand = when {
-            isCallActive || isMusicActive -> DominantNoiseBand.MUSIC_BROAD
+            isCallActive -> DominantNoiseBand.MUSIC_BROAD
+            // 修音樂檢測：只有當 isMusicActive 且高頻能量真的很高時才強制 MUSIC_BROAD
+            // 否則如果中頻能量高（200-350Hz 路噪主力，如 Skoda Octavia 錄音所示），允許 ROAD_MID
+            // 這樣真實路噪不會一直被誤判成 MUSIC_BROAD，導致 mid band 被過度保護而 reduction 很低
+            isMusicActive && highRatio > 0.50f -> DominantNoiseBand.MUSIC_BROAD
             speedValid && speedKmh >= RoadNoiseReferenceModel.DRIVING_SPEED_THRESHOLD_KMH && lowRatio >= 0.42f ->
                 DominantNoiseBand.ROAD_LOW
             speedValid && speedKmh >= RoadNoiseReferenceModel.DRIVING_SPEED_THRESHOLD_KMH && midRatio >= 0.38f ->

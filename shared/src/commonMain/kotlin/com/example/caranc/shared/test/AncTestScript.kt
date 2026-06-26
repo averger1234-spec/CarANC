@@ -281,6 +281,12 @@ object CarRoadTuningScript {
     const val SCRIPT_ID = "car_road_tuning_v1"
     const val SCRIPT_NAME = "路噪 LMS 調校測試（v1·第一次實車推薦·粗糙路 40-70km/h 低音樂·5 組）"
 
+    // 注意：根據 Skoda Octavia 2019 真實錄音頻譜分析（用戶提供）：
+    // 主要路噪能量在 200-350 Hz（57.6%），峰值 ~305 Hz 會隨路段浮動 220-310 Hz。
+    // 目前 150 Hz maxCancel 嚴重不足，只吃到邊緣 → 即使 LMS 活躍，reduction 仍極低。
+    // 下一階段重點：壓低延遲（目標 <120ms 以推到 220-250 Hz）、在 roadMode + musicLow 時放寬 mid band 保護 (200-350Hz)。
+    // 調校時優先觀察 midBand 貢獻與 200-350 Hz reduction。
+
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
             id = "tuning_prep",
@@ -310,7 +316,8 @@ object CarRoadTuningScript {
                 "系統已自動套用 Baseline 參數（mu=1.0 / freeze=15 / c=3 / override=0）",
                 "進入/維持 40-70 km/h 同一段粗糙路面",
                 "無/低音樂，維持 60-90 秒",
-                "預期觀察重點：目前穩定度、lmsUpdate 是否正常上升、freeze 很少"
+                "預期觀察重點：目前穩定度、lmsUpdate 是否正常上升、freeze 很少",
+                "Skoda Octavia 2019 特別注意：真實路噪主力 200-350Hz（錄音證實），目前 150Hz 上限只能碰邊緣，觀察 mid band 是否有貢獻、reduction 是否仍低"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
@@ -322,6 +329,7 @@ object CarRoadTuningScript {
                 "freezeConsec" to 3,
                 "latencyOverrideMs" to 0f
             )
+            // Skoda Octavia 2019 專用提醒：這台車路噪主力 ~305Hz (200-350Hz 區)，若這步 reduction 仍低，下一輪可試 latencyOverride=80~120 來推 maxCancel 接近 200Hz+ 做對照（即使實際延遲高，override 會影響 processor 內部 band 限制計算）
         ),
         TestScriptStep(
             id = "tuning_2",
