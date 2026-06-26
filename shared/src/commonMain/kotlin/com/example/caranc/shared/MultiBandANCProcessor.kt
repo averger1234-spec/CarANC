@@ -356,11 +356,13 @@ class MultiBandANCProcessor(
                 LatencyAwareBandLimiter.bandMuScale(lowBand.centerHz, estimatedLatencyMs)
 
             val lowOut = multirateLow.processSample(lowSample) { decimated ->
+                // Aggressive per-"quiet zone" rumble focus: in musicLow, amplify low errorSample to drive stronger LMS adaptation for tire/wind (simulate seat-specific quiet zones)
+                val lowError = if (musicLowAncEnabled) virtualBands.low * 1.3f else virtualBands.low
                 lowBand.processSample(
                     sample = decimated,
                     muScale = lowMu,
                     freezeUpdates = freeze,
-                    errorSample = virtualBands.low
+                    errorSample = lowError
                 )
             }
             // profiling counters active in BandFxLms.processSample above; fdaf push buffer reuse at this layer
@@ -427,14 +429,14 @@ class MultiBandANCProcessor(
                 floorMode && (processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC || processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD) && musicLowAncEnabled -> {
                     // low freq full ANC + mid/high protected (lowpassed)
                     // extra boost to low band anti for stronger tire/wind rumble cancellation even in music (user request for more noticeable low-freq effect)
-                    // Dynamic boost for low band in musicLowAnc: higher when rumble energy or speed indicates tire/wind dominant (Tesla-like focus on low-freq quiet zones)
+                    // More aggressive dynamic boost for low band in musicLowAnc (user: perceived reduction still insensitive, make rumble cancellation stronger)
                     val lowRumbleEnergy = kotlin.math.abs(lowOut) * bandGains.low
-                    val speedBoost = (vehicleSpeedKmh / 120f).coerceIn(0f, 0.4f)
-                    val dynamicLowBoost = 1.25f + (lowRumbleEnergy * 0.4f).coerceAtMost(0.5f) + speedBoost
+                    val speedBoost = (vehicleSpeedKmh / 100f).coerceIn(0f, 0.6f)
+                    val dynamicLowBoost = 1.5f + (lowRumbleEnergy * 0.6f).coerceAtMost(0.8f) + speedBoost  // bumped base 1.5, higher multipliers for aggressive low-freq
                     val lowAnti = (lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f) * dynamicLowBoost
                     val higherAnti = midOut + highOut
-                    // Higher road_wiener weight in musicLow to strengthen tire/wind feedforward (Bose RNC style feedforward from "vibration" proxy via speed/road model)
-                    val roadMusicWeight = if (roadMode) roadWiener.blendGain() * 1.5f else 0f
+                    // Even higher road_wiener in musicLow for tire/wind (aggressive feedforward)
+                    val roadMusicWeight = if (roadMode) roadWiener.blendGain() * 2.0f else 0f
                     val roadFfInMusicLow = if (roadMode) roadWiener.feedforwardSample(lowSample) * roadMusicWeight else 0f
                     - (lowAnti + lowPassOutput(higherAnti)) + engineFf + roadFfInMusicLow
                 }

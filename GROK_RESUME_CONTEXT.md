@@ -100,7 +100,14 @@
     - perf log 細分 low-band contribution：新增 lowBandLmsUpdateCount, fdafLms, multirateDecim, musicLowAncEnabled, freezeBlocksRemaining（logcat + JSONL 都可看到 rumble 專用 LMS 進度）。
     - Quiet zone 模擬：利用現有 4-zone MIMO + VirtualSensing，musicLow 時 low band 優先（boost + roadFf），未來可 per-zone virtual error 加強乘客周圍安靜區（Tesla 用座椅 mic 建 quiet zones）。
   - **研究參照**：Bose RNC 用 accelerometer feedforward (chassis vibration) + cabin mic feedback + audio system 做 broadband road/tire 取消，適應路面/輪胎/車齡；我們的 FdafLowBandProcessor + MultirateLowBandFxLms + RoadNoiseWiener 已是類似 FxLMS 變形（filtered-x 處理 secondary path 延遲）。Tesla in-house 用 seat mics + speakers 建 quiet zones，類似我們 MIMO + virtual sensing。建議後續加 phone accel 作為額外 feedforward ref（若可用）。
-  - **測試指引更新**：比較 musicLowAnc ON/OFF + 不同 speed 的 log，觀察 low-band lms 更新率、fdaf/multirate 貢獻、低頻 reduction（用 spectrum 看 50-250Hz）。記錄 scenario 含 "musicLow=ON, speed=XX, rumble=high" 。Tesla 風格：focus driver/front passenger quiet。
+  - **測試指引更新（完整 7-step 自動調校）**：
+    - 用新 UI TestLogPanel / GuidedTestPanel 選擇 "路噪 LMS 調校測試（v1）" 腳本，跑完整 7 steps（prep + 5 tuning + finish）。
+    - 腳本會自動套用 debug 參數（lmsMuMultiplier 1.0→2.0, freeze 15→10, consec 3→2, musicLow ON/OFF 對比, latency override 0/70）。
+    - 記錄 scenario 註明參數組合 + speed 範圍 + "musicLow=ON"，建議配外部錄音 + spectrum（重點看 50-250Hz rumble 是否下降）。
+    - 觀察重點：不同 debug 設定下 lowBandLms 更新率、freezeRem 頻率、reduction 在 rumble 主導時的變化、主觀低頻 rumble 降低程度（0-10 分）。
+    - 如果有新 log（e.g. tuning_2_xxx 或 musicLow OFF 組合），直接給我分析 + 下一步建議。
+    - 激進版已調（mu 更高 2.0、freeze 更低 10、boost 1.5+、road_wiener *2.0、error *1.3 for quiet rumble focus），因 user 回饋 "聽到的感覺降噪蠻無感"。
+    - 記錄時開 forceNormal + logging，跑同一粗糙路 40-70km/h 低音樂。
 - 現在準備切到 Mac 建置 iOS framework + Xcode 測試專案（iOS 端仍是 stub，OBD 移除無影響）
 - 下一步：用 AS 開該資料夾 → Sync Gradle → Clean/Rebuild → **完全 uninstall 舊 APK** 再安裝測試（CommercialPanel 切付費方案 → 切中/重度 tier → 開始降噪）。注意裝置安裝雜訊（alignment / cache GID mismatch / AppsFilter BLOCKED 其他測試 app / attributionTag warning 仍會出現但 harmless，ANC 本身正常）。
 - 之後目標：去 Mac 建置 iOS framework（./gradlew linkDebugFrameworkIosSimulatorArm64），建立最小 Xcode 測試 App 驗證 stub + 未來擴充 iOS audio。給朋友測試時建議給 GitHub 連結讓他們自己 clone 建 framework。

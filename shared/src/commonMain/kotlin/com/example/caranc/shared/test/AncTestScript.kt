@@ -300,7 +300,7 @@ object CarRoadTuningScript {
             debugPresets = mapOf(
                 "forceNormalMode" to true,
                 "musicLowAncEnabled" to true,
-                "userAncGain" to 0.8f
+                "userAncGain" to 1.0f  // full aggressive output for perceived reduction (user feedback: still insensitive)
             )
         ),
         TestScriptStep(
@@ -325,78 +325,79 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_2",
-            title = "#2 積極一點（mu=1.3, freeze=14, c=3, override=0）",
+            title = "#2 積極一點（mu=1.4, freeze=13, c=2, override=0）",
             instructions = listOf(
-                "系統已自動套用參數（mu=1.3 / freeze=14 / c=3 / override=0）",
+                "系統已自動套用參數（mu=1.4 / freeze=13 / c=2 / override=0）",
                 "同一段粗糙路 40-70km/h，無/低音樂，維持 60-90 秒",
-                "預期觀察重點：lmsUpdateCount 是否明顯比 #1 上升更快"
+                "預期觀察重點：lmsUpdateCount 是否明顯比 #1 上升更快，低頻 rumble 感覺是否改善"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.3", "freezeTh=14", "consec=3", "override=0"),
+            checklist = listOf("muMult=1.4", "freezeTh=13", "consec=2", "override=0"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
-                "lmsMuMultiplier" to 1.3f,
-                "freezeThreshold" to 14f,
-                "freezeConsec" to 3,
+                "lmsMuMultiplier" to 1.4f,
+                "freezeThreshold" to 13f,
+                "freezeConsec" to 2,
                 "latencyOverrideMs" to 0f
             )
         ),
         TestScriptStep(
             id = "tuning_3",
-            title = "#3 更積極（mu=1.5, freeze=12, c=2, override=0）",
+            title = "#3 更激進（mu=1.7, freeze=11, c=2, override=0）",
             instructions = listOf(
-                "系統已自動套用參數（mu=1.5 / freeze=12 / c=2 / override=0）",
+                "系統已自動套用參數（mu=1.7 / freeze=11 / c=2 / override=0）",
                 "同一段路，60-90 秒",
-                "預期觀察重點：較積極適應，但觀察 freezeBlocksRemaining 是否變得太頻繁"
+                "預期觀察重點：lowBandLms 成長更快，reduction 在 rumble 時是否有感（配 spectrum 50-250Hz）"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.5", "freezeTh=12", "consec=2", "override=0"),
+            checklist = listOf("muMult=1.7", "freezeTh=11", "consec=2", "override=0"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
-                "lmsMuMultiplier" to 1.5f,
-                "freezeThreshold" to 12f,
+                "lmsMuMultiplier" to 1.7f,
+                "freezeThreshold" to 11f,
                 "freezeConsec" to 2,
                 "latencyOverrideMs" to 0f
             )
         ),
         TestScriptStep(
             id = "tuning_4",
-            title = "#4 強制低延遲測試（mu=1.5, freeze=12, c=2, override=80）",
+            title = "#4 強制低延遲 + musicLow 對比（mu=1.7, freeze=11, c=2, override=70）",
             instructions = listOf(
-                "系統已自動套用參數（mu=1.5 / freeze=12 / c=2 / override=80）",
+                "系統已自動套用參數（mu=1.7 / freeze=11 / c=2 / override=70）",
                 "同一段粗糙路 60-90 秒",
-                "預期觀察重點：mid band 是否開始有貢獻（bandMuScale 提升、midGain >0、midEnabled）"
+                "預期觀察重點：mid band 貢獻增加，比較 musicLow ON/OFF 感覺（此 step ON，記錄 scenario 註 musicLow=ON）"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.5", "freezeTh=12", "consec=2", "override=80"),
+            checklist = listOf("muMult=1.7", "freezeTh=11", "consec=2", "override=70", "musicLow=ON"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
-                "lmsMuMultiplier" to 1.5f,
-                "freezeThreshold" to 12f,
+                "lmsMuMultiplier" to 1.7f,
+                "freezeThreshold" to 11f,
                 "freezeConsec" to 2,
-                "latencyOverrideMs" to 80f
+                "latencyOverrideMs" to 70f
             )
         ),
         TestScriptStep(
             id = "tuning_5",
-            title = "#5 再激進（mu=1.8, freeze=13, c=3, override=0）",
+            title = "#5 極激進 + musicLow OFF 對比（mu=2.0, freeze=10, c=2, override=0）",
             instructions = listOf(
-                "系統已自動套用參數（mu=1.8 / freeze=13 / c=3 / override=0）",
+                "系統已自動套用參數（mu=2.0 / freeze=10 / c=2 / override=0） - musicLow OFF 對比",
                 "同一段路 60-90 秒",
-                "預期觀察重點：anti 更強，但注意是否有白噪（antiArtifactGain 是否壓制）"
+                "預期觀察重點：anti 更強但注意 artifact；比較前 step 有無 musicLow 時 rumble 降低（記錄 scenario musicLow=OFF）"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.8", "freezeTh=13", "consec=3", "override=0"),
+            checklist = listOf("muMult=2.0", "freezeTh=10", "consec=2", "override=0", "musicLow=OFF"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
-                "lmsMuMultiplier" to 1.8f,
-                "freezeThreshold" to 13f,
-                "freezeConsec" to 3,
-                "latencyOverrideMs" to 0f
+                "lmsMuMultiplier" to 2.0f,
+                "freezeThreshold" to 10f,
+                "freezeConsec" to 2,
+                "latencyOverrideMs" to 0f,
+                "musicLowAncEnabled" to false
             )
         ),
         TestScriptStep(
@@ -406,6 +407,9 @@ object CarRoadTuningScript {
                 "停止降噪",
                 "在「實車測試 Log」點「匯出 Log」",
                 "把完整 log 傳回分析",
+                "記錄 scenario 註明各 step 參數組合 + speed 範圍 + \"musicLow=ON/OFF\"",
+                "建議配外部錄音 + spectrum（重點 50-250Hz rumble 能量下降）",
+                "觀察重點：不同 debug 設定下 lowBandLms 更新率、freezeRem 頻率、reduction 在 rumble 主導時變化、主觀低頻 rumble 降低程度（0-10分）",
                 "比較重點：lmsUpdate 上升速度、freeze 頻率、antiNoiseDb 負值、reductionDb、midBand 貢獻、是否出現 artifact"
             ),
             durationSec = 0,

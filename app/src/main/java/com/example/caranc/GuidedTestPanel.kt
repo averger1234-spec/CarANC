@@ -114,7 +114,7 @@ fun GuidedTestPanel(
                 color = MaterialTheme.colorScheme.onSecondaryContainer
             )
             Text(
-                "調校腳本（car_road_tuning_v1）：LMS 參數（mu / freeze / latency override）會在進入步驟時自動套用，你只需開車 + 按下一步 + 最後匯出 log 即可。",
+                "調校腳本（car_road_tuning_v1）：完整7-step自動調校（baseline + mu 1.0~2.0 / freeze 15~10 / musicLow ON/OFF 對比）。自動套用參數，你只需開車 + 按下一步 + 最後匯出 log。記錄 scenario 註「musicLow=ON, speed=40-70, rumble=high」，配外部錄音+spectrum（50-250Hz rumble下降）。觀察 lowBandLms率、freezeRem、reduction變化、主觀0-10分。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary
             )
