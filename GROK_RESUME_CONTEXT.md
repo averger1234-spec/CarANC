@@ -166,4 +166,5 @@
   - 進入每一步時自動設定 muMult / freeze / latencyOverride / forceNormal / musicLowAnc / userAncGain
   - 使用者只需按「完成這步」 + 最後匯出 log，無需手動調 TestLogPanel 的 debug 滑桿
 - UI 文字與 MULTI_MACHINE_SYNC.md 已同步更新，強調「自動套用」
+- UI 改進（回應「不直覺、欄位太長」）：TestLogPanel 將「測試情境記錄（隱私保護說明）」獨立成清楚區塊（標明僅本地 log 使用、不上傳）；進階 LMS 調校預設收合（只有開啟 guided script 時才需要看）；legacy RPM/OBD 移到進階區塊；每個滑桿旁顯示數值；整體畫面大幅縮短，不再是一長串欄位。GuidedTestPanel 也強調自動套用。
 - 符合使用者要求：你給 feedback/log，我負責把體驗改到極簡（只按下一步）

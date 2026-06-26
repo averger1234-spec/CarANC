@@ -53,6 +53,10 @@ fun TestLogPanel(
     var latencyOverrideMs by remember { mutableStateOf(0f) }
     var latestLogName by remember { mutableStateOf(TestLogExporter.latestLogFileName(context)) }
 
+    // UI improvement: collapse advanced tuning by default (guided script auto-applies most of them)
+    // Privacy section grouped and clearly labeled to avoid long intimidating list of fields
+    var showAdvancedTuning by remember { mutableStateOf(false) }
+
     fun persistEnvironment() {
         val environment = AncTestEnvironment(
             vehicleModel = vehicleModel.trim(),
@@ -109,6 +113,14 @@ fun TestLogPanel(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // Privacy / metadata section - grouped and labeled to be less intimidating and clearly explain data use
+            Text("測試情境記錄（隱私保護）", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "以下資訊只會寫入你本機匯出的 JSONL log 檔，方便你之後自己分析或分享給開發者。不會上傳任何雲端或第三方。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = vehicleModel,
                 onValueChange = {
@@ -120,7 +132,7 @@ fun TestLogPanel(
                 placeholder = { Text("例：Toyota Camry 2022") },
                 singleLine = true
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             OutlinedTextField(
                 value = scenario,
                 onValueChange = {
@@ -132,7 +144,7 @@ fun TestLogPanel(
                 placeholder = { Text("例：怠速 / 60km/h / 音樂開啟") },
                 singleLine = true
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             OutlinedTextField(
                 value = phonePlacement,
                 onValueChange = {
@@ -144,7 +156,7 @@ fun TestLogPanel(
                 placeholder = { Text("例：中控台杯架 / 副駕前方") },
                 singleLine = true
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             OutlinedTextField(
                 value = connectionType,
                 onValueChange = {
@@ -154,32 +166,6 @@ fun TestLogPanel(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("連接方式") },
                 placeholder = { Text("例：USB Android Auto / 無線 AA / 本機") },
-                singleLine = true
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = manualRpm,
-                onValueChange = {
-                    manualRpm = it.filter { ch -> ch.isDigit() }
-                    val rpm = manualRpm.toFloatOrNull() ?: 0f
-                    AncTestPreferences.setManualTestRpm(context, rpm)
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("手動測試 RPM（怠速）") },
-                placeholder = { Text("例：800（無 OBD 時使用）") },
-                singleLine = true
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = obdAddress,
-                onValueChange = {
-                    obdAddress = it.uppercase()
-                    AncTestPreferences.setObdDeviceAddress(context, obdAddress)
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("手動 RPM 藍牙位址（已移除自動 OBD，僅 legacy）") },
-                placeholder = { Text("例：00:1A:7D:DA:71:13") },
                 singleLine = true
             )
 
@@ -216,7 +202,7 @@ fun TestLogPanel(
             }
 
             Spacer(modifier = Modifier.height(4.dp))
-            Text("ANC 獨立強度 (0~1，獨立於系統音樂/語音音量)", style = MaterialTheme.typography.bodySmall)
+            Text("ANC 獨立強度 (0~1，獨立於系統音樂/語音音量)：${"%.2f".format(userAncGain)}", style = MaterialTheme.typography.bodySmall)
             Slider(
                 value = userAncGain,
                 onValueChange = {
@@ -226,66 +212,115 @@ fun TestLogPanel(
                 valueRange = 0f..1f,
                 steps = 99
             )
+            Text("${"%.2f".format(userAncGain)}", style = MaterialTheme.typography.bodySmall)
 
             Spacer(modifier = Modifier.height(12.dp))
+
+            // Advanced tuning collapsed by default - makes the panel much shorter and less overwhelming by default
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("進階 LMS 調校（預設收合）", style = MaterialTheme.typography.titleSmall)
+                Switch(
+                    checked = showAdvancedTuning,
+                    onCheckedChange = { showAdvancedTuning = it }
+                )
+            }
             Text(
-                "注意：當使用「路噪調校測試（推薦）」引導腳本時，這些進階參數會由腳本自動套用（根據你提供的 5 組組合），你不需要手動調整滑桿。手動調整只適用於自訂實驗。",
+                "注意：使用「路噪調校測試」引導腳本時，這些參數會由腳本自動套用。你只需要按「完成這步」和最後匯出 log。手動調整僅用於自訂實驗。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary
             )
-            Text("進階 LMS 調校（類似 PID 學習率實驗，非傳統 PID）", style = MaterialTheme.typography.titleSmall)
-            Text(
-                "LMS 的 mu 是「學習率」(adaptation step size)。提高倍率 → 適應路噪更快（像提高 P 增益 + 累積 I 效果），但高延遲時易振盪/不穩，需靠 freeze 保護。建議從 1.0 開始，觀察 log 裡 lmsUpdateCount / freezeRem / antiNoiseDb / reductionDb 的變化。",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text("LMS 學習率倍率 (0.1~3.0，預設1.0)", style = MaterialTheme.typography.bodySmall)
-            Slider(
-                value = lmsMuMult,
-                onValueChange = {
-                    lmsMuMult = it
-                    AncTestPreferences.setDebugLmsMuMultiplier(context, it)
-                },
-                valueRange = 0.1f..3.0f,
-                steps = 28
-            )
-            Text("凍結門檻 (能量比，預設15；越高越不易凍結 LMS)", style = MaterialTheme.typography.bodySmall)
-            Slider(
-                value = freezeThreshold,
-                onValueChange = {
-                    freezeThreshold = it
-                    AncTestPreferences.setDebugFreezeThreshold(context, it)
-                },
-                valueRange = 8f..25f,
-                steps = 16
-            )
-            Text("凍結連續次數 (1~5，預設3；需連續高比才凍)", style = MaterialTheme.typography.bodySmall)
-            Slider(
-                value = freezeConsec.toFloat(),
-                onValueChange = {
-                    freezeConsec = it.toInt()
-                    AncTestPreferences.setDebugFreezeConsecutive(context, freezeConsec)
-                },
-                valueRange = 1f..5f,
-                steps = 3
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            OutlinedTextField(
-                value = if (latencyOverrideMs > 0f) latencyOverrideMs.toInt().toString() else "",
-                onValueChange = {
-                    val v = it.filter { ch -> ch.isDigit() }.toFloatOrNull() ?: 0f
-                    latencyOverrideMs = v
-                    AncTestPreferences.setDebugLatencyOverrideMs(context, v)
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("延遲覆蓋測試 (ms，0=自動測量；設 60 可模擬較好延遲看 band 開啟)") },
-                placeholder = { Text("0 或 60~120 測試用") },
-                singleLine = true
-            )
-            Text(
-                "提示：改完參數後重啟 ANC 生效更乾淨（或等數十秒讓 LMS 重新適應）。高 mu + 低門檻 容易看到 freeze 頻繁，log 裡注意 freezeBlocksRemaining。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+
+            if (showAdvancedTuning) {
+                // Legacy fields moved here (OBD is removed, only for manual RPM experiments)
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = manualRpm,
+                    onValueChange = {
+                        manualRpm = it.filter { ch -> ch.isDigit() }
+                        val rpm = manualRpm.toFloatOrNull() ?: 0f
+                        AncTestPreferences.setManualTestRpm(context, rpm)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("手動測試 RPM（怠速，僅 legacy）") },
+                    placeholder = { Text("例：800") },
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = obdAddress,
+                    onValueChange = {
+                        obdAddress = it.uppercase()
+                        AncTestPreferences.setObdDeviceAddress(context, obdAddress)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("手動 RPM 藍牙位址（已移除自動 OBD）") },
+                    placeholder = { Text("例：00:1A:7D:DA:71:13") },
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("進階 LMS 調校（類似 PID 學習率實驗）", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "LMS mu 是學習率。提高 → 適應更快，但高延遲易不穩。freeze 保護它。建議觀察 log 裡 lowBandLms / freezeRem / reduction 的變化。",
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                Text("LMS 學習率倍率 (0.1~3.0)：${"%.2f".format(lmsMuMult)}", style = MaterialTheme.typography.bodySmall)
+                Slider(
+                    value = lmsMuMult,
+                    onValueChange = {
+                        lmsMuMult = it
+                        AncTestPreferences.setDebugLmsMuMultiplier(context, it)
+                    },
+                    valueRange = 0.1f..3.0f,
+                    steps = 28
+                )
+
+                Text("凍結門檻 (能量比，預設15；越高越不易凍 LMS)：${"%.1f".format(freezeThreshold)}", style = MaterialTheme.typography.bodySmall)
+                Slider(
+                    value = freezeThreshold,
+                    onValueChange = {
+                        freezeThreshold = it
+                        AncTestPreferences.setDebugFreezeThreshold(context, it)
+                    },
+                    valueRange = 8f..25f,
+                    steps = 16
+                )
+
+                Text("凍結連續次數 (1~5，預設3)：${freezeConsec}", style = MaterialTheme.typography.bodySmall)
+                Slider(
+                    value = freezeConsec.toFloat(),
+                    onValueChange = {
+                        freezeConsec = it.toInt()
+                        AncTestPreferences.setDebugFreezeConsecutive(context, freezeConsec)
+                    },
+                    valueRange = 1f..5f,
+                    steps = 3
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = if (latencyOverrideMs > 0f) latencyOverrideMs.toInt().toString() else "",
+                    onValueChange = {
+                        val v = it.filter { ch -> ch.isDigit() }.toFloatOrNull() ?: 0f
+                        latencyOverrideMs = v
+                        AncTestPreferences.setDebugLatencyOverrideMs(context, v)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("延遲覆蓋測試 (ms，0=自動；設 60-80 可手動模擬較好延遲看 mid/high band 開啟)") },
+                    placeholder = { Text("0 或 60~120") },
+                    singleLine = true
+                )
+                Text(
+                    "提示：高 mu + 低門檻 容易看到 freeze 頻繁，注意 log 裡 freezeBlocksRemaining。改參數後建議重啟 ANC 讓 LMS 重新適應。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
