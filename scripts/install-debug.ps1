@@ -11,6 +11,18 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
 Set-Location $projectRoot
 
+# 簡單檢查 adb 是否可用
+try {
+    $null = adb version
+} catch {
+    Write-Host "❌ 找不到 adb 指令！" -ForegroundColor Red
+    Write-Host "請確認 Android Studio 已安裝，且已把 platform-tools 加到 PATH（或直接用 Android Studio 的 Terminal 執行這個腳本）。" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "按任意鍵結束..." -ForegroundColor Gray
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    exit 1
+}
+
 Write-Host "正在組建 debug APK（assembleDebug）..." -ForegroundColor Yellow
 & .\gradlew :app:assembleDebug --console=plain
 
@@ -33,3 +45,7 @@ if ($LASTEXITCODE -eq 0) {
 
 Write-Host ""
 Write-Host "小提醒：強烈建議在手機「開發人員選項」開啟「無線偵錯」，以後可以不用插線。" -ForegroundColor Cyan
+
+Write-Host ""
+Write-Host "按任意鍵結束..." -ForegroundColor Gray
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")

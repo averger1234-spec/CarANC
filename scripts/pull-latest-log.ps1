@@ -21,10 +21,28 @@ if (-not (Test-Path $localLogDir)) {
     New-Item -ItemType Directory -Path $localLogDir | Out-Null
 }
 
+# 簡單檢查 adb 是否可用
+try {
+    $null = adb version
+} catch {
+    Write-Host "❌ 找不到 adb 指令！請用 Android Studio 的 Terminal 執行，或確認 platform-tools 在 PATH。" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "按任意鍵結束..." -ForegroundColor Gray
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    exit 1
+}
+
 # 確認 adb 裝置
 $devices = adb devices | Select-String "device$"
 if (-not $devices) {
-    throw "沒有偵測到 adb 裝置，請先 adb connect 或插 USB 並允許偵錯"
+    Write-Host "❌ 沒有偵測到已連線的手機。" -ForegroundColor Red
+    Write-Host "請："
+    Write-Host "  1. 用 USB 連線手機，並在手機允許 USB 偵錯"
+    Write-Host "  2. 或使用無線偵錯： adb connect 你的手機IP:端口"
+    Write-Host ""
+    Write-Host "按任意鍵結束..." -ForegroundColor Gray
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    exit 1
 }
 
 Write-Host "正在手機上找最新的 anc_session_*.log ..." -ForegroundColor Yellow
@@ -61,3 +79,7 @@ if (Test-Path $localPath) {
 
 Write-Host ""
 Write-Host "提示：如果經常路測，可以把這個資料夾加入 Google Drive 桌面同步，自動備份。" -ForegroundColor Yellow
+
+Write-Host ""
+Write-Host "按任意鍵結束..." -ForegroundColor Gray
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
