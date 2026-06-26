@@ -187,6 +187,11 @@ private fun IdleScriptView(
         style = MaterialTheme.typography.bodySmall
     )
     Text(
+        "★ 重要：此腳本會在進入每一步時自動套用對應的調校參數（LMS 學習率、凍結門檻、延遲覆蓋等），你不需要手動調整 TestLogPanel 的滑桿，只負責按「完成這步」和最後匯出 log。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.primary
+    )
+    Text(
         "監控 ${CarRoadTuningScript.monitoredLogPhases.size} 種 log phase、${CarRoadTuningScript.monitoredSnapshotFields.size} 個 snapshot 欄位（含所有 debugLmsMuMultiplier、*BandMuScale、freeze 等）",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSecondaryContainer

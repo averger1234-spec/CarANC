@@ -228,6 +228,11 @@ fun TestLogPanel(
             )
 
             Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                "注意：當使用「路噪調校測試（推薦）」引導腳本時，這些進階參數會由腳本自動套用（根據你提供的 5 組組合），你不需要手動調整滑桿。手動調整只適用於自訂實驗。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
             Text("進階 LMS 調校（類似 PID 學習率實驗，非傳統 PID）", style = MaterialTheme.typography.titleSmall)
             Text(
                 "LMS 的 mu 是「學習率」(adaptation step size)。提高倍率 → 適應路噪更快（像提高 P 增益 + 累積 I 效果），但高延遲時易振盪/不穩，需靠 freeze 保護。建議從 1.0 開始，觀察 log 裡 lmsUpdateCount / freezeRem / antiNoiseDb / reductionDb 的變化。",
