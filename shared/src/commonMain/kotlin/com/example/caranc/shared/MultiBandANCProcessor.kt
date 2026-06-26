@@ -120,6 +120,12 @@ class MultiBandANCProcessor(
 
     private var musicLowAncEnabled = true
 
+    // Debug tuning (for "PID-like" LMS adaptation learning via TestLogPanel)
+    private var debugMuMultiplier = 1f
+    private var debugFreezeThreshold = 15f
+    private var debugFreezeConsec = 3
+    private var debugSpeedFreezeFactor = 0.6f
+
     // hot-path opt (P1 #6+7): push buffer reuse to processor layer (fdafLow + multirateLow buffers conceptually
     // owned/reused at this MultiBandANCProcessor layer for low-band; see fdaf internal reuse too)
     // NOTE for native low-freq: fdafLow, multirateLow, roadWiener, lowBand LMS are critical hot for rumble<250Hz;
@@ -196,6 +202,16 @@ class MultiBandANCProcessor(
         musicLowAncEnabled = enabled
     }
 
+    override fun setDebugMuMultiplier(mult: Float) {
+        debugMuMultiplier = mult.coerceIn(0.1f, 3.0f)
+    }
+
+    override fun setDebugFreezeConfig(energyRatioThreshold: Float, consecutiveCount: Int, speedFactor: Float) {
+        debugFreezeThreshold = energyRatioThreshold.coerceIn(8f, 25f)
+        debugFreezeConsec = consecutiveCount.coerceIn(1, 5)
+        debugSpeedFreezeFactor = speedFactor.coerceIn(0.3f, 1.2f)
+    }
+
     override fun isSirenOverrideActive(): Boolean = sirenOverride
 
     override fun getMimoZoneCount(): Int = mimoZoneCount
@@ -268,15 +284,15 @@ class MultiBandANCProcessor(
 
         // Dynamic threshold: higher (less freeze) at highway speeds for steady tire/wind rumble
         val speed = vehicleSpeedKmh
-        val threshold = if (speed > 50f) 18.0f else 15.0f
+        val threshold = if (speed > 50f) debugFreezeThreshold.coerceAtLeast(12f) else debugFreezeThreshold
         val minRms = if (speed > 50f) 0.015f else 0.02f
 
         if (ratio > threshold && rms > minRms) {
             consecutiveHighEnergyRatio++
-            if (consecutiveHighEnergyRatio >= 3) {  // require consecutive high ratios to reduce single-spike freezes
+            if (consecutiveHighEnergyRatio >= debugFreezeConsec) {  // require consecutive high ratios to reduce single-spike freezes
                 // Shorter freeze at high speed (steady rumble should not pause LMS as much)
                 val baseFreeze = (sampleRate / bufferSize.coerceAtLeast(256)).coerceIn(3, 10)
-                val freezeDur = if (speed > 50f) (baseFreeze * 0.6f).toInt().coerceAtLeast(2) else baseFreeze
+                val freezeDur = if (speed > 50f) (baseFreeze * debugSpeedFreezeFactor).toInt().coerceAtLeast(2) else baseFreeze
                 freezeWeightUpdates = freezeDur
                 bumpDetectedFlag = true
                 consecutiveHighEnergyRatio = 0
@@ -500,7 +516,7 @@ class MultiBandANCProcessor(
             AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD -> if (band.label == "low" && musicLowAncEnabled) 1f else 0.55f
         }
         val resonanceScale = CabinResonanceDetector.resonanceMuScale(band.centerHz, resonancePeaks)
-        return band.baseMuScale * modeScale * speedMuScale() * resonanceScale
+        return band.baseMuScale * modeScale * speedMuScale() * resonanceScale * debugMuMultiplier
     }
 
     private fun speedMuScale(): Float =

@@ -271,4 +271,8 @@ class ANCProcessor(
     fun finishLearning() {
         mu = 0.004f
     }
+
+    // Debug stubs for new tuning API (legacy path, no-op)
+    fun setDebugMuMultiplier(mult: Float) {}
+    fun setDebugFreezeConfig(energyRatioThreshold: Float, consecutiveCount: Int, speedFactor: Float) {}
 }

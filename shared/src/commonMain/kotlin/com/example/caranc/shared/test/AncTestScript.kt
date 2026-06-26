@@ -254,6 +254,154 @@ object CarAncTestScript {
         "mimoZoneCount",
         "playbackRefActive",
         "aecErleDb",
-        "sirenOverride"
+        "sirenOverride",
+        // 新增：LMS 調校實驗關鍵欄位（mu/freeze/latency override + band muScale + dominant）
+        "dominantNoiseBand",
+        "debugLmsMuMultiplier",
+        "debugFreezeThreshold",
+        "debugFreezeConsec",
+        "debugLatencyOverrideMs",
+        "usingLatencyOverride",
+        "lowBandMuScale",
+        "midBandMuScale",
+        "highBandMuScale",
+        "antiNoiseDb",
+        "lmsUpdateCount",
+        "lowBandLmsUpdateCount",
+        "freezeBlocksRemaining",
+        "processingMode"
     )
+}
+
+object CarRoadTuningScript {
+    const val SCRIPT_ID = "car_road_tuning_v1"
+    const val SCRIPT_NAME = "路噪 LMS 調校測試（v1·第一次實車推薦·粗糙路 40-70km/h 低音樂·5 組）"
+
+    val steps: List<TestScriptStep> = listOf(
+        TestScriptStep(
+            id = "tuning_prep",
+            title = "調校準備（設定 TestLogPanel）",
+            instructions = listOf(
+                "USB AA 連車機，開啟「實車測試 Log」面板",
+                "車型/手機位置/情境填寫清楚（例如「個人 Pixel + USB AA + 粗糙國道」）",
+                "強制正常模式 = 開啟（重要，避免 AA 一直觸發 floor）",
+                "音樂模式仍抗低頻路噪 = 開啟",
+                "ANC 獨立強度 slider 設 0.75~0.9",
+                "PRO 等級（付費）",
+                "手動 RPM 留 0（除非想測引擎）",
+                "點「開始降噪」完成校正，狀態顯示「降噪中」",
+                "準備好後進入同一条粗糙路面（40-70km/h 顛簸），全程無/低音樂",
+                "每組調校前先在 TestLogPanel 改參數，再按「完成這步」進入下一組"
+            ),
+            durationSec = 0,
+            requiresAncRunning = false,
+            checklist = listOf("AA 已連", "ANC 已跑", "forceNormal=ON", "musicLow=ON", "PRO"),
+            logPhases = listOf("audio_init", "calibration", "rpm_config", "running_snapshot")
+        ),
+        TestScriptStep(
+            id = "tuning_1_baseline",
+            title = "#1 Baseline（mu=1.0, freeze=15, c=3, override=0）",
+            instructions = listOf(
+                "在 TestLogPanel 設定：",
+                "  LMS 學習率倍率 = 1.0",
+                "  凍結門檻 = 15",
+                "  凍結連續次數 = 3",
+                "  延遲覆蓋測試 = 留空或 0",
+                "進入/維持 40-70 km/h 同一段粗糙路面",
+                "無/低音樂，維持 60-90 秒",
+                "預期觀察重點：目前穩定度、lmsUpdate 是否正常上升、freeze 很少"
+            ),
+            durationSec = 75,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf("muMult=1.0", "freezeTh=15", "consec=3", "override=0", "40-70km/h 粗路"),
+            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing")
+        ),
+        TestScriptStep(
+            id = "tuning_2",
+            title = "#2 積極一點（mu=1.3, freeze=14, c=3, override=0）",
+            instructions = listOf(
+                "TestLogPanel 改為：",
+                "  LMS 學習率倍率 = 1.3",
+                "  凍結門檻 = 14",
+                "  凍結連續次數 = 3",
+                "  延遲覆蓋 = 0",
+                "同一段粗糙路 40-70km/h，無/低音樂，維持 60-90 秒",
+                "預期觀察重點：lmsUpdateCount 是否明顯比 #1 上升更快"
+            ),
+            durationSec = 75,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf("muMult=1.3", "freezeTh=14", "consec=3", "override=0"),
+            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing")
+        ),
+        TestScriptStep(
+            id = "tuning_3",
+            title = "#3 更積極（mu=1.5, freeze=12, c=2, override=0）",
+            instructions = listOf(
+                "TestLogPanel 改為：",
+                "  LMS 學習率倍率 = 1.5",
+                "  凍結門檻 = 12",
+                "  凍結連續次數 = 2",
+                "  延遲覆蓋 = 0",
+                "同一段路，60-90 秒",
+                "預期觀察重點：較積極適應，但觀察 freezeBlocksRemaining 是否變得太頻繁"
+            ),
+            durationSec = 75,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf("muMult=1.5", "freezeTh=12", "consec=2", "override=0"),
+            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing")
+        ),
+        TestScriptStep(
+            id = "tuning_4",
+            title = "#4 強制低延遲測試（mu=1.5, freeze=12, c=2, override=80）",
+            instructions = listOf(
+                "TestLogPanel 改為：",
+                "  LMS 學習率倍率 = 1.5",
+                "  凍結門檻 = 12",
+                "  凍結連續次數 = 2",
+                "  延遲覆蓋測試 = 80 （測試用，模擬較好延遲）",
+                "同一段粗糙路 60-90 秒",
+                "預期觀察重點：mid band 是否開始有貢獻（bandMuScale 提升、midGain >0、midEnabled）"
+            ),
+            durationSec = 75,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf("muMult=1.5", "freezeTh=12", "consec=2", "override=80"),
+            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing")
+        ),
+        TestScriptStep(
+            id = "tuning_5",
+            title = "#5 再激進（mu=1.8, freeze=13, c=3, override=0）",
+            instructions = listOf(
+                "TestLogPanel 改為：",
+                "  LMS 學習率倍率 = 1.8",
+                "  凍結門檻 = 13",
+                "  凍結連續次數 = 3",
+                "  延遲覆蓋 = 0",
+                "同一段路 60-90 秒",
+                "預期觀察重點：anti 更強，但注意是否有白噪（antiArtifactGain 是否壓制）"
+            ),
+            durationSec = 75,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf("muMult=1.8", "freezeTh=13", "consec=3", "override=0"),
+            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing")
+        ),
+        TestScriptStep(
+            id = "tuning_finish",
+            title = "結束與匯出（務必）",
+            instructions = listOf(
+                "停止降噪",
+                "在「實車測試 Log」點「匯出 Log」",
+                "重要：在 scenario 或 log 檔名記錄當次組合（例如 tuning#3_mu1.5_f12_c2_o0）",
+                "把完整 log 傳回分析（至少 5 組都要有清楚的 running_snapshot）",
+                "比較重點：lmsUpdate 上升速度、freeze 頻率、antiNoiseDb 負值、reductionDb、midBand 貢獻、是否出現 artifact"
+            ),
+            durationSec = 0,
+            requiresAncRunning = false,
+            checklist = listOf("Log 已匯出", "每組都有 scenario 註記"),
+            logPhases = listOf("test_script_complete")
+        )
+    )
+
+    val monitoredLogPhases: List<String> = CarAncTestScript.monitoredLogPhases
+
+    val monitoredSnapshotFields: List<String> = CarAncTestScript.monitoredSnapshotFields
 }

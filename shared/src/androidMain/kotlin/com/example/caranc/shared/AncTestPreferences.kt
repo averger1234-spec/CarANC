@@ -16,6 +16,10 @@ object AncTestPreferences {
     private const val KEY_FORCE_NORMAL_MODE = "force_normal_mode"
     private const val KEY_MUSIC_LOW_ANC = "music_low_anc"
     private const val KEY_USER_ANC_GAIN = "user_anc_gain"
+    private const val KEY_DEBUG_LMS_MU_MULT = "debug_lms_mu_mult"
+    private const val KEY_DEBUG_FREEZE_THRESHOLD = "debug_freeze_threshold"
+    private const val KEY_DEBUG_FREEZE_CONSEC = "debug_freeze_consec"
+    private const val KEY_DEBUG_LATENCY_OVERRIDE_MS = "debug_latency_override_ms"
 
     fun isLoggingEnabled(context: Context): Boolean {
         return prefs(context).getBoolean(KEY_LOGGING_ENABLED, true)
@@ -90,6 +94,38 @@ object AncTestPreferences {
 
     fun setUserAncGain(context: Context, gain: Float) {
         prefs(context).edit().putFloat(KEY_USER_ANC_GAIN, gain.coerceIn(0f, 1f)).apply()
+    }
+
+    fun getDebugLmsMuMultiplier(context: Context): Float {
+        return prefs(context).getFloat(KEY_DEBUG_LMS_MU_MULT, 1.0f).coerceIn(0.1f, 3.0f)
+    }
+
+    fun setDebugLmsMuMultiplier(context: Context, mult: Float) {
+        prefs(context).edit().putFloat(KEY_DEBUG_LMS_MU_MULT, mult.coerceIn(0.1f, 3.0f)).apply()
+    }
+
+    fun getDebugFreezeThreshold(context: Context): Float {
+        return prefs(context).getFloat(KEY_DEBUG_FREEZE_THRESHOLD, 15.0f).coerceIn(8f, 25f)
+    }
+
+    fun setDebugFreezeThreshold(context: Context, threshold: Float) {
+        prefs(context).edit().putFloat(KEY_DEBUG_FREEZE_THRESHOLD, threshold.coerceIn(8f, 25f)).apply()
+    }
+
+    fun getDebugFreezeConsecutive(context: Context): Int {
+        return prefs(context).getInt(KEY_DEBUG_FREEZE_CONSEC, 3).coerceIn(1, 5)
+    }
+
+    fun setDebugFreezeConsecutive(context: Context, count: Int) {
+        prefs(context).edit().putInt(KEY_DEBUG_FREEZE_CONSEC, count.coerceIn(1, 5)).apply()
+    }
+
+    fun getDebugLatencyOverrideMs(context: Context): Float {
+        return prefs(context).getFloat(KEY_DEBUG_LATENCY_OVERRIDE_MS, 0f).coerceAtLeast(0f)
+    }
+
+    fun setDebugLatencyOverrideMs(context: Context, ms: Float) {
+        prefs(context).edit().putFloat(KEY_DEBUG_LATENCY_OVERRIDE_MS, ms.coerceAtLeast(0f)).apply()
     }
 
     private fun prefs(context: Context) =

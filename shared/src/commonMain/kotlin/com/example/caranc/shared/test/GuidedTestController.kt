@@ -38,14 +38,20 @@ object GuidedTestController {
     }
 
     private var stepStartedAtMs: Long = 0L
+    private var currentSteps: List<TestScriptStep> = CarAncTestScript.steps
+    private var currentMonitoredPhases: List<String> = CarAncTestScript.monitoredLogPhases
+    private var currentMonitoredFields: List<String> = CarAncTestScript.monitoredSnapshotFields
 
-    fun start(script: List<TestScriptStep> = CarAncTestScript.steps) {
+    fun start(script: List<TestScriptStep> = CarAncTestScript.steps, scriptId: String = CarAncTestScript.SCRIPT_ID, scriptName: String = CarAncTestScript.SCRIPT_NAME) {
         if (script.isEmpty()) return
+        currentSteps = script
+        currentMonitoredPhases = if (scriptId == CarRoadTuningScript.SCRIPT_ID) CarRoadTuningScript.monitoredLogPhases else CarAncTestScript.monitoredLogPhases
+        currentMonitoredFields = if (scriptId == CarRoadTuningScript.SCRIPT_ID) CarRoadTuningScript.monitoredSnapshotFields else CarAncTestScript.monitoredSnapshotFields
         stepStartedAtMs = currentTimeMs()
         _state.value = GuidedTestState(
             active = true,
-            scriptId = CarAncTestScript.SCRIPT_ID,
-            scriptName = CarAncTestScript.SCRIPT_NAME,
+            scriptId = scriptId,
+            scriptName = scriptName,
             stepIndex = 0,
             totalSteps = script.size,
             currentStep = script.first(),
@@ -55,13 +61,13 @@ object GuidedTestController {
         emit(
             phase = "test_script_start",
             fields = mapOf(
-                "scriptId" to CarAncTestScript.SCRIPT_ID,
-                "scriptName" to CarAncTestScript.SCRIPT_NAME,
+                "scriptId" to scriptId,
+                "scriptName" to scriptName,
                 "advanceMode" to "manual",
                 "totalSteps" to script.size,
                 "stepIds" to script.map { it.id },
-                "monitoredLogPhases" to CarAncTestScript.monitoredLogPhases,
-                "monitoredSnapshotFields" to CarAncTestScript.monitoredSnapshotFields,
+                "monitoredLogPhases" to currentMonitoredPhases,
+                "monitoredSnapshotFields" to currentMonitoredFields,
                 "productName" to ProductCatalog.PRODUCT_NAME,
                 "subscriptionPlan" to sessionContext.entitlementManager.currentPlan.id,
                 "subscriptionLabel" to sessionContext.entitlementManager.currentPlan.displayName
@@ -93,7 +99,7 @@ object GuidedTestController {
 
         val completed = state.completedStepIds + step.id
         val nextIndex = state.stepIndex + 1
-        val script = CarAncTestScript.steps
+        val script = currentSteps
 
         if (nextIndex >= script.size) {
             _state.value = state.copy(
@@ -107,7 +113,7 @@ object GuidedTestController {
             emit(
                 phase = "test_script_complete",
                 fields = mapOf(
-                    "scriptId" to CarAncTestScript.SCRIPT_ID,
+                    "scriptId" to state.scriptId,
                     "completedSteps" to completed,
                     "totalSteps" to script.size
                 )
@@ -182,7 +188,7 @@ object GuidedTestController {
 
     private fun stepLogFields(step: TestScriptStep): Map<String, Any?> {
         return mapOf(
-            "scriptId" to CarAncTestScript.SCRIPT_ID,
+            "scriptId" to _state.value.scriptId,
             "stepId" to step.id,
             "stepTitle" to step.title,
             "stepIndex" to _state.value.stepIndex,

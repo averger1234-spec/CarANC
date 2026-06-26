@@ -140,3 +140,11 @@
 - 系統架構評估：無需大重構。目前 AudioEngine（loop + route + focus） + MultiBandProcessor（per-band LMS + fdaf + modes） + prefs 很彈性，適合 incremental 調整（musicLow per-band、智慧 mediaRef 偵測）。AA 衝突主要是 head unit 音量群組 mapping + pure anti 輸出（無 media passthrough）。可未來加 "mixer" 層在 music 時輸出 attenuated media + anti，讓音樂感覺完整，但目前獨立 gain 已解決可調性。重點繼續 DSP 細調 + 測試條件控制。
 - 架構好處：易 mock 測試（sessionContext）、易加 per-mode/per-band 邏輯（已用在 musicLow）。iOS stub 也容易擴。
 - 下一步：多組 AA + rumble 路面 + music on/off 的對照 log，我幫精準分析哪裡還可調（e.g. 低頻 boost、road ref 權重、mu 動態）。
+  
+  
+## LMS PID-like 調校 + 延遲 debug（新）  
+已新增 TestLogPanel LMS mu 倍率、freeze 門檻/連續、latency override 供實驗「學習」調整方法。AudioEngine 會即時套用 prefs 呼叫 processor setter。多數情況下高 mu 需配高 freeze 門檻。延遲主要受 AA remote-submix 限制，150Hz 已 push；建議用 phone speaker baseline 驗證。詳見 MULTI_MACHINE_SYNC.md 新章節。  
+  
+已補強 log 指標：perf_timing + running_snapshot 現在會輸出 debugLmsMuMultiplier、debugFreeze*、debugLatencyOverride、usingLatencyOverride、low/mid/highBandMuScale。dominantNoiseBand 原本就有。見 MULTI_MACHINE_SYNC 新增的「關鍵 Log 指標解讀表」。用戶可依此一次抓 3-5 組參數的 snapshot 對比。 
+  
+腳本更新：新增 CarRoadTuningScript（完全依照用戶提供的 5 組 mu/freeze/override 表格）。GuidedTestPanel 現在有專門按鈕「開始路噪調校測試（推薦）」。第一次實車請直接用這個 guided script + TestLogPanel 設參數。詳見 MULTI 最新表格。 

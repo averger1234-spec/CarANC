@@ -31,6 +31,7 @@ import com.example.caranc.shared.AncSessionLogger
 import com.example.caranc.shared.AncState
 import com.example.caranc.shared.GlobalAncSessionContext
 import com.example.caranc.shared.test.CarAncTestScript
+import com.example.caranc.shared.test.CarRoadTuningScript
 import com.example.caranc.shared.test.GuidedTestController
 import com.example.caranc.shared.test.GuidedTestState
 import kotlinx.coroutines.delay
@@ -98,7 +99,7 @@ fun GuidedTestPanel(
                     },
                     onRestart = {
                         note = ""
-                        GuidedTestController.start()
+                        GuidedTestController.start(CarRoadTuningScript.steps, CarRoadTuningScript.SCRIPT_ID, CarRoadTuningScript.SCRIPT_NAME)
                     }
                 )
                 guidedState.active -> ActiveScriptView(
@@ -114,9 +115,13 @@ fun GuidedTestPanel(
                     onAbort = { GuidedTestController.abort() }
                 )
                 else -> IdleScriptView(
-                    onStart = {
+                    onStartStandard = {
                         note = ""
-                        GuidedTestController.start()
+                        GuidedTestController.start(CarAncTestScript.steps, CarAncTestScript.SCRIPT_ID, CarAncTestScript.SCRIPT_NAME)
+                    },
+                    onStartTuning = {
+                        note = ""
+                        GuidedTestController.start(CarRoadTuningScript.steps, CarRoadTuningScript.SCRIPT_ID, CarRoadTuningScript.SCRIPT_NAME)
                     }
                 )
             }
@@ -125,9 +130,12 @@ fun GuidedTestPanel(
 }
 
 @Composable
-private fun IdleScriptView(onStart: () -> Unit) {
+private fun IdleScriptView(
+    onStartStandard: () -> Unit,
+    onStartTuning: () -> Unit
+) {
     Text(
-        "${CarAncTestScript.SCRIPT_NAME}：延遲驗證 → MIMO → 怠速（引擎可選） → 市區 → 高速 → 音樂 → 通話 → 匯出",
+        "可切換標準 v3 或 路噪 LMS 調校 v1（推薦第一次實車用）",
         style = MaterialTheme.typography.bodySmall
     )
     Text(
@@ -135,9 +143,32 @@ private fun IdleScriptView(onStart: () -> Unit) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSecondaryContainer
     )
-    Spacer(modifier = Modifier.height(12.dp))
-    Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
-        Text("開始引導測試")
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // 強烈推薦給第一次實車（個人 phone+USB AA+車）使用的 LMS 調校專用腳本
+    Text(
+        "${CarRoadTuningScript.SCRIPT_NAME}",
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary
+    )
+    Text(
+        "專為 40-70km/h 粗糙路 + 無/低音樂 設計的 5 組 mu/freeze/override 對照測試（完全依照你提供的順序）",
+        style = MaterialTheme.typography.bodySmall
+    )
+    Text(
+        "監控 ${CarRoadTuningScript.monitoredLogPhases.size} 種 log phase、${CarRoadTuningScript.monitoredSnapshotFields.size} 個 snapshot 欄位（含所有 debugLmsMuMultiplier、*BandMuScale、freeze 等）",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSecondaryContainer
+    )
+    Spacer(modifier = Modifier.height(6.dp))
+
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = onStartStandard, modifier = Modifier.weight(1f)) {
+            Text("標準 v3 實車測試")
+        }
+        Button(onClick = onStartTuning, modifier = Modifier.weight(1f)) {
+            Text("開始路噪調校測試（推薦）")
+        }
     }
 }
 

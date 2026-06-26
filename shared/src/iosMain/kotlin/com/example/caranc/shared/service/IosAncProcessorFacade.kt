@@ -123,4 +123,16 @@ class IosAncProcessorFacade(
     override fun getLowLmsUpdateCount(): Long = 0L
     override fun getLowLmsProcessCalls(): Long = 0L
     override fun getLastLmsPfx(): Float = 0f
+
+    override fun setMusicLowAncEnabled(enabled: Boolean) {
+        // stub
+    }
+
+    override fun setDebugMuMultiplier(mult: Float) {
+        // stub
+    }
+
+    override fun setDebugFreezeConfig(energyRatioThreshold: Float, consecutiveCount: Int, speedFactor: Float) {
+        // stub
+    }
 }

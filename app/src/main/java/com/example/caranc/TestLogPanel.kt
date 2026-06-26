@@ -47,6 +47,10 @@ fun TestLogPanel(
     var forceNormalMode by remember { mutableStateOf(false) }
     var musicLowAnc by remember { mutableStateOf(true) }
     var userAncGain by remember { mutableStateOf(1f) }
+    var lmsMuMult by remember { mutableStateOf(1f) }
+    var freezeThreshold by remember { mutableStateOf(15f) }
+    var freezeConsec by remember { mutableStateOf(3) }
+    var latencyOverrideMs by remember { mutableStateOf(0f) }
     var latestLogName by remember { mutableStateOf(TestLogExporter.latestLogFileName(context)) }
 
     fun persistEnvironment() {
@@ -73,6 +77,10 @@ fun TestLogPanel(
         forceNormalMode = AncTestPreferences.isForceNormalMode(context)
         musicLowAnc = AncTestPreferences.isMusicLowAncEnabled(context)
         userAncGain = AncTestPreferences.getUserAncGain(context)
+        lmsMuMult = AncTestPreferences.getDebugLmsMuMultiplier(context)
+        freezeThreshold = AncTestPreferences.getDebugFreezeThreshold(context)
+        freezeConsec = AncTestPreferences.getDebugFreezeConsecutive(context)
+        latencyOverrideMs = AncTestPreferences.getDebugLatencyOverrideMs(context)
     }
 
     Card(modifier = modifier.fillMaxWidth()) {
@@ -217,6 +225,61 @@ fun TestLogPanel(
                 },
                 valueRange = 0f..1f,
                 steps = 99
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("進階 LMS 調校（類似 PID 學習率實驗，非傳統 PID）", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "LMS 的 mu 是「學習率」(adaptation step size)。提高倍率 → 適應路噪更快（像提高 P 增益 + 累積 I 效果），但高延遲時易振盪/不穩，需靠 freeze 保護。建議從 1.0 開始，觀察 log 裡 lmsUpdateCount / freezeRem / antiNoiseDb / reductionDb 的變化。",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text("LMS 學習率倍率 (0.1~3.0，預設1.0)", style = MaterialTheme.typography.bodySmall)
+            Slider(
+                value = lmsMuMult,
+                onValueChange = {
+                    lmsMuMult = it
+                    AncTestPreferences.setDebugLmsMuMultiplier(context, it)
+                },
+                valueRange = 0.1f..3.0f,
+                steps = 28
+            )
+            Text("凍結門檻 (能量比，預設15；越高越不易凍結 LMS)", style = MaterialTheme.typography.bodySmall)
+            Slider(
+                value = freezeThreshold,
+                onValueChange = {
+                    freezeThreshold = it
+                    AncTestPreferences.setDebugFreezeThreshold(context, it)
+                },
+                valueRange = 8f..25f,
+                steps = 16
+            )
+            Text("凍結連續次數 (1~5，預設3；需連續高比才凍)", style = MaterialTheme.typography.bodySmall)
+            Slider(
+                value = freezeConsec.toFloat(),
+                onValueChange = {
+                    freezeConsec = it.toInt()
+                    AncTestPreferences.setDebugFreezeConsecutive(context, freezeConsec)
+                },
+                valueRange = 1f..5f,
+                steps = 3
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            OutlinedTextField(
+                value = if (latencyOverrideMs > 0f) latencyOverrideMs.toInt().toString() else "",
+                onValueChange = {
+                    val v = it.filter { ch -> ch.isDigit() }.toFloatOrNull() ?: 0f
+                    latencyOverrideMs = v
+                    AncTestPreferences.setDebugLatencyOverrideMs(context, v)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("延遲覆蓋測試 (ms，0=自動測量；設 60 可模擬較好延遲看 band 開啟)") },
+                placeholder = { Text("0 或 60~120 測試用") },
+                singleLine = true
+            )
+            Text(
+                "提示：改完參數後重啟 ANC 生效更乾淨（或等數十秒讓 LMS 重新適應）。高 mu + 低門檻 容易看到 freeze 頻繁，log 裡注意 freezeBlocksRemaining。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(modifier = Modifier.height(12.dp))

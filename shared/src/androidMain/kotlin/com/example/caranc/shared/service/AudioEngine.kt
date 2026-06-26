@@ -22,6 +22,7 @@ import com.example.caranc.shared.signal.SirenDetector
 import com.example.caranc.shared.commercial.CommercialFeature
 import com.example.caranc.shared.test.GuidedTestController
 import com.example.caranc.shared.latency.NativeLowBandProcessor
+import com.example.caranc.shared.latency.LatencyAwareBandLimiter
 import com.example.caranc.shared.MultiBandANCProcessor  // for cast to access extra low-band counters (fdaf/multirate)
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -315,7 +316,7 @@ class AudioEngine(
                     fields = mapOf("initialTier" to initialTier.name)
                 )
                 ancProcessor?.applyCabinModel(applyMimoTrial(cabinModel))
-                currentLatency?.let { ancProcessor?.setEstimatedLatencyMs(it.totalMs) }
+                currentLatency?.let { ancProcessor?.setEstimatedLatencyMs(getEffectiveLatencyForSet(it.totalMs)) }
                 logMimoProfile(cabinModel)
                 logLatencyOptimization()
 
@@ -458,6 +459,9 @@ class AudioEngine(
                     val isCall = !forceNormal && audioManager.mode != AudioManager.MODE_NORMAL &&
                         sessionContext.entitlementManager.canUseFeature(CommercialFeature.CALL_BYPASS)
                     val musicLowAnc = AncTestPreferences.isMusicLowAncEnabled(appContext)
+                    val lmsMuMult = AncTestPreferences.getDebugLmsMuMultiplier(appContext)
+                    val freezeThresh = AncTestPreferences.getDebugFreezeThreshold(appContext)
+                    val freezeConsec = AncTestPreferences.getDebugFreezeConsecutive(appContext)
                     val gpsRoadEnabled = sessionContext.entitlementManager.canUseFeature(CommercialFeature.GPS_ROAD_ANC)
                     val speedSnapshot = speedProvider.currentSnapshot()
 
@@ -536,6 +540,8 @@ class AudioEngine(
                     }
 
                     ancProcessor?.setMusicLowAncEnabled(musicLowAnc)
+                    ancProcessor?.setDebugMuMultiplier(lmsMuMult)
+                    ancProcessor?.setDebugFreezeConfig(freezeThresh, freezeConsec, 0.6f)
                     referencePipeline?.setContext(musicActive = isMusic, callActive = isCall)
 
                     val read = audioRecord?.read(input, 0, readSize) ?: 0
@@ -705,7 +711,11 @@ class AudioEngine(
                                         "probeCorrMs" to probeC,
                                         "nativeLowProto" to nativeAvail,
                                         "freezeBlocksRemaining" to (ancProcessor?.getCurrentFreezeBlocksRemaining() ?: 0),
-                                        "musicLowAncEnabled" to AncTestPreferences.isMusicLowAncEnabled(appContext)
+                                        "musicLowAncEnabled" to AncTestPreferences.isMusicLowAncEnabled(appContext),
+                                        "debugLmsMuMultiplier" to AncTestPreferences.getDebugLmsMuMultiplier(appContext),
+                                        "debugFreezeThreshold" to AncTestPreferences.getDebugFreezeThreshold(appContext),
+                                        "debugFreezeConsec" to AncTestPreferences.getDebugFreezeConsecutive(appContext),
+                                        "debugLatencyOverrideMs" to AncTestPreferences.getDebugLatencyOverrideMs(appContext)
                                     )
                                 )
                             }
@@ -720,7 +730,7 @@ class AudioEngine(
                             if (meas > 10f) {
                                 lastMeasBlock = blockCount
                                 runtimeMeasuredLatencyMs = if (runtimeMeasuredLatencyMs < 5f) meas else 0.65f * runtimeMeasuredLatencyMs + 0.35f * meas
-                                ancProcessor?.setEstimatedLatencyMs(runtimeMeasuredLatencyMs)
+                                ancProcessor?.setEstimatedLatencyMs(getEffectiveLatencyForSet(runtimeMeasuredLatencyMs))
                                 AncSessionLogger.log(
                                     phase = "runtime_latency_correlated",
                                     fields = mapOf(
@@ -1106,13 +1116,23 @@ class AudioEngine(
                         "aecErleDb" to (referencePipeline?.snapshotMetrics()?.aecErleDb ?: 0f),
                         "mediaCorrelation" to (referencePipeline?.snapshotMetrics()?.mediaCorrelation ?: 0f),
                         "playbackRefActive" to (referencePipeline?.snapshotMetrics()?.playbackActive == true),
-                        "mediaRefActive" to mediaRefActive,
+                        "mediaRefActive" to ((mediaPlaybackCapture?.isAvailable == true) && (referencePipeline?.snapshotMetrics()?.playbackActive == true)),
                         "maxCancelFrequencyHz" to ancProcessor?.getLatencyBandLimits()?.maxCancelFrequencyHz,
                         "latencyLowGain" to ancProcessor?.getLatencyBandLimits()?.lowGain,
                         "latencyMidGain" to ancProcessor?.getLatencyBandLimits()?.midGain,
                         "latencyHighGain" to ancProcessor?.getLatencyBandLimits()?.highGain,
                         "latencyMidEnabled" to ancProcessor?.getLatencyBandLimits()?.midEnabled,
-                        "latencyHighEnabled" to ancProcessor?.getLatencyBandLimits()?.highEnabled
+                        "latencyHighEnabled" to ancProcessor?.getLatencyBandLimits()?.highEnabled,
+                        // Debug tuning params for "PID-like" LMS experiments (user requested key indicators)
+                        "debugLmsMuMultiplier" to AncTestPreferences.getDebugLmsMuMultiplier(appContext),
+                        "debugFreezeThreshold" to AncTestPreferences.getDebugFreezeThreshold(appContext),
+                        "debugFreezeConsec" to AncTestPreferences.getDebugFreezeConsecutive(appContext),
+                        "debugLatencyOverrideMs" to AncTestPreferences.getDebugLatencyOverrideMs(appContext),
+                        "usingLatencyOverride" to (AncTestPreferences.getDebugLatencyOverrideMs(appContext) > 5f),
+                        // Approximate current band mu scales from latency limiter (for the fixed centers)
+                        "lowBandMuScale" to (LatencyAwareBandLimiter.bandMuScale(190f, ancProcessor?.getLatencyBandLimits()?.estimatedLatencyMs ?: 150f) * (if (ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC && AncTestPreferences.isMusicLowAncEnabled(appContext)) 1f else 0.38f) /* rough mode factor */),
+                        "midBandMuScale" to LatencyAwareBandLimiter.bandMuScale(500f, ancProcessor?.getLatencyBandLimits()?.estimatedLatencyMs ?: 150f),
+                        "highBandMuScale" to LatencyAwareBandLimiter.bandMuScale(1200f, ancProcessor?.getLatencyBandLimits()?.estimatedLatencyMs ?: 150f)
                     ) + speedLogFields(speed),
                     latency = latency
                 )
@@ -1232,7 +1252,7 @@ class AudioEngine(
         acousticDelaySamples = refreshed.acousticDelaySamples
         currentLatency = estimateCurrentLatency(sampleRate, acousticDelaySamples)
         ancProcessor?.applyCabinModel(applyMimoTrial(refreshed))
-        currentLatency?.let { ancProcessor?.setEstimatedLatencyMs(it.totalMs) }
+        currentLatency?.let { ancProcessor?.setEstimatedLatencyMs(getEffectiveLatencyForSet(it.totalMs)) }
         logMimoProfile(refreshed)
         AncSessionLogger.log(phase = "profile_recalibrated", fields = mapOf("profileId" to cabinProfileId))
     }
@@ -1273,6 +1293,11 @@ class AudioEngine(
             readSize = PROCESSING_READ_SIZE,
             acousticDelaySamples = acousticDelaySamples
         )
+    }
+
+    private fun getEffectiveLatencyForSet(baseMs: Float): Float {
+        val ov = AncTestPreferences.getDebugLatencyOverrideMs(appContext)
+        return if (ov > 5f) ov else baseMs
     }
 
     // measurement helper (P1 #6+7): occasional known signal insert + correlate in ANC loop for real round-trip

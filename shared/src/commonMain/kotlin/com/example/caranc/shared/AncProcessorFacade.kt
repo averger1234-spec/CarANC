@@ -43,4 +43,10 @@ interface AncProcessorFacade : AudioProcessor {
 
     // For music mode low freq ANC option
     fun setMusicLowAncEnabled(enabled: Boolean)
+
+    // Debug: LMS "PID-like" tuning for experimentation (mu = learning rate / adaptation speed)
+    // High mu -> faster convergence (like higher P/I gain) but risk instability on high-latency or sudden changes; freeze protects.
+    fun setDebugMuMultiplier(mult: Float) {}
+    // energyRatioThreshold: higher = less sensitive to "bumps" (e.g. 12-18); consec: require N consecutive high ratio before freeze; speedFactor scales duration at >50kmh.
+    fun setDebugFreezeConfig(energyRatioThreshold: Float, consecutiveCount: Int, speedFactor: Float) {}
 }
