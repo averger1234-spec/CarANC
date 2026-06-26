@@ -112,6 +112,14 @@
 
 **請以這個上下文為基礎繼續協助**。之後我在任何機器開新 Grok 時，會先貼這段摘要 + 最近遇到的問題（例如 AA 媒體模式 + tier 差異測試 + 舊 Mac 硬體限制）。
 
+- 2026-06-26 新 log（2601/2602，phone_local speaker 測試，music:true 多處）：
+  - 確認修改生效：maxCancelFrequencyHz=150.0、midBandEnabled=true（gain 0.25）、musicLowAncEnabled=true。
+  - processingMode 多為 "normal" 或 "road_noise_gps"，**未** 因 music:true 強制 floor_music —— music 偵測不再一刀切關 anti-noise。
+  - lmsUpdateCount / lowBandLmsUpdateCount 大幅進步（數十萬~百萬+，之前長期卡 0）。
+  - antiNoiseDb 變化範圍較合理（-50~-100+），reduction 偶現正值，顯示低頻 anti 有被有效輸出並混入（非被完全壓制）。
+  - 效能穩定（fullLoop ~0.5-1.5ms 為主），bump_detected 正常。
+  - 結論：用戶要求「低頻持續抗噪 + 中高頻保護」已達成；「提高 maxCancel 測試低頻壓制」+「確認 anti 輸出」兩點也在 log 中看到正面結果（lms 活躍 + antiDb 不是極低）。建議後續多跑有實際路噪的 AA 場景對比 ON/OFF。
+
 ---
 
 **如何使用**：
