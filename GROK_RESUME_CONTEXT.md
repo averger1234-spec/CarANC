@@ -130,3 +130,4 @@
 5. 就可以繼續問問題，不用從頭解釋
 
 需要我更新這份摘要時，直接告訴我「更新 Grok resume context」。
+- 2026-06-26 Log Analysis (new 2601/2602): phone speaker test, music true but mode normal/road thanks to musicLowAnc. lms now updating actively (big win for low freq adaptation). antiNoiseDb improved, max 150, mid on. Confirms low freq road ANC works alongside music without full suppression. Media conflict addressed by userAncGain independent control + smarter mediaRefActive detection (won't force floor on AA where capture unavailable). No arch restructure needed -- per-band logic in processor + prefs switches allow targeted improvements.
