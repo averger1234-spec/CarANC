@@ -317,7 +317,7 @@ object CarRoadTuningScript {
             checklist = listOf("muMult=1.0", "freezeTh=15", "consec=3", "override=0", "40-70km/h 粗路"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
-                "lmsMuMultiplier" to 1.0f,
+                "lmsMuMultiplier" to 1.2f,  // slightly more aggressive baseline for better perceived reduction (user feedback)
                 "freezeThreshold" to 15f,
                 "freezeConsec" to 3,
                 "latencyOverrideMs" to 0f
@@ -344,19 +344,19 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_3",
-            title = "#3 更激進（mu=1.7, freeze=11, c=2, override=0）",
+            title = "#3 更激進（mu=1.8, freeze=10, c=2, override=0）",
             instructions = listOf(
-                "系統已自動套用參數（mu=1.7 / freeze=11 / c=2 / override=0）",
+                "系統已自動套用參數（mu=1.8 / freeze=10 / c=2 / override=0）",
                 "同一段路，60-90 秒",
-                "預期觀察重點：lowBandLms 成長更快，reduction 在 rumble 時是否有感（配 spectrum 50-250Hz）"
+                "預期觀察重點：lowBandLms 成長更快，reduction 在 rumble 時是否有感（配 spectrum 50-250Hz）。這是較激進設定，觀察 artifact。"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.7", "freezeTh=11", "consec=2", "override=0"),
+            checklist = listOf("muMult=1.8", "freezeTh=10", "consec=2", "override=0"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
-                "lmsMuMultiplier" to 1.7f,
-                "freezeThreshold" to 11f,
+                "lmsMuMultiplier" to 1.8f,
+                "freezeThreshold" to 10f,
                 "freezeConsec" to 2,
                 "latencyOverrideMs" to 0f
             )
@@ -382,19 +382,19 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_5",
-            title = "#5 極激進 + musicLow OFF 對比（mu=2.0, freeze=10, c=2, override=0）",
+            title = "#5 極激進 + musicLow OFF 對比（mu=2.2, freeze=9, c=2, override=0）",
             instructions = listOf(
-                "系統已自動套用參數（mu=2.0 / freeze=10 / c=2 / override=0） - musicLow OFF 對比",
+                "系統已自動套用參數（mu=2.2 / freeze=9 / c=2 / override=0） - musicLow OFF 對比",
                 "同一段路 60-90 秒",
-                "預期觀察重點：anti 更強但注意 artifact；比較前 step 有無 musicLow 時 rumble 降低（記錄 scenario musicLow=OFF）"
+                "預期觀察重點：anti 更強但注意 artifact；比較前 step 有無 musicLow 時 rumble 降低（記錄 scenario musicLow=OFF）。這是最激進，觀察是否感覺到明顯降噪。"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=2.0", "freezeTh=10", "consec=2", "override=0", "musicLow=OFF"),
+            checklist = listOf("muMult=2.2", "freezeTh=9", "consec=2", "override=0", "musicLow=OFF"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
-                "lmsMuMultiplier" to 2.0f,
-                "freezeThreshold" to 10f,
+                "lmsMuMultiplier" to 2.2f,
+                "freezeThreshold" to 9f,
                 "freezeConsec" to 2,
                 "latencyOverrideMs" to 0f,
                 "musicLowAncEnabled" to false
