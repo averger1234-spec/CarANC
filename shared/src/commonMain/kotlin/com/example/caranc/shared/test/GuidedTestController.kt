@@ -183,6 +183,12 @@ object GuidedTestController {
                 "expectedLogPhases" to step.logPhases
             )
         )
+        if (step.debugPresets.isNotEmpty()) {
+            emit(
+                phase = "debug_presets_apply",
+                fields = step.debugPresets
+            )
+        }
         logStepSnapshot()
     }
 

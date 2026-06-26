@@ -33,6 +33,7 @@ import com.example.caranc.shared.GlobalAncSessionContext
 import com.example.caranc.shared.test.CarAncTestScript
 import com.example.caranc.shared.test.CarRoadTuningScript
 import com.example.caranc.shared.test.GuidedTestController
+import com.example.caranc.shared.AncTestPreferences
 import com.example.caranc.shared.test.GuidedTestState
 import kotlinx.coroutines.delay
 
@@ -55,6 +56,31 @@ fun GuidedTestPanel(
     LaunchedEffect(Unit) {
         GuidedTestController.eventSink = { phase, fields ->
             AncSessionLogger.log(phase = phase, fields = fields)
+
+            if (phase == "debug_presets_apply") {
+                // 自動套用調校參數，使用者只需按「下一步」與最後匯出 log
+                fields["forceNormalMode"]?.let { v ->
+                    if (v is Boolean) AncTestPreferences.setForceNormalMode(context, v)
+                }
+                fields["musicLowAncEnabled"]?.let { v ->
+                    if (v is Boolean) AncTestPreferences.setMusicLowAncEnabled(context, v)
+                }
+                fields["userAncGain"]?.let { v ->
+                    if (v is Number) AncTestPreferences.setUserAncGain(context, v.toFloat())
+                }
+                fields["lmsMuMultiplier"]?.let { v ->
+                    if (v is Number) AncTestPreferences.setDebugLmsMuMultiplier(context, v.toFloat())
+                }
+                fields["freezeThreshold"]?.let { v ->
+                    if (v is Number) AncTestPreferences.setDebugFreezeThreshold(context, v.toFloat())
+                }
+                fields["freezeConsec"]?.let { v ->
+                    if (v is Number) AncTestPreferences.setDebugFreezeConsecutive(context, v.toInt())
+                }
+                fields["latencyOverrideMs"]?.let { v ->
+                    if (v is Number) AncTestPreferences.setDebugLatencyOverrideMs(context, v.toFloat())
+                }
+            }
         }
     }
 
@@ -86,6 +112,11 @@ fun GuidedTestPanel(
                 "手動步進：每步完成後按「完成這步」。適合上下班分段測試。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                "調校腳本（car_road_tuning_v1）：LMS 參數（mu / freeze / latency override）會在進入步驟時自動套用，你只需開車 + 按下一步 + 最後匯出 log 即可。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
             )
 
             Spacer(modifier = Modifier.height(12.dp))
