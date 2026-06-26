@@ -166,10 +166,12 @@
   - 進入每一步時自動設定 muMult / freeze / latencyOverride / forceNormal / musicLowAnc / userAncGain
   - 使用者只需按「完成這步」 + 最後匯出 log，無需手動調 TestLogPanel 的 debug 滑桿
 - UI 文字與 MULTI_MACHINE_SYNC.md 已同步更新，強調「自動套用」
-- UI 改進（回應「不直覺、欄位太長」 + 本次需求）：MainActivity 改為底部 NavigationBar 4 個選單：
-  - 狀態：等級選擇 + 狀態卡片 + 頻譜 + 開始/停止
-  - 方案：CommercialPanel（方案切換） + 隱私政策按鈕 + 服務條款按鈕（點擊彈 AlertDialog 顯示詳細條文）
-  - 測試腳本：GuidedTestPanel（自動調校腳本）
-  - 測試平台：TestLogPanel（log 設定 + 手動調校，已有分區收合）
-  隱私政策/服務條款/方案切換現在都在「方案」底部選單，不再混在主畫面長串。畫面更乾淨直覺，切換分頁即可。TestLogPanel 隱私區塊仍保留明確說明。
+- UI 改進（回應「不直覺、欄位太長」 + 使用者要求「隱私政策、服務條款、方案切換放底部選單，測試腳本一個、測試平台一個，在底部點選」）：
+  MainActivity 改為底部 NavigationBar 4 個分頁（Scaffold + NavigationBar）：
+  - 狀態：等級選擇（輕/中/重） + 狀態卡片（含車速/頻帶/延遲/降噪 dB 效果） + 即時頻譜 + 開始/停止按鈕。
+  - 方案：CommercialPanel（方案切換） + 「隱私政策」按鈕 + 「服務條款與免責聲明」按鈕（點擊彈 AlertDialog，內容清楚說明本機 log、不上傳、實驗性質）。
+  - 測試腳本：GuidedTestPanel（「標準 v3 實車測試」與「路噪調校測試（推薦）」按鈕，自動套用調校參數）。
+  - 測試平台：TestLogPanel（測試情境記錄（隱私保護說明）、快速切換、進階 LMS 調校預設收合 + 匯出 log）。
+  畫面不再是長串堆疊，切換分頁即可。隱私/條款/方案集中在「方案」分頁。TestLogPanel 內部也已分區（情境 vs 進階收合）。
+  更新後直接 rebuild 測試。給朋友 APK 時，底部選單就是標準體驗。
 - 符合使用者要求：你給 feedback/log，我負責把體驗改到極簡（只按下一步）
