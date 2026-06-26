@@ -175,3 +175,23 @@
   畫面不再是長串堆疊，切換分頁即可。隱私/條款/方案集中在「方案」分頁。TestLogPanel 內部也已分區（情境 vs 進階收合）。
   更新後直接 rebuild 測試。給朋友 APK 時，底部選單就是標準體驗。
 - 符合使用者要求：你給 feedback/log，我負責把體驗改到極簡（只按下一步）
+
+**2026-06-26 隱私政策與服務條款處理（無實際網站時的解法）**：
+- 問題：使用者問「隱私政策更產品條款，還沒有實際網站，該怎麼做?有想法嗎?」
+- 採用的實務解法（已實作）：
+  1. **App 內 AlertDialog 為主**（離線、立即可用）：在「方案」分頁有兩個大按鈕，分別彈出隱私政策與服務條款的對話框。內容使用 SHORT_SUMMARY + 版本/更新日期 + GitHub 連結提示。
+  2. **中央化文字來源**：新增 shared/commercial/PrivacyPolicy.kt 與 TermsOfService.kt（類似 SafetyDisclaimer 的模式），內含 TITLE、LAST_UPDATED、SHORT_SUMMARY、PARAGRAPHS、GITHUB_URL。未來改文字只需一處。
+  3. **GitHub 作為公開來源（零成本、版本控制）**：
+     - 在 repo 根目錄新增 `PRIVACY.md` 與 `TERMS.md`（完整結構化中文版，含表格、詳細安全聲明、責任限制）。
+     - ProductCatalog.PRIVACY_POLICY_URL / TERMS_URL 更新為 https://github.com/averger1234-spec/CarANC/blob/main/PRIVACY.md （瀏覽器會漂亮渲染 Markdown）。
+  4. CommercialPanel 內的 OutlinedButton 改標示「隱私政策（GitHub 完整版）」，點擊會直接用外部瀏覽器開啟（之前會失敗顯示「無法開啟連結」）。
+  5. Dialog 內特別說明「目前無獨立網站，使用 GitHub + App 內對話框雙軌」，並提示未來有網站會更新。
+  6. README.md 聯絡區塊大幅更新，清楚說明現況 + 連結 + 未來計畫。
+  7. 同時更新 MainActivity 內提示文字、GROK_RESUME... 與 MULTI_MACHINE_SYNC.md。
+- 為什麼這個做法好：
+  - Google Play 上架需要公開 Privacy Policy URL → GitHub blob 完全符合要求（公開、可讀）。
+  - 無網路或給測試 APK 時，用戶還是能在 App 內直接看到完整說明，不會卡住。
+  - 文字改動有 git 歷史，法律文件版本可追溯。
+  - 未來只要在 ProductCatalog 改一個 const + README 即可切換到 caranc.app。
+- 建議：如果之後要用 GitHub Pages 做更漂亮的站（https://averger1234-spec.github.io/CarANC/），可以把 md 複製到 docs/ 並設定 Pages source，URL 再更新即可。
+- 也提醒使用者：上架 Play 前務必確認隱私政策內容符合實際資料收集行為（目前是「完全不上傳」）。

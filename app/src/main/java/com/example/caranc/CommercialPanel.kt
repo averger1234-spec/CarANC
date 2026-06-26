@@ -88,12 +88,19 @@ fun CommercialPanel(modifier: Modifier = Modifier) {
                 OutlinedButton(
                     onClick = { openUrl(context, ProductCatalog.PRIVACY_POLICY_URL) },
                     modifier = Modifier.weight(1f)
-                ) { Text("隱私政策") }
+                ) { Text("隱私政策\n（GitHub 完整版）") }
                 OutlinedButton(
                     onClick = { openUrl(context, ProductCatalog.TERMS_URL) },
                     modifier = Modifier.weight(1f)
-                ) { Text("服務條款") }
+                ) { Text("服務條款\n（GitHub 完整版）") }
             }
+
+            Text(
+                "（目前無獨立網站，GitHub 為公開 Markdown 來源；「方案」分頁上方另有 App 內完整對話框版本，離線可用）",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
 
             if (BuildConfig.DEBUG) {
                 Spacer(modifier = Modifier.height(12.dp))

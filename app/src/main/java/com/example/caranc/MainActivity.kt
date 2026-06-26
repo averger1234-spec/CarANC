@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.caranc.shared.*
 import com.example.caranc.shared.commercial.TierChangeResult
+import com.example.caranc.shared.commercial.PrivacyPolicy
+import com.example.caranc.shared.commercial.TermsOfService
 import com.example.caranc.shared.service.ANCService
 import com.example.caranc.ui.theme.CarANCTheme
 import android.widget.Toast
@@ -165,10 +167,18 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
     }
     var pendingStartAfterConsent by remember { mutableStateOf(false) }
 
+    fun openUrlInBrowser(url: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+        }.onFailure {
+            Toast.makeText(context, "無法開啟：$url", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     var showPrivacy by remember { mutableStateOf(false) }
     var showTerms by remember { mutableStateOf(false) }
 
-    // Bottom navigation for cleaner UI: 狀態 / 方案 (含隱私政策、服務條款) / 測試腳本 / 測試平台
+    // Bottom navigation for cleaner UI: 狀態 / 方案 (含隱私政策、服務條款；目前無網站，GitHub + in-app) / 測試腳本 / 測試平台
     var selectedTab by remember { mutableStateOf(0) }
     val tabTitles = listOf("狀態", "方案", "測試腳本", "測試平台")
     val tabIcons = listOf(Icons.Filled.Home, Icons.Filled.ShoppingCart, Icons.Filled.List, Icons.Filled.Settings)
@@ -192,17 +202,49 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
     if (showPrivacy) {
         AlertDialog(
             onDismissRequest = { showPrivacy = false },
-            title = { Text("隱私政策") },
+            title = { Text(PrivacyPolicy.TITLE) },
             text = {
-                Text(
-                    "本應用程式（CarANC）僅在您的裝置本機記錄測試資料，包括車型、測試場景、手機放置位置、麥克風音訊、車速、降噪參數等，用於個人降噪效果調校與分析。\n\n" +
-                    "資料完全不會上傳至任何伺服器、雲端服務或分享給第三方。\n\n" +
-                    "您可隨時在「測試平台」匯出或刪除 log 檔。\n\n" +
-                    "本應用為實驗性質，使用時請注意周圍環境安全。"
-                )
+                val dialogScroll = rememberScrollState()
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(dialogScroll)
+                        .heightIn(max = 320.dp)
+                ) {
+                    Text(
+                        "${PrivacyPolicy.VERSION} · 最後更新 ${PrivacyPolicy.LAST_UPDATED}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(PrivacyPolicy.SHORT_SUMMARY)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "完整版本（含權限表、資料刪除說明、未來雲端規劃）請見 GitHub：",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        PrivacyPolicy.GITHUB_URL,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "提示：您也可以在「方案」分頁點擊「隱私政策（GitHub 完整版）」用瀏覽器開啟。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             },
             confirmButton = {
                 Button(onClick = { showPrivacy = false }) { Text("關閉") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    openUrlInBrowser(PrivacyPolicy.GITHUB_URL)
+                    showPrivacy = false
+                }) {
+                    Text("在瀏覽器開啟完整版")
+                }
             }
         )
     }
@@ -210,19 +252,49 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
     if (showTerms) {
         AlertDialog(
             onDismissRequest = { showTerms = false },
-            title = { Text("服務條款與免責聲明") },
+            title = { Text(TermsOfService.TITLE) },
             text = {
-                Text(
-                    "本應用程式為實驗性主動降噪（ANC）工具，僅供個人研究與測試使用。\n\n" +
-                    "1. 效果不保證：降噪效果因車型、環境、麥克風位置、硬體延遲等因素差異極大，可能無法達到預期。\n" +
-                    "2. 安全第一：請勿在駕駛時分心操作 UI 或調整參數。使用本軟體時請保持對路況的專注。\n" +
-                    "3. 無保固：本軟體「依原樣」提供，不提供任何明示或暗示的保證（包括但不限於適售性、特定用途適用性）。\n" +
-                    "4. 責任限制：開發者對於因使用本應用程式而造成的任何直接、間接、附帶或衍生損害不承擔責任。\n\n" +
-                    "繼續使用即表示您同意上述條款。"
-                )
+                val dialogScroll = rememberScrollState()
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(dialogScroll)
+                        .heightIn(max = 320.dp)
+                ) {
+                    Text(
+                        "${TermsOfService.VERSION} · 最後更新 ${TermsOfService.LAST_UPDATED}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(TermsOfService.SHORT_SUMMARY)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "完整版本（含更詳細安全聲明、責任限制、管轄法律）請見 GitHub：",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        TermsOfService.GITHUB_URL,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "提示：您也可以在「方案」分頁點擊「服務條款（GitHub 完整版）」用瀏覽器開啟。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             },
             confirmButton = {
                 Button(onClick = { showTerms = false }) { Text("我同意並關閉") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    openUrlInBrowser(TermsOfService.GITHUB_URL)
+                    showTerms = false
+                }) {
+                    Text("在瀏覽器開啟完整版")
+                }
             }
         )
     }
@@ -342,7 +414,7 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
                 }
 
                 1 -> {
-                    // 方案 tab：方案切換 + 隱私政策 + 服務條款
+                    // 方案 tab：方案切換 + 隱私政策 + 服務條款（目前無獨立網站，使用 GitHub + App 內對話框）
                     CommercialPanel()
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -365,7 +437,7 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
 
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        "提示：方案切換影響降噪強度與功能開放。隱私政策與服務條款僅供參考，本應用為實驗性質。",
+                        "提示：方案切換影響降噪強度與功能開放。隱私政策與服務條款以 App 內文字為主（離線可讀），完整 Markdown 版放在 GitHub（無獨立網站前使用此方式）。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

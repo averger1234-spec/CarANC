@@ -40,8 +40,12 @@ object ProductCatalog {
     const val PRODUCT_NAME = "CarANC"
     const val PRODUCT_TAGLINE = "手機即裝即用車內主動降噪"
     const val MARKET_POSITION = "Android Auto 通勤族 · 二手車／無原廠 ANC 車主"
-    const val PRIVACY_POLICY_URL = "https://caranc.app/privacy"
-    const val TERMS_URL = "https://caranc.app/terms"
+    // 注意：目前沒有獨立網站（caranc.app 僅為預留域名）。
+    // 隱私政策與服務條款暫時指向 GitHub 儲存庫的 Markdown 文件（可直接在瀏覽器閱讀渲染後內容）。
+    // 未來有正式網站後，再更新為 https://caranc.app/privacy 等。
+    // App 內也提供完整文字的 AlertDialog（離線可用）。
+    const val PRIVACY_POLICY_URL = "https://github.com/averger1234-spec/CarANC/blob/main/PRIVACY.md"
+    const val TERMS_URL = "https://github.com/averger1234-spec/CarANC/blob/main/TERMS.md"
     const val SUPPORT_EMAIL = "support@caranc.app"
 
     val planOrder: List<SubscriptionPlan> = listOf(

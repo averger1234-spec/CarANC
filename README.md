@@ -350,12 +350,19 @@ CarANC 為輔助降噪工具，**不能**保證消除所有噪音或取代駕駛
 
 ## 聯絡與支援
 
-- 產品網站條款：https://caranc.app/terms
-- 隱私政策：https://caranc.app/privacy
+> **注意**：目前沒有獨立產品網站（caranc.app 為預留域名）。隱私政策與服務條款以 GitHub Markdown 為公開來源，同時完整內嵌於 App 內「方案」分頁的對話框（離線也可閱讀）。
+
+- 隱私政策（GitHub 版）：https://github.com/averger1234-spec/CarANC/blob/main/PRIVACY.md
+- 服務條款與免責聲明（GitHub 版）：https://github.com/averger1234-spec/CarANC/blob/main/TERMS.md
 - 支援信箱：support@caranc.app
+- GitHub Issues：https://github.com/averger1234-spec/CarANC/issues
+
+未來有正式網站後，會更新 ProductCatalog 內的 URL 並同步 README。
 
 ---
 
 ## 授權
 
 本專案授權條款尚未定案。若需商用或再散布，請聯絡專案維護者。
+
+隱私政策與服務條款請見本頁上方「聯絡與支援」區塊及 App 內「方案」分頁。使用本軟體前務必閱讀服務條款（特別是安全與免責聲明）。
