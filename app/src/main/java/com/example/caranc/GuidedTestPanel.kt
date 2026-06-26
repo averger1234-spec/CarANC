@@ -128,6 +128,11 @@ fun GuidedTestPanel(
                         val msg = if (exported) "已開啟分享選單" else "沒有可匯出的 log"
                         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     },
+                    onSaveToDownloads = {
+                        val path = TestLogExporter.saveLatestLogToDownloads(context)
+                        val msg = if (path != null) "已儲存到：$path" else "儲存失敗"
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    },
                     onRestart = {
                         note = ""
                         GuidedTestController.start(CarRoadTuningScript.steps, CarRoadTuningScript.SCRIPT_ID, CarRoadTuningScript.SCRIPT_NAME)
@@ -319,15 +324,21 @@ private fun ActiveScriptView(
 }
 
 @Composable
-private fun FinishedScriptView(onExport: () -> Unit, onRestart: () -> Unit) {
+private fun FinishedScriptView(onExport: () -> Unit, onSaveToDownloads: () -> Unit, onRestart: () -> Unit) {
     Text("測試腳本已完成，log 已寫入 session。", style = MaterialTheme.typography.bodyMedium)
+    Spacer(modifier = Modifier.height(8.dp))
+    Text("建議：測試完立即儲存 log 到 CarANC_Logs（方便 Google Drive 上傳），不用切到測試平台分頁。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(modifier = Modifier.height(12.dp))
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = onExport, modifier = Modifier.weight(1f)) {
-            Text("匯出 Log")
+            Text("分享 Log")
         }
-        OutlinedButton(onClick = onRestart, modifier = Modifier.weight(1f)) {
-            Text("再測一次")
+        Button(onClick = onSaveToDownloads, modifier = Modifier.weight(1f)) {
+            Text("儲存到下載 / CarANC_Logs")
         }
+    }
+    Spacer(modifier = Modifier.height(8.dp))
+    OutlinedButton(onClick = onRestart, modifier = Modifier.fillMaxWidth()) {
+        Text("再測一次")
     }
 }
