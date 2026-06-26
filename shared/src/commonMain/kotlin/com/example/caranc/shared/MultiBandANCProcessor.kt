@@ -438,7 +438,12 @@ class MultiBandANCProcessor(
                     // Even higher road_wiener in musicLow for tire/wind (aggressive feedforward)
                     val roadMusicWeight = if (roadMode) roadWiener.blendGain() * 2.0f else 0f
                     val roadFfInMusicLow = if (roadMode) roadWiener.feedforwardSample(lowSample) * roadMusicWeight else 0f
-                    - (lowAnti + lowPassOutput(higherAnti)) + engineFf + roadFfInMusicLow
+
+                    // Per Skoda Octavia 2019 + user spectrum analysis (200-350 Hz dominant rumble):
+                    // When road noise dominant (roadMode), relax higher-band lowpass protection so mid (200-350Hz) anti can contribute.
+                    // This addresses the case where main energy is above 150Hz limit.
+                    val protectedHigher = if (roadMode) higherAnti * 0.65f else lowPassOutput(higherAnti)
+                    - (lowAnti + protectedHigher) + engineFf + roadFfInMusicLow
                 }
                 floorMode -> -lowPassOutput(adaptiveCombined) + engineFf
                 roadMode -> -roadLowPassOutput(adaptiveCombined) + roadFf + engineFf * 0.3f
@@ -515,7 +520,7 @@ class MultiBandANCProcessor(
             AncProcessingMode.FLOOR_NOISE_MUSIC -> if (band.label == "low" && musicLowAncEnabled) 1f else 0.38f
             AncProcessingMode.FLOOR_NOISE_CALL -> 0.08f
             AncProcessingMode.ROAD_NOISE_GPS -> 0.75f
-            AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD -> if (band.label == "low" && musicLowAncEnabled) 1f else 0.55f
+            AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD -> if (band.label == "low" && musicLowAncEnabled) 1f else if (roadMode) 0.75f else 0.55f
         }
         val resonanceScale = CabinResonanceDetector.resonanceMuScale(band.centerHz, resonancePeaks)
         return band.baseMuScale * modeScale * speedMuScale() * resonanceScale * debugMuMultiplier
