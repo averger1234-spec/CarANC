@@ -21,35 +21,45 @@
 
 **用途**：你改完 code 後，一鍵把最新版本蓋到手機上。
 
-**怎麼用**：
+**怎麼用**（最簡單）：
 1. 先 `git pull` 確保拿到最新 code。
-2. 在專案根目錄開啟 PowerShell（或在資料夾裡按右鍵 → 「在終端機中開啟」）。
-3. 輸入：
-   ```
-   .\scripts\install-debug.ps1
-   ```
-4. 等它跑完（會自動編譯 + 安裝）。
-5. 手機上的 App 就變成最新版了。
+2. **直接雙擊** `scripts\install-debug.bat` （推薦！會自動處理 PowerShell 執行原則，不會閃退）
+   - 或者手動開 PowerShell / AS Terminal，輸入：
+     ```
+     .\scripts\install-debug.ps1
+     ```
+3. 等它跑完（會自動編譯 + 安裝到手機）。
+4. 手機上的 App 就變成最新版了。
 
-跑完後會顯示「按任意鍵結束」，按一下就關閉。
+跑完會暫停，按任意鍵關閉。
 
 ### 2. pull-latest-log.ps1 （直接把手機上的 log 拉到電腦）
 
 **用途**：跑完路測後，不用手動上傳 Google Drive。腳本會自動把最新的測試 log 複製到你電腦的 `log/` 資料夾。
 
-**怎麼用**：
+**怎麼用**（最簡單）：
 1. 手機跑完測試後（記得按「完成這步」或匯出）。
-2. 在同一個連到手機的電腦上，開 PowerShell，輸入：
-   ```
-   .\scripts\pull-latest-log.ps1
-   ```
-3. 它會自動找到最新那個 `anc_session_....log` 並拉下來。
+2. **直接雙擊** `scripts\pull-latest-log.bat` （推薦！不會閃退）
+   - 或者手動開 PowerShell / AS Terminal，輸入：
+     ```
+     .\scripts\pull-latest-log.ps1
+     ```
+3. 它會自動找到最新那個 `anc_session_....log` 並拉到本機 `log/` 資料夾。
 4. 完成後 log 就在你電腦的 `log` 資料夾裡。
 
 **這對分析最有幫助**：
 - log 到了你電腦的 `log/` 資料夾後，你可以直接在這裡跟我說：
   > 「看一下最新的 log」或「分析 log/ 裡最新的檔案」
 - 我可以直接打開讀取那個檔案來分析，不用你再上傳到 Google Drive 給我下載。
+
+## 更簡單的雙擊方式（推薦新手）
+
+如果你雙擊 .ps1 檔案會直接閃退（常見原因），我已經幫你準備了對應的 **.bat 啟動器**：
+
+- 雙擊 `scripts\install-debug.bat` → 會自動用正確方式執行 ps1 + 暫停視窗
+- 雙擊 `scripts\pull-latest-log.bat` → 同上
+
+直接用 .bat 就好，裡面會處理執行原則（bypass）並在結束時暫停讓你看到訊息。
 
 ## 如果你還是不想用 adb / 腳本？
 
@@ -67,11 +77,11 @@
 ## 完整新流程建議（白話版）
 
 1. 你在電腦改程式。
-2. 執行 `install-debug.ps1` → 新版立刻裝到手機。
+2. 雙擊 `install-debug.bat`（或執行 ps1）→ 新版立刻裝到手機。
 3. 拿手機出去路測，跑測試腳本。
-4. 回來後執行 `pull-latest-log.ps1`（或用 App 按「儲存到 CarANC_Logs」再上 Drive）。
+4. 回來後雙擊 `pull-latest-log.bat`（或執行 ps1），log 直接到本機 `log/` 資料夾（或用 App 按「儲存到 CarANC_Logs」再上 Drive）。
 5. 告訴我「看 log」，我直接讀你電腦上的檔案幫你分析。
-6. 我改完 code 推 GitHub，你 `git pull` + 再跑 install 腳本。
+6. 我改完 code 推 GitHub，你 `git pull` + 再雙擊 install-debug.bat。
 7. 重複。
 
 這樣中間的手動傳檔案動作大幅減少。
