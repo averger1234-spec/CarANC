@@ -67,7 +67,7 @@ Write-Host "Finding the latest anc_session_*.log on the phone ..." -ForegroundCo
 
 # Use run-as to access debug app's private directory (only works for debug builds)
 $latestName = & $adbPath shell "run-as $package sh -c 'ls -1t $remoteLogDir/anc_session_*.log 2>/dev/null | head -1'" 
-$latestName = $latestName.Trim()
+$latestName = ($latestName -split '[/\\]' | Select-Object -Last 1).Trim()
 
 if (-not $latestName) {
     Write-Host "No log found on phone. Please first press 'Save to Downloads' or 'Share' in the App 'Test Platform', or confirm logging is enabled." -ForegroundColor Red
