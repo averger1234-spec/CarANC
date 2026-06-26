@@ -171,7 +171,7 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
     // Bottom navigation for cleaner UI: 狀態 / 方案 (含隱私政策、服務條款) / 測試腳本 / 測試平台
     var selectedTab by remember { mutableStateOf(0) }
     val tabTitles = listOf("狀態", "方案", "測試腳本", "測試平台")
-    val tabIcons = listOf(Icons.Filled.Home, Icons.Filled.ShoppingCart, Icons.Filled.Science, Icons.Filled.Settings)
+    val tabIcons = listOf(Icons.Filled.Home, Icons.Filled.ShoppingCart, Icons.Filled.List, Icons.Filled.Settings)
 
     if (showSafetyConsent) {
         SafetyConsentDialog(
