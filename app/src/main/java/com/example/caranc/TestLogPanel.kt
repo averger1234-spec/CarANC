@@ -14,6 +14,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,6 +46,7 @@ fun TestLogPanel(
     var obdAddress by remember { mutableStateOf("") }
     var forceNormalMode by remember { mutableStateOf(false) }
     var musicLowAnc by remember { mutableStateOf(true) }
+    var userAncGain by remember { mutableStateOf(1f) }
     var latestLogName by remember { mutableStateOf(TestLogExporter.latestLogFileName(context)) }
 
     fun persistEnvironment() {
@@ -70,6 +72,7 @@ fun TestLogPanel(
         obdAddress = AncTestPreferences.getObdDeviceAddress(context)
         forceNormalMode = AncTestPreferences.isForceNormalMode(context)
         musicLowAnc = AncTestPreferences.isMusicLowAncEnabled(context)
+        userAncGain = AncTestPreferences.getUserAncGain(context)
     }
 
     Card(modifier = modifier.fillMaxWidth()) {
@@ -203,6 +206,18 @@ fun TestLogPanel(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("ANC 獨立強度 (0~1，獨立於系統音樂/語音音量)", style = MaterialTheme.typography.bodySmall)
+            Slider(
+                value = userAncGain,
+                onValueChange = {
+                    userAncGain = it
+                    AncTestPreferences.setUserAncGain(context, it)
+                },
+                valueRange = 0f..1f,
+                steps = 99
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 

@@ -15,6 +15,7 @@ object AncTestPreferences {
     private const val KEY_MIMO_TRIAL_ENABLED = "mimo_trial_enabled"
     private const val KEY_FORCE_NORMAL_MODE = "force_normal_mode"
     private const val KEY_MUSIC_LOW_ANC = "music_low_anc"
+    private const val KEY_USER_ANC_GAIN = "user_anc_gain"
 
     fun isLoggingEnabled(context: Context): Boolean {
         return prefs(context).getBoolean(KEY_LOGGING_ENABLED, true)
@@ -81,6 +82,14 @@ object AncTestPreferences {
 
     fun setMusicLowAncEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_MUSIC_LOW_ANC, enabled).apply()
+    }
+
+    fun getUserAncGain(context: Context): Float {
+        return prefs(context).getFloat(KEY_USER_ANC_GAIN, 1.0f).coerceIn(0f, 1f)
+    }
+
+    fun setUserAncGain(context: Context, gain: Float) {
+        prefs(context).edit().putFloat(KEY_USER_ANC_GAIN, gain.coerceIn(0f, 1f)).apply()
     }
 
     private fun prefs(context: Context) =

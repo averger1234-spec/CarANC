@@ -450,7 +450,10 @@ class AudioEngine(
                     }
 
                     val forceNormal = AncTestPreferences.isForceNormalMode(appContext)
-                    val isMusic = !forceNormal && audioManager.isMusicActive &&
+                    val mediaRefActive = (mediaPlaybackCapture?.isAvailable == true) &&
+                        (referencePipeline?.snapshotMetrics()?.playbackActive == true)
+                    val isMusic = !forceNormal &&
+                        (audioManager.isMusicActive || mediaRefActive) &&
                         sessionContext.entitlementManager.canUseFeature(CommercialFeature.MUSIC_BYPASS)
                     val isCall = !forceNormal && audioManager.mode != AudioManager.MODE_NORMAL &&
                         sessionContext.entitlementManager.canUseFeature(CommercialFeature.CALL_BYPASS)
@@ -629,7 +632,8 @@ class AudioEngine(
                         // Affects LIGHT (white noise complaint) and higher tiers equally in high-latency routes.
                         val limits = ancProcessor?.getLatencyBandLimits()
                         val antiArtifactGain = if ((limits?.maxCancelFrequencyHz ?: 100f) < 60f) 0.28f else 1f
-                        val finalWriteGain = cappedGain * antiArtifactGain
+                        val userGain = AncTestPreferences.getUserAncGain(appContext)
+                        val finalWriteGain = cappedGain * antiArtifactGain * userGain
                         // reuse buffer (hot-path opt, similar to push buffer reuse)
                         if (outputBufferReuse.size < read) outputBufferReuse = ShortArray(read)
                         scaleSamplesInto(processed, read, finalWriteGain, outputBufferReuse)
@@ -1082,6 +1086,7 @@ class AudioEngine(
                         "outputDevice" to (audioRouteManager?.getActiveOutputDeviceName(audioTrack) ?: "unknown"),
                         "carSinkRouted" to (audioRouteManager?.isCarSinkRouted(audioTrack, isAAConnected()) == true),
                         "ancOutputGain" to (audioRouteManager?.ancOutputGain ?: 1f),
+                        "userAncGain" to AncTestPreferences.getUserAncGain(appContext),
                         "weightFrozen" to (ancProcessor?.isWeightUpdateFrozen() == true),
                         "processingMode" to (ancProcessor?.let { processingModeName(it) } ?: "unknown"),
                         "acousticDelaySamples" to (ancProcessor?.getAcousticDelaySamples() ?: acousticDelaySamples),
@@ -1101,6 +1106,7 @@ class AudioEngine(
                         "aecErleDb" to (referencePipeline?.snapshotMetrics()?.aecErleDb ?: 0f),
                         "mediaCorrelation" to (referencePipeline?.snapshotMetrics()?.mediaCorrelation ?: 0f),
                         "playbackRefActive" to (referencePipeline?.snapshotMetrics()?.playbackActive == true),
+                        "mediaRefActive" to mediaRefActive,
                         "maxCancelFrequencyHz" to ancProcessor?.getLatencyBandLimits()?.maxCancelFrequencyHz,
                         "latencyLowGain" to ancProcessor?.getLatencyBandLimits()?.lowGain,
                         "latencyMidGain" to ancProcessor?.getLatencyBandLimits()?.midGain,
