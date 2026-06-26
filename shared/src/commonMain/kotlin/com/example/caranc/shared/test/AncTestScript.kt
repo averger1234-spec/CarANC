@@ -371,15 +371,16 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_4",
-            title = "#4 強制低延遲 + musicLow 對比（mu=1.7, freeze=11, c=2, override=70）",
+            title = "#4 強制低延遲 + musicLow 對比（Skoda 200-350Hz rumble 專用）（mu=1.7, freeze=11, c=2, override=70）",
             instructions = listOf(
                 "系統已自動套用參數（mu=1.7 / freeze=11 / c=2 / override=70）",
                 "同一段粗糙路 60-90 秒",
-                "預期觀察重點：mid band 貢獻增加，比較 musicLow ON/OFF 感覺（此 step ON，記錄 scenario 註 musicLow=ON）"
+                "Skoda Octavia 2019 專用：這步用 override=70 強制推 maxCancel 接近 200Hz+，觀察 mid band (200-350Hz) 是否開始有貢獻（這是你錄音主力頻段）",
+                "預期觀察重點：mid band 貢獻增加、reduction 在 200-350Hz 是否改善，比較 musicLow ON/OFF 感覺（此 step ON，記錄 scenario 註 musicLow=ON + \"Skoda mid-rumble test\"）"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.7", "freezeTh=11", "consec=2", "override=70", "musicLow=ON"),
+            checklist = listOf("muMult=1.7", "freezeTh=11", "consec=2", "override=70", "musicLow=ON", "Skoda 200-350Hz focus"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.7f,
@@ -418,7 +419,7 @@ object CarRoadTuningScript {
                 "記錄 scenario 註明各 step 參數組合 + speed 範圍 + \"musicLow=ON/OFF\"",
                 "建議配外部錄音 + spectrum（重點 50-250Hz rumble 能量下降）",
                 "觀察重點：不同 debug 設定下 lowBandLms 更新率、freezeRem 頻率、reduction 在 rumble 主導時變化、主觀低頻 rumble 降低程度（0-10分）",
-                "比較重點：lmsUpdate 上升速度、freeze 頻率、antiNoiseDb 負值、reductionDb、midBand 貢獻、是否出現 artifact"
+                "比較重點：lmsUpdate 上升速度、freeze 頻率、antiNoiseDb 負值、reductionDb、midBand 貢獻（尤其是 Skoda 200-350Hz 區）、是否出現 artifact"
             ),
             durationSec = 0,
             requiresAncRunning = false,
