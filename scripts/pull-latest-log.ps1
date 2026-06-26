@@ -21,19 +21,37 @@ if (-not (Test-Path $localLogDir)) {
     New-Item -ItemType Directory -Path $localLogDir | Out-Null
 }
 
-# Quick check if adb is available
-try {
-    $null = adb version
-} catch {
-    Write-Host "ERROR: adb command not found! Please run from Android Studio Terminal or ensure platform-tools is in PATH." -ForegroundColor Red
-    Write-Host ""
-    Write-Host "Press any key to exit..." -ForegroundColor Gray
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-    exit 1
+# Try to find adb automatically
+$adbPath = $null
+$possiblePaths = @(
+    "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe",
+    "$env:APPDATA\..\Local\Android\Sdk\platform-tools\adb.exe",
+    "C:\Android\Sdk\platform-tools\adb.exe"
+)
+foreach ($p in $possiblePaths) {
+    if (Test-Path $p) {
+        $adbPath = $p
+        break
+    }
+}
+
+if (-not $adbPath) {
+    try {
+        $null = adb version
+        $adbPath = "adb"
+    } catch {
+        Write-Host "ERROR: adb command not found! Please run from Android Studio Terminal or ensure platform-tools is in PATH." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Press any key to exit..." -ForegroundColor Gray
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        exit 1
+    }
+} else {
+    Write-Host "Found adb at: $adbPath" -ForegroundColor Green
 }
 
 # Check for connected device
-$devices = adb devices | Select-String "device$"
+$devices = & $adbPath devices | Select-String "device$"
 if (-not $devices) {
     Write-Host "ERROR: No connected phone detected." -ForegroundColor Red
     Write-Host "Please:"
@@ -48,7 +66,7 @@ if (-not $devices) {
 Write-Host "Finding the latest anc_session_*.log on the phone ..." -ForegroundColor Yellow
 
 # Use run-as to access debug app's private directory (only works for debug builds)
-$latestName = adb shell "run-as $package sh -c 'ls -1t $remoteLogDir/anc_session_*.log 2>/dev/null | head -1'" 
+$latestName = & $adbPath shell "run-as $package sh -c 'ls -1t $remoteLogDir/anc_session_*.log 2>/dev/null | head -1'" 
 $latestName = $latestName.Trim()
 
 if (-not $latestName) {
@@ -64,7 +82,7 @@ $localPath = Join-Path $localLogDir $latestName
 Write-Host "Pulling to $localPath using run-as + exec-out ..." -ForegroundColor Yellow
 
 # exec-out + run-as cat is more reliable than pulling private dir
-adb exec-out "run-as $package cat '$remotePath'" | Out-File -Encoding utf8 -FilePath $localPath -NoNewline
+& $adbPath exec-out "run-as $package cat '$remotePath'" | Out-File -Encoding utf8 -FilePath $localPath -NoNewline
 
 if (Test-Path $localPath) {
     $size = (Get-Item $localPath).Length
