@@ -432,7 +432,7 @@ class MultiBandANCProcessor(
                     // More aggressive dynamic boost for low band in musicLowAnc (user: perceived reduction still insensitive, make rumble cancellation stronger)
                     val lowRumbleEnergy = kotlin.math.abs(lowOut) * bandGains.low
                     val speedBoost = (vehicleSpeedKmh / 100f).coerceIn(0f, 0.6f)
-                    val dynamicLowBoost = 1.5f + (lowRumbleEnergy * 0.6f).coerceAtMost(0.8f) + speedBoost  // bumped base 1.5, higher multipliers for aggressive low-freq
+                    val dynamicLowBoost = 1.6f + (lowRumbleEnergy * 0.7f).coerceAtMost(1.0f) + speedBoost  // even more aggressive for perceived rumble reduction (user: still insensitive)
                     val lowAnti = (lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f) * dynamicLowBoost
                     val higherAnti = midOut + highOut
                     // Even higher road_wiener in musicLow for tire/wind (aggressive feedforward)
