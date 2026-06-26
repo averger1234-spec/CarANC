@@ -22,16 +22,16 @@
 **用途**：你改完 code 後，一鍵把最新版本蓋到手機上。
 
 **怎麼用**（最簡單）：
-1. 先 `git pull` 確保拿到最新 code。
-2. **直接雙擊** `scripts\install-debug.bat` （推薦！會自動處理 PowerShell 執行原則，不會閃退）
-   - 或者手動開 PowerShell / AS Terminal，輸入：
+1. 先 `git pull` 確保拿到最新 code（很重要，拿到修正後的 .bat）。
+2. **直接在檔案總管雙擊** `scripts\install-debug.bat` （最推薦，會自動處理編碼 + bypass + 暫停）
+   - 或者用 AS Terminal / 開 PowerShell 輸入：
      ```
      .\scripts\install-debug.ps1
      ```
-3. 等它跑完（會自動編譯 + 安裝到手機）。
+3. 等它跑完（會自動編譯 + adb 安裝到手機）。
 4. 手機上的 App 就變成最新版了。
 
-跑完會暫停，按任意鍵關閉。
+跑完視窗會暫停，按任意鍵關閉。
 
 ### 2. pull-latest-log.ps1 （直接把手機上的 log 拉到電腦）
 
@@ -39,12 +39,12 @@
 
 **怎麼用**（最簡單）：
 1. 手機跑完測試後（記得按「完成這步」或匯出）。
-2. **直接雙擊** `scripts\pull-latest-log.bat` （推薦！不會閃退）
-   - 或者手動開 PowerShell / AS Terminal，輸入：
+2. **直接在檔案總管雙擊** `scripts\pull-latest-log.bat` （最推薦）
+   - 或者用 AS Terminal / 開 PowerShell 輸入：
      ```
      .\scripts\pull-latest-log.ps1
      ```
-3. 它會自動找到最新那個 `anc_session_....log` 並拉到本機 `log/` 資料夾。
+3. 它會自動從手機拉最新 log 到本機 `log/` 資料夾。
 4. 完成後 log 就在你電腦的 `log` 資料夾裡。
 
 **這對分析最有幫助**：
@@ -54,12 +54,14 @@
 
 ## 更簡單的雙擊方式（推薦新手）
 
-如果你雙擊 .ps1 檔案會直接閃退（常見原因），我已經幫你準備了對應的 **.bat 啟動器**：
+如果你雙擊 .ps1 檔案會直接閃退，或出現亂碼 / 不是內部命令的錯誤（這是因為 .bat 裡的中文在 Windows 傳統中文系統的 cmd 編碼衝突），我已經幫你準備了修正版的 **.bat 啟動器**：
 
-- 雙擊 `scripts\install-debug.bat` → 會自動用正確方式執行 ps1 + 暫停視窗
+- 雙擊 `scripts\install-debug.bat` → 會自動切換到 UTF-8 (chcp 65001) + 用 PowerShell bypass 執行 + 暫停
 - 雙擊 `scripts\pull-latest-log.bat` → 同上
 
-直接用 .bat 就好，裡面會處理執行原則（bypass）並在結束時暫停讓你看到訊息。
+直接用 .bat 就好。這些 .bat 現在是純英文，避免編碼問題。
+
+如果還是報錯，請先 `git pull` 拿到最新版本的 .bat。
 
 ## 如果你還是不想用 adb / 腳本？
 
@@ -77,10 +79,10 @@
 ## 完整新流程建議（白話版）
 
 1. 你在電腦改程式。
-2. 雙擊 `install-debug.bat`（或執行 ps1）→ 新版立刻裝到手機。
+2. 雙擊 `install-debug.bat` → 新版立刻裝到手機。
 3. 拿手機出去路測，跑測試腳本。
-4. 回來後雙擊 `pull-latest-log.bat`（或執行 ps1），log 直接到本機 `log/` 資料夾（或用 App 按「儲存到 CarANC_Logs」再上 Drive）。
-5. 告訴我「看 log」，我直接讀你電腦上的檔案幫你分析。
+4. 回來後雙擊 `pull-latest-log.bat`，log 直接到本機 `log/` 資料夾（或用 App 按「儲存到 CarANC_Logs」）。
+5. 告訴我「看最新的 log」，我可以直接讀你本機的檔案分析。
 6. 我改完 code 推 GitHub，你 `git pull` + 再雙擊 install-debug.bat。
 7. 重複。
 
