@@ -337,24 +337,49 @@ fun TestLogPanel(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 主要匯出按鈕 - 針對快速迭代優化
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(
                     onClick = {
                         val exported = TestLogExporter.shareLatestLog(context)
                         latestLogName = TestLogExporter.latestLogFileName(context)
-                        val message = if (exported) "已開啟分享選單" else "沒有可匯出的 log 檔"
+                        val message = if (exported) "已開啟分享選單（可直接選 Google Drive）" else "沒有可匯出的 log 檔"
                         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                     },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("匯出 Log")
+                    Text("分享 Log（選 Google Drive / Email 等）")
                 }
+
+                Button(
+                    onClick = {
+                        val savedPath = TestLogExporter.saveLatestLogToDownloads(context)
+                        latestLogName = TestLogExporter.latestLogFileName(context)
+                        val message = if (savedPath != null) {
+                            "已儲存到：${savedPath}\n請用檔案總管或 Drive App 找到 CarANC_Logs 資料夾上傳"
+                        } else "儲存失敗"
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("儲存到「下載 / CarANC_Logs」（推薦用來同步 Google Drive）")
+                }
+
                 OutlinedButton(
                     onClick = { latestLogName = TestLogExporter.latestLogFileName(context) },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("重新整理")
+                    Text("重新整理最新 log 名稱")
                 }
+            }
+
+            if (BuildConfig.DEBUG) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    "開發者提示：推薦啟用「無線偵錯」，連上 adb 後可用 scripts/pull-latest-log.ps1 直接拉 log 到電腦，不用手動上傳 Drive。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

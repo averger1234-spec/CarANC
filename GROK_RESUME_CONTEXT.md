@@ -195,3 +195,14 @@
   - 未來只要在 ProductCatalog 改一個 const + README 即可切換到 caranc.app。
 - 建議：如果之後要用 GitHub Pages 做更漂亮的站（https://averger1234-spec.github.io/CarANC/），可以把 md 複製到 docs/ 並設定 Pages source，URL 再更新即可。
 - 也提醒使用者：上架 Play 前務必確認隱私政策內容符合實際資料收集行為（目前是「完全不上傳」）。
+
+**2026-06-26 工作流程優化（針對路測快速迭代）**：
+- 為了解決你描述的舊流程（AS 更新手機 → 路測 log → 上傳 Google Drive → 我下載分析 → 改 code → push GitHub → 更新手機），新增了兩支 PowerShell 腳本 + App 內匯出改進：
+  - `scripts/install-debug.ps1`：一鍵 build debug APK + adb install -r（快速把最新 code 蓋到手機）。
+  - `scripts/pull-latest-log.ps1`：直接從手機私有儲存 (run-as) 把最新 anc_session_*.log 拉到本機 `log/` 資料夾。
+  - TestLogExporter 新增 saveLatestLogToDownloads()，TestLogPanel 增加「儲存到下載 / CarANC_Logs」按鈕（方便 Drive 同步，路徑明確）。
+  - 在「測試平台」匯出區塊加開發者提示，引導使用無線偵錯 + 腳本。
+- 完整新流程已寫在 MULTI_MACHINE_SYNC.md 的「高效路測迭代工作流程」章節。
+- 好處：我之後可以直接用工具讀你本機 log/ 裡的檔案分析，不用每次請你上傳；整體一輪迭代時間大幅縮短。
+- 仍然保留原本 Drive 路徑作為備援。
+- 強烈建議搭配手機無線 ADB 使用。
