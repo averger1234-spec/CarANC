@@ -371,22 +371,22 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_4",
-            title = "#4 強制低延遲 + musicLow 對比（Skoda 200-350Hz rumble 專用）（mu=1.7, freeze=11, c=2, override=70）",
+            title = "#4 強制低延遲 + musicLow 對比（Skoda 200-350Hz rumble 專用）（mu=1.7, freeze=11, c=2, override=120）",
             instructions = listOf(
                 "系統已自動套用參數（mu=1.7 / freeze=11 / c=2 / override=70）",
                 "同一段粗糙路 60-90 秒",
-                "Skoda Octavia 2019 專用：這步用 override=70 強制推 maxCancel 接近 200Hz+，觀察 mid band (200-350Hz) 是否開始有貢獻（這是你錄音主力頻段）",
+                "Skoda Octavia 2019 專用：這步用 override=120 強制推 maxCancel 接近 250Hz+，觀察 mid band (200-350Hz) 是否開始有貢獻（這是你錄音主力頻段）",
                 "預期觀察重點：mid band 貢獻增加、reduction 在 200-350Hz 是否改善，比較 musicLow ON/OFF 感覺（此 step ON，記錄 scenario 註 musicLow=ON + \"Skoda mid-rumble test\"）"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.7", "freezeTh=11", "consec=2", "override=70", "musicLow=ON", "Skoda 200-350Hz focus"),
+            checklist = listOf("muMult=1.7", "freezeTh=11", "consec=2", "override=120", "musicLow=ON", "Skoda 200-350Hz focus"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.7f,
                 "freezeThreshold" to 11f,
                 "freezeConsec" to 2,
-                "latencyOverrideMs" to 70f
+                "latencyOverrideMs" to 120f
             )
         ),
         TestScriptStep(
