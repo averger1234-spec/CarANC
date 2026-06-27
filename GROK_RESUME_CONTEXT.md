@@ -162,9 +162,12 @@
 �}����s�G�s�W CarRoadTuningScript�]�����̷ӥΤᴣ�Ѫ� 5 �� mu/freeze/override ����^�CGuidedTestPanel �{�b���M�����s�u�}�l�����ծմ��ա]���ˡ^�v�C�Ĥ@���ꨮ�Ъ����γo�� guided script + TestLogPanel �]�ѼơC�Ԩ� MULTI �̷s����C 
 
 **2026-06-27 更新**：
-- 路噪調校腳本 (car_road_tuning_v1) 已改為全自動套用參數：
-  - 進入每一步時自動設定 muMult / freeze / latencyOverride / forceNormal / musicLowAnc / userAncGain
-  - 使用者只需按「完成這步」 + 最後匯出 log，無需手動調 TestLogPanel 的 debug 滑桿
+- 路噪調校腳本 (car_road_tuning_v1) 已延伸改進（基於#4 強制低延遲 + musicLow 對比 Skoda 200-350Hz rumble 專用，override=120）：
+  - 新增 tuning_4b_Skoda 步驟（override=150, mu=1.6 mid-focus），強調 3 次完整迭代（prep+1-4-4b-5+finish）。
+  - 自動套用參數，每步優先觀察 midBand 貢獻與 200-350Hz reduction。finish instructions 更新為記錄 scenario 註 "Skoda #4/#4b 經驗, iter X"，並比較 effective maxCancel 與 rumble 有感程度。
+  - 目標：迭代 3 次完整腳本 + 配外部錄音 + spectrum，直到 effective latency 改善（maxCancel 250Hz+）、200-350Hz reduction 有感（-3~-5dB+）。
+  - 進入每一步時自動設定 muMult / freeze / latencyOverride / forceNormal / musicLowAnc / userAncGain（#4b 延伸自 #4）。
+  - 使用者只需按「完成這步」 + 最後在 GuidedTest finish 直接「儲存到下載 / CarANC_Logs」（新按鈕，無需切測試平台），無需手動調 TestLogPanel 的 debug 滑桿。
 - UI 文字與 MULTI_MACHINE_SYNC.md 已同步更新，強調「自動套用」
 - UI 改進（回應「不直覺、欄位太長」 + 使用者要求「隱私政策、服務條款、方案切換放底部選單，測試腳本一個、測試平台一個，在底部點選」）：
   MainActivity 改為底部 NavigationBar 4 個分頁（Scaffold + NavigationBar）：
