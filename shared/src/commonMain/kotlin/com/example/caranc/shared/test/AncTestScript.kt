@@ -269,6 +269,7 @@ object CarAncTestScript {
         "lowBandMuScale",
         "midBandMuScale",
         "highBandMuScale",
+        "effectiveMidMu",  // Iter2+: tracks actual midMu post road/music boost for rumble contrib diagnosis
         "antiNoiseDb",
         "lmsUpdateCount",
         "lowBandLmsUpdateCount",
@@ -279,14 +280,14 @@ object CarAncTestScript {
 
 object CarRoadTuningScript {
     const val SCRIPT_ID = "car_road_tuning_v1"
-    const val SCRIPT_NAME = "Skoda 200-350Hz rumble 快速迭代測試（基於#4/#4b 低延遲 + musicLow 對比，跳過無用 baseline，3 次快速循環直達有感）"
+    const val SCRIPT_NAME = "Skoda 200-350Hz rumble 快速迭代測試（基於#4/#4b/#6/#7_ext Subagent3 Extended#7+iter variant 低延遲 + musicLow + mid-force + strong-road-pure-ROAD_MID-even-music 對比，iter1-4+ S3突破，跳過無用 baseline，4 次快速循環直達有感；用 old prep/4/4b/5 UNCHANGED 穩定 baseline + #6/#7 A/B 單輪比）"
 
     // 注意：根據 Skoda Octavia 2019 真實錄音頻譜分析（用戶提供）：
     // 主要路噪能量在 200-350 Hz（57.6%），峰值 ~305 Hz 會隨路段浮動 220-310 Hz。
     // 目前 150 Hz maxCancel 嚴重不足，只吃到邊緣 → 即使 LMS 活躍，reduction 仍極低。
-    // 快速迭代版本（已 streamline）：移除無用早期 baseline（1/2/3，已知問題，不新增數據）。保留/延伸有用的 #4/#4b（低延遲 + musicLow 對比 Skoda rumble 專用）+ quick prep + contrast + finish。
-    // 目標：每次跑完整 prep+4+4b+5+finish（更少步驟，更快），配外部錄音 + spectrum。迭代 3 次後，effective latency 改善（override 推 maxCancel 250Hz+）、200-350Hz reduction 有感（-3~-5dB+，mid 貢獻）。
-    // 調校時優先觀察 midBand 貢獻與 200-350 Hz reduction。每步 scenario 註 "Skoda #4/#4b 經驗, iter X"。finish 強調下一輪優先重跑#4/#4b 變體。
+    // 快速迭代版本（已 streamline）：移除無用早期 baseline（1/2/3，已知問題，不新增數據）。保留 old prep/4/4b/5 UNCHANGED 作為穩定 baseline；延伸 #6 midforce + #7 strong road rumble（iter4 + Subagent3 Extended #7 variant: stronger mid boost, classifier pure ROAD_MID even with music (speed>28+low+mid energy>=0.30), ov=80 maxC300+, mid error*1.28, centerHz 335 for 300-350 focus）。
+    // 目標：每次跑完整 prep+4+4b+5+6+7+finish（更少步驟，更快），配外部錄音 + spectrum。迭代 後，effective latency 改善（override 推 maxCancel 250-340Hz+）、200-350Hz reduction 有感（-4~-6dB+，mid 貢獻 via effectiveMidMu 0.6+）。使用 old parts (prep/4/4b/5) 單輪 A/B 測試穩定 baseline 對比新 #6/#7 突破。所有新 boost 最小安全 guarded by roadMode + speed + energy。
+    // 調校時優先觀察 midBand 貢獻、effectiveMidMu、maxC 與 200-350 Hz reduction。每步 scenario 註 "Skoda #4/#4b/#6/#7 經驗, iter X"。finish 強調下一輪優先重跑#4b/#6/#7 變體（old for A/B）。
 
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
@@ -294,12 +295,12 @@ object CarRoadTuningScript {
             title = "調校準備（快速）",
             instructions = listOf(
                 "USB AA 連車機",
-                "車型/手機位置/情境在「實車測試 Log」填寫清楚（例如「個人 Pixel + USB AA + 粗糙國道」）",
+                "車型/手機位置/情境在「實車測試 Log」填寫清楚（例如「個人 Pixel + USB AA + 粗糙國道 iter4」）",
                 "點「開始降噪」完成校正，狀態顯示「降噪中」",
-                "準備好後進入同一条粗糙路面（40-70km/h 顛簸），全程無/低音樂",
+                "準備好後進入同一条粗糙路面（50-70km/h 顛簸強 rumble），全程**嚴格低音樂（音量<20% 或 off）** + speed 50+ 維持 rough road",
                 "接下來每步按「完成這步」前，系統會自動套用對應的 LMS 調校參數",
                 "只需專心開車並在每步維持時間即可，最後一步匯出 log",
-                "延伸：這是 Skoda 專用低延遲 musicLow 快速迭代腳本（基於#4/#4b）。跳過無用早期 baseline（已知高延遲問題），直接進入#4/#4b 核心對比。計劃跑 3 次完整腳本，每次配錄音+spectrum。優先記錄 mid band 貢獻與 200-350Hz reduction。"
+                "延伸：這是 Skoda 專用低延遲 musicLow 快速迭代腳本（基於#4/#4b +#6 +#7 iter4）。跳過無用早期 baseline（已知高延遲問題），直接進入#4/#4b/#6/#7 核心對比。計劃跑 3-4 次完整腳本，每次配錄音+spectrum。優先記錄 mid band 貢獻、effectiveMidMu、200-350Hz reduction。#6/#7 步強制 pure road（forceNormal=false + 維持車速50+ 讓 roadMode 觸發 + strict low music 避免 MUSIC_BROAD）。GPS 需有效，車速>30kmh + low/mid energy > thresh 觸發 ROAD_MID（classifier iter4 強化）。old parts #4b 作為穩定 baseline A/B 對照新 #6/#7 rumble 突破。"
             ),
             durationSec = 0,
             requiresAncRunning = false,
@@ -371,6 +372,59 @@ object CarRoadTuningScript {
                 "musicLowAncEnabled" to false
             )
         ),
+        // Iter2-4 + S3: #6 mid-force contrast (roadMode forced + musicLow ON + mu for mid focus). Updated: stricter no-music instr + dominant force in DSP.
+        // Use forceNormal=false to allow road detection, musicLow ON, override low for maxC, mu high.
+        // Goal: isolate mid band rumble contrib vs #4/#4b; observe effectiveMidMu >0.5 , reduction on 250-350Hz. Use as A/B vs #4b stable (old unchanged).
+        TestScriptStep(
+            id = "tuning_6_midforce",
+            title = "#6 mid-force road rumble 對比（mu=1.8, freeze=10, c=2, override=110, musicLow=ON, force road） - 驗證 mid 突破 (iter4+S3: stricter for dominant shift)",
+            instructions = listOf(
+                "系統已自動套用參數（mu=1.8 / freeze=10 / c=2 / override=110 / musicLow=ON）",
+                "切到**粗糙路面，嚴格維持 speed 50+ km/h**（>30 且 rough 讓 GPS+energy 觸發 roadMode + classifier ROAD_MID/LOW） 60-90秒；**全程低音樂或無音樂（vol<20%）** 避免 high energy 讓 MUSIC_BROAD 勝出",
+                "Skoda Octavia 專用：強制 mid 貢獻，觀察 effectiveMidMu 是否 >0.5 (iter4 目標)，midOut 對 200-350Hz rumble 的貢獻，比較 reductionDb 與 band ratios；與前#4b A/B（old baseline）",
+                "記錄 scenario \"Skoda #6 midforce iter4, roadMode active, effectiveMidMu=XX dominant=ROAD_MID speed=XX musicLow=ON music=low\"",
+                "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_6_midforce + effectiveMidMu>0.5 + dominant=ROAD_MID/ROAD_LOW + midBandMuScale>0.5 + reduction >2dB improvement；低速/高音樂仍會 MUSIC_BROAD（effMidMu=0，無效此步，改用#4b baseline）"
+            ),
+            durationSec = 75,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf("muMult=1.8", "freezeTh=10", "consec=2", "override=110", "musicLow=ON", "roadMode active", "effectiveMidMu>0.5", "speed>50 rough low-music"),
+            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing", "debug_presets_apply"),
+            debugPresets = mapOf(
+                "lmsMuMultiplier" to 1.8f,
+                "freezeThreshold" to 10f,
+                "freezeConsec" to 2,
+                "latencyOverrideMs" to 110f,
+                "musicLowAncEnabled" to true,
+                "forceNormalMode" to false
+            )
+        ),
+        // Iter4 + Subagent3 Extended #7 variant: strong road rumble (on top of #6): mu higher, ov=80 for maxC 300+ sim, stronger DSP mid focus (even music), classifier tweak for pure ROAD_MID even with music.
+        // Goal: deeper rumble gains, dominant=ROAD_MID/LOW, effMidMu 0.6+, reduction -4~-6dB in 200-350 (mid contrib). Prioritize shift from MUSIC_BROAD.
+        // Use with strict conditions (speed50+ rough low-music) + old prep/4/4b/5 UNCHANGED + #6 for A/B in one run. mid center 335Hz focus 300-350.
+        // All changes minimal+guarded (roadMode + speed>28 + energy + musicLow).
+        TestScriptStep(
+            id = "tuning_7_strong_road",
+            title = "#7 strong road rumble ignore-music 對比（mu=2.05, freeze=9, c=2, override=80, musicLow=ON, force road+mid） - iter4 + S3 Extended#7 更深 rumble 突破",
+            instructions = listOf(
+                "系統已自動套用參數（mu=2.05 / freeze=9 / c=2 / override=80 / musicLow=ON） - 基於#6經驗 + iter4 + Subagent3 Extended DSP 強化 (stronger mid boost, pure ROAD_MID classifier, midErr*1.28, center 335)",
+                "**切到粗糙路面，嚴格維持 50+ km/h 粗糙顛簸路 60-90秒**（確保 speed>28 + low/mid energy ratio >0.30 觸發 classifier pure ROAD_MID，即使 music=true；guarded by roadMode+speed+energy）",
+                "Skoda Octavia 專用：#7 目標是 dominant shift 至 rumble + bigger mid 貢獻。觀察 effectiveMidMu 0.6+、midScale high、maxC 300-380Hz、200-350Hz reduction -4~-6dB（比#6 更深）；比較 vs old #4b baseline + #6 A/B（old parts 穩定不變）",
+                "記錄 scenario \"Skoda #7_ext strong S3 iter4, roadMode active, effectiveMidMu=XX dominant=ROAD_MID speed=XX music=low-strict reduction=XX\"",
+                "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_7_strong_road + effectiveMidMu>0.6 + dominant=ROAD_MID + midBandMuScale>0.6 + reductionDb>3 + maxC>300 + lmsUpdateCount high；若 music 強仍 MUSIC_BROAD 則無效（退回用#4b/#6 baseline A/B）"
+            ),
+            durationSec = 75,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf("muMult=2.05", "freezeTh=9", "consec=2", "override=80", "musicLow=ON", "roadMode active", "effectiveMidMu>0.6", "speed>50 rough low-music", "compare vs old #4b/#6 A/B"),
+            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing", "debug_presets_apply"),
+            debugPresets = mapOf(
+                "lmsMuMultiplier" to 2.05f,
+                "freezeThreshold" to 9f,
+                "freezeConsec" to 2,
+                "latencyOverrideMs" to 80f,
+                "musicLowAncEnabled" to true,
+                "forceNormalMode" to false
+            )
+        ),
         TestScriptStep(
             id = "tuning_finish",
             title = "結束與匯出 + 準備下次迭代（快速）",
@@ -379,10 +433,10 @@ object CarRoadTuningScript {
                 "在「實車測試 Log」點「匯出 Log」或直接用 GuidedTest finish 的「儲存到下載 / CarANC_Logs」按鈕（無需切測試平台）",
                 "把完整 log 傳回分析",
                 "記錄 scenario 註明各 step 參數組合 + speed 範圍 + \"musicLow=ON/OFF\"",
-                "建議配外部錄音 + spectrum（重點 50-250Hz rumble 能量下降）",
+                "建議配外部錄音 + spectrum（重點 50-250Hz rumble 能量下降，特別 200-350Hz）",
                 "觀察重點：不同 debug 設定下 lowBandLms 更新率、freezeRem 頻率、reduction 在 rumble 主導時變化、主觀低頻 rumble 降低程度（0-10分）",
-                "比較重點：lmsUpdate 上升速度、freeze 頻率、antiNoiseDb 負值、reductionDb、midBand 貢獻（尤其是 Skoda 200-350Hz 區）、是否出現 artifact",
-                "延伸重點（基於#4/#4b）：記錄哪組低延遲 musicLow 讓 200-350Hz reduction 最深。下一輪迭代時**優先重跑#4/#4b 變體 + 微調 mu 針對 mid**（跳過無用早期 baseline）。累積 3 次快速腳本後，比較 effective maxCancel 與 rumble 有感程度。目標快速迭代到延遲改善、降噪有感。"
+                "比較重點：lmsUpdate 上升速度、freeze 頻率、antiNoiseDb 負值、reductionDb、midBand 貢獻（尤其是 Skoda 200-350Hz 區）、是否出現 artifact、effectiveMidMu、dominant shift、maxC",
+                "延伸重點（Subagent3 Extended #7 + iter4）：記錄哪組讓 effectiveMidMu >0.6 且 200-350Hz reduction 最深（觀察 midBandMuScale + effectiveMidMu + bandMidRatio + reduction + dominant=ROAD_MID）。**單輪內 A/B 比較 old prep/4/4b/5 (穩定 baseline 不變) vs #6 (midforce) vs #7_ext (strong road pure-ROAD_MID even music, ov=80, stronger guarded mid boost)**（跳過無用早期 baseline）。累積 4 次快速腳本後，比較 effective maxCancel 與 rumble 有感程度。目標快速迭代到延遲改善、降噪有感。#7_ext 專測更強 road rumble + mid 貢獻（即使 music），old parts 作為穩定對照。下一輪優先重跑#4b/#6/#7_ext 變體 + 外部 spectrum 驗證 red -4~-6dB。"
             ),
             durationSec = 0,
             requiresAncRunning = false,

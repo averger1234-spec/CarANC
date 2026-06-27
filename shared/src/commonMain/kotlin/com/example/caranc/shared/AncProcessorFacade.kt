@@ -49,4 +49,8 @@ interface AncProcessorFacade : AudioProcessor {
     fun setDebugMuMultiplier(mult: Float) {}
     // energyRatioThreshold: higher = less sensitive to "bumps" (e.g. 12-18); consec: require N consecutive high ratio before freeze; speedFactor scales duration at >50kmh.
     fun setDebugFreezeConfig(energyRatioThreshold: Float, consecutiveCount: Int, speedFactor: Float) {}
+
+    // Iter2+: expose effective mid band mu (after road/musicLow boosts + bandMuScale) for logging mid contrib to 200-350Hz rumble.
+    // 0 means no mid adaptation (pre-iter1 case for 136ms AA).
+    fun getLastEffectiveMidMu(): Float = 0f
 }

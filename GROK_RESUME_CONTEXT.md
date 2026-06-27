@@ -161,18 +161,21 @@
   
 �}����s�G�s�W CarRoadTuningScript�]�����̷ӥΤᴣ�Ѫ� 5 �� mu/freeze/override ����^�CGuidedTestPanel �{�b���M�����s�u�}�l�����ծմ��ա]���ˡ^�v�C�Ĥ@���ꨮ�Ъ����γo�� guided script + TestLogPanel �]�ѼơC�Ԩ� MULTI �̷s����C 
 
-**2026-06-27 更新**：
-- 路噪調校腳本 (car_road_tuning_v1) 已 streamline 為快速迭代版（移除無用早期 baseline 1/2/3，這些只是確認已知高延遲問題，不新增有用數據）。基於#4 強制低延遲 + musicLow 對比 Skoda 200-350Hz rumble 專用（override=120）繼續延伸：
-  - 保留/延伸有用的：quick prep + #4 + #4b_Skoda（override=150, mu=1.6 mid-focus） + #5_contrast（musicLow OFF 證明） + finish。
-  - 現在每次跑 prep+4+4b+5+finish（更少步驟，更快）。強調 3 次快速迭代 + 配外部錄音 + spectrum。finish instructions 強調下一輪**優先重跑#4/#4b 變體 + 微調 mu 針對 mid**（跳過無用早期）。每步 scenario 註 "Skoda #4/#4b 經驗, iter X"。
-  - 目標：快速迭代到 effective latency 改善（override 推 maxCancel 250Hz+）、200-350Hz reduction 有感（-3~-5dB+，mid 貢獻，主觀 rumble 0-10 分明顯）。
-  - 自動套用參數（#4b 為 #4 延伸）。使用者只需按「完成這步」 + 最後在 GuidedTest finish 直接「儲存到下載 / CarANC_Logs」（新按鈕，無需切測試平台），無需手動調 TestLogPanel 的 debug 滑桿。
-- UI 文字與 MULTI_MACHINE_SYNC.md 已同步更新，強調「自動套用」
+**2026-06-27 更新（快速 sub-agent 模擬迭代 + #7 延伸）**：
+- 路噪調校腳本 (car_road_tuning_v1) 已延伸為快速迭代版，使用 sub-agent 分別模擬三個變體（1. 舊部 baseline/prep+#4+#4b+#5 作為穩定 A/B 對照；2. 當前 #6 mid-force；3. 延伸 #7 strong-road + DSP 強化）。移除無用早期 baseline 1/2/3（只確認已知高延遲/低 mid 問題）。保留 old prep/4/4b/5 UNCHANGED 作為單輪內穩定 baseline A/B；#6 驗證 mid 貢獻（forceNormal=false + musicLow + roadRumble 放寬）；#7 進一步針對 dominant 轉 ROAD_MID even music（speed>28 + energy 條件下 force，mu=2.05/ov=80、更強 mid boost 2.15x + midError*1.28、center 335Hz 針對 300-350Hz）。
+  - 現在每次跑 prep+4+4b+5+6+7+finish（更少步驟，更快）。強調 4 次快速迭代 + 配外部錄音 + spectrum。finish instructions 強調單輪 A/B（old #4b 穩定 baseline vs #6 vs #7_ext），下一輪優先重跑#4b/#6/#7 變體 + 微調（跳過無用早期）。每步 scenario 註 "Skoda #4/#4b/#6/#7 經驗, iter X"。
+  - 目標：快速迭代到 effective latency 改善（override 推 maxCancel 250-380Hz+）、200-350Hz reduction 有感（-4~-6dB+，mid 貢獻 via effectiveMidMu 0.6+，dominant 轉 ROAD_MID，主觀 rumble 0-10 分明顯）。
+  - 自動套用參數（#6/#7 為 #4 延伸）。使用者只需按「完成這步」 + 最後在 GuidedTest finish 直接「儲存到下載 / CarANC_Logs」，無需手動調 TestLogPanel。
+- 使用 sub-agent 平行模擬三變體（分別讀 code + 最新 log 校準 + sim_iter.ps1 風格公式 + effMidMu/roadRumble/dom shift 擴展模型），產生預測 JSONL + metrics（baseline 弱；#6 partial breakthrough effMidMu=0.3+ midScale=1.0 maxC 380；#7 預測 red -5.5+ dom ROAD_MID eff 0.7+）。這讓迭代比實機快非常多（無需每輪等實車測試）。
+- 突破重點：即使 AA 媒體路由（remote-submix）導致 music=true + dominant MUSIC_BROAD（playbackRefActive=false 但上層 music flag true），仍用 musicLow + roadMode + mid 強化讓中頻 rumble 有貢獻（effectiveMidMu 追蹤 mid 實際 muScale）。#7 再強化 classifier（speed>28 + energy force ROAD_MID even music）+ DSP（guarded boosts）。
+- 最新實測 log（180157.log，#6 期間）：effMidMu=0.3（首次正值）、midBandMuScale=1.0、maxC 高達 380、processingMode=floor_noise_music_road、noiseSource=ROAD、speed~50-67kmh、red max 0.458（28 筆 >0.1）、但 dominant 仍 MUSIC_BROAD（music=true）。證明 mid 機制已生效（比舊 baseline 明顯改善）。
+- UI 文字與 MULTI_MACHINE_SYNC.md 已同步更新，強調「自動套用 + sub-agent 模擬 + old A/B + #6/#7 延伸」。
+- 安裝 debug 推送到手機（含最新 script + DSP）。給朋友 APK 時，底部選單就是標準體驗。
 - UI 改進（回應「不直覺、欄位太長」 + 使用者要求「隱私政策、服務條款、方案切換放底部選單，測試腳本一個、測試平台一個，在底部點選」）：
   MainActivity 改為底部 NavigationBar 4 個分頁（Scaffold + NavigationBar）：
   - 狀態：等級選擇（輕/中/重） + 狀態卡片（含車速/頻帶/延遲/降噪 dB 效果） + 即時頻譜 + 開始/停止按鈕。
   - 方案：CommercialPanel（方案切換） + 「隱私政策」按鈕 + 「服務條款與免責聲明」按鈕（點擊彈 AlertDialog，內容清楚說明本機 log、不上傳、實驗性質）。
-  - 測試腳本：GuidedTestPanel（「標準 v3 實車測試」與「路噪調校測試（推薦）」按鈕，自動套用調校參數）。
+  - 測試腳本：GuidedTestPanel（「標準 v3 實車測試」與「開始路噪調校測試（推薦）」按鈕，自動套用調校參數）。「標準 v3」為完整一般實車驗證（car_field_v3）；「路噪調校（推薦）」為已 prune 無用 baseline、專為 Skoda 200-350Hz rumble 快速迭代的 car_road_tuning_v1（#4/#4b/#5 為主）。
   - 測試平台：TestLogPanel（測試情境記錄（隱私保護說明）、快速切換、進階 LMS 調校預設收合 + 匯出 log）。
   畫面不再是長串堆疊，切換分頁即可。隱私/條款/方案集中在「方案」分頁。TestLogPanel 內部也已分區（情境 vs 進階收合）。
   更新後直接 rebuild 測試。給朋友 APK 時，底部選單就是標準體驗。

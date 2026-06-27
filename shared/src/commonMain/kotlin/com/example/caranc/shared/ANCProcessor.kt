@@ -275,4 +275,7 @@ class ANCProcessor(
     // Debug stubs for new tuning API (legacy path, no-op)
     fun setDebugMuMultiplier(mult: Float) {}
     fun setDebugFreezeConfig(energyRatioThreshold: Float, consecutiveCount: Int, speedFactor: Float) {}
+
+    // Iter2+ stub for mid mu (legacy not used in AA road path)
+    fun getLastEffectiveMidMu(): Float = 0f
 }

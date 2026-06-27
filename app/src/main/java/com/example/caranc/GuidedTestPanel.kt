@@ -171,7 +171,7 @@ private fun IdleScriptView(
     onStartTuning: () -> Unit
 ) {
     Text(
-        "可切換標準 v3 或 路噪 LMS 調校 v1（推薦第一次實車用）",
+        "推薦使用「路噪調校」專用腳本（已整合 iter1-3 mid-band 突破 for 200-350Hz rumble）。標準 v3 為完整一般驗證（可選，用於全功能回歸或給他人測試）。",
         style = MaterialTheme.typography.bodySmall
     )
     Text(
@@ -181,23 +181,23 @@ private fun IdleScriptView(
     )
     Spacer(modifier = Modifier.height(8.dp))
 
-    // 強烈推薦給第一次實車（個人 phone+USB AA+車）使用的 LMS 調校專用腳本
+    // 強烈推薦給第一次實車（個人 phone+USB AA+車）使用的 LMS 調校專用腳本（已含 #6 mid-force + effectiveMidMu）
     Text(
         "${CarRoadTuningScript.SCRIPT_NAME}",
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary
     )
     Text(
-        "專為 40-70km/h 粗糙路 + 無/低音樂 設計的 5 組 mu/freeze/override 對照測試（完全依照你提供的順序）",
+        "專為 40-70km/h 粗糙路 + 無/低音樂 設計的 mu/freeze/override + mid-force 對照測試（含 iter1-3 突破：放寬 mid 200-350Hz 貢獻、roadRumble 感知、effectiveMidMu 監控）。完全依照你提供的順序 + 最新 Skoda rumble 需求。",
         style = MaterialTheme.typography.bodySmall
     )
     Text(
-        "★ 重要：此腳本會在進入每一步時自動套用對應的調校參數（LMS 學習率、凍結門檻、延遲覆蓋等），你不需要手動調整 TestLogPanel 的滑桿，只負責按「完成這步」和最後匯出 log。",
+        "★ 重要：此腳本會在進入每一步時自動套用對應的調校參數（LMS 學習率、凍結門檻、延遲覆蓋、mid 強化等），你不需要手動調整 TestLogPanel 的滑桿，只負責按「完成這步」和最後匯出 log。",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.primary
     )
     Text(
-        "監控 ${CarRoadTuningScript.monitoredLogPhases.size} 種 log phase、${CarRoadTuningScript.monitoredSnapshotFields.size} 個 snapshot 欄位（含所有 debugLmsMuMultiplier、*BandMuScale、freeze 等）",
+        "監控 ${CarRoadTuningScript.monitoredLogPhases.size} 種 log phase、${CarRoadTuningScript.monitoredSnapshotFields.size} 個 snapshot 欄位（含所有 debugLmsMuMultiplier、*BandMuScale、freeze、effectiveMidMu 等）",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSecondaryContainer
     )
@@ -205,7 +205,7 @@ private fun IdleScriptView(
 
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = onStartStandard, modifier = Modifier.weight(1f)) {
-            Text("標準 v3 實車測試")
+            Text("標準 v3 實車測試（完整一般驗證，可選）")
         }
         Button(onClick = onStartTuning, modifier = Modifier.weight(1f)) {
             Text("開始路噪調校測試（推薦）")

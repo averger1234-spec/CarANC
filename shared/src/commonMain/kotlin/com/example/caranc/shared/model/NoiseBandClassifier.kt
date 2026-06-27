@@ -63,10 +63,17 @@ class NoiseBandClassifier(
 
         val dominantBand = when {
             isCallActive -> DominantNoiseBand.MUSIC_BROAD
-            // 修音樂檢測：只有當 isMusicActive 且高頻能量真的很高時才強制 MUSIC_BROAD
-            // 否則如果中頻能量高（200-350Hz 路噪主力，如 Skoda Octavia 錄音所示），允許 ROAD_MID
-            // 這樣真實路噪不會一直被誤判成 MUSIC_BROAD，導致 mid band 被過度保護而 reduction 很低
-            isMusicActive && highRatio > 0.50f -> DominantNoiseBand.MUSIC_BROAD
+            // Subagent3 Extended #7 + iter variant: classifier tweak for pure ROAD_MID even with music.
+            // If speed>28 + (low+mid energy decent for rumble 200-350 focus) -> force ROAD_MID/LOW even if music=true.
+            // Calib to real log weakness (MUSIC_BROAD dominant at low speed/energy). Lowered thresh + or-energy for more pure shift.
+            // Guarded by speedValid + energy ratios (no change for low speed <28 or low rumble energy).
+            // Prioritizes dominant shift to rumble for deeper mid contrib (effMidMu 0.6+) when strict low-music rough 50+.
+            // Only fall to MUSIC_BROAD if high truly dominant (>0.65) or insufficient rumble energy.
+            speedValid && speedKmh > 28f && (lowRatio + midRatio) >= 0.30f && (midRatio >= 0.20f || (lowRatio + midRatio) >= 0.48f) ->
+                DominantNoiseBand.ROAD_MID
+            speedValid && speedKmh > 28f && (lowRatio + midRatio) >= 0.30f && lowRatio >= 0.23f ->
+                DominantNoiseBand.ROAD_LOW
+            isMusicActive && highRatio > 0.65f -> DominantNoiseBand.MUSIC_BROAD
             speedValid && speedKmh >= RoadNoiseReferenceModel.DRIVING_SPEED_THRESHOLD_KMH && lowRatio >= 0.42f ->
                 DominantNoiseBand.ROAD_LOW
             speedValid && speedKmh >= RoadNoiseReferenceModel.DRIVING_SPEED_THRESHOLD_KMH && midRatio >= 0.38f ->
@@ -97,10 +104,10 @@ class NoiseBandClassifier(
     fun bandGains(classification: NoiseBandClassification): BandGains {
         return when (classification.dominantBand) {
             DominantNoiseBand.IDLE_LOW -> BandGains(low = 1f, mid = 0.2f, high = 0.05f)
-            DominantNoiseBand.ROAD_LOW -> BandGains(low = 1f, mid = 0.25f, high = 0.08f)
-            DominantNoiseBand.ROAD_MID -> BandGains(low = 0.75f, mid = 0.45f, high = 0.1f)
+            DominantNoiseBand.ROAD_LOW -> BandGains(low = 1f, mid = 0.28f, high = 0.08f)
+            DominantNoiseBand.ROAD_MID -> BandGains(low = 0.7f, mid = 0.55f, high = 0.12f)  // iter4+S3: higher mid for 300-350 rumble focus (pure ROAD_MID)
             DominantNoiseBand.MUSIC_BROAD -> BandGains(low = 0.55f, mid = 0.15f, high = 0.03f)
-            DominantNoiseBand.MIXED -> BandGains(low = 0.85f, mid = 0.22f, high = 0.06f)
+            DominantNoiseBand.MIXED -> BandGains(low = 0.85f, mid = 0.25f, high = 0.06f)
         }
     }
 
@@ -113,8 +120,9 @@ class NoiseBandClassifier(
         spectrum.forEachIndexed { index, magnitude ->
             val freq = (index + 0.5f) * nyquist / spectrum.size
             when {
-                freq < 300f -> low += magnitude
-                freq < 800f -> mid += magnitude
+                // Subagent3: adjusted 300->250 / 800->850 for better 250-350Hz (rumble peak) capture into mid band; center focus 300-350
+                freq < 250f -> low += magnitude
+                freq < 850f -> mid += magnitude
                 else -> high += magnitude
             }
         }

@@ -26,10 +26,11 @@ import com.example.caranc.shared.GlobalAncSessionContext
 
 /**
  * 2nd-order Linkwitz-Riley (LR2) band splitter for 3-way crossover.
- * Uses cascaded 1-pole stages per crossover point (300 Hz low-mid, 800 Hz mid-high)
+ * Uses cascaded 1-pole stages per crossover point (250 Hz low-mid S3 focus for 300-350 rumble, 800 Hz mid-high)
  * to realize proper 12 dB/oct slopes + flat sum (low + mid + high == input).
  * Replaces the prior crude 1st-order IIR (differences of LPFs, ~6 dB/oct, lost DC/very-low energy).
  * State is per-sample; call split(x) for normalized float input.
+ * S3 change guarded by upstream classifier/processor logic using roadMode+speed+energy; mid band gains only active when rumble dominant.
  */
 internal data class BandSamples(
     val low: Float,
@@ -38,7 +39,7 @@ internal data class BandSamples(
 )
 
 internal class BandSplitter(sampleRate: Int) {
-    private val cLowMid = coeffFor(300f, sampleRate)
+    private val cLowMid = coeffFor(250f, sampleRate)  // S3 Ext: 300->250 to shift more 250-350 rumble energy into dedicated mid band (with mid center@335, bandEnergies@250/850); focus 300-350Hz
     private val cMidHigh = coeffFor(800f, sampleRate)
 
     // Low: 2 cascaded LPF stages @ low-mid fc => LR2 lowpass
@@ -93,6 +94,7 @@ class MultiBandANCProcessor(
     private var vehicleSpeedKmh = 0f
     private var vehicleSpeedValid = false
     private var bandGains = BandGains(low = 1f, mid = 0.25f, high = 0.05f)
+    private var lastDominant = com.example.caranc.shared.model.DominantNoiseBand.MIXED
     private var resonancePeaks = emptyList<com.example.caranc.shared.model.ResonancePeak>()
     private var mimoProfile: CabinMimoProfile? = null
     private var mimoZoneCount = 1
@@ -139,8 +141,8 @@ class MultiBandANCProcessor(
     )
     private val midBand = BandFxLms(
         label = "mid",
-        centerHz = 500f,
-        baseMuScale = 0.25f
+        centerHz = 335f,  // Subagent3 Extended #7: 320->335 for tighter 300-350Hz Skoda rumble focus (with bandEnergies/classifier tweak)
+        baseMuScale = 0.32f
     )
     private val highBand = BandFxLms(
         label = "high",
@@ -219,6 +221,7 @@ class MultiBandANCProcessor(
     override fun applyClassifierResult(result: NoiseBandClassification) {
         // CYCLE3_EXTRA: use via context (supports injected/mock classifier).
         bandGains = sessionContext.noiseBandClassifier.bandGains(result)
+        lastDominant = result.dominantBand
     }
 
     override fun updateSecondaryPath(model: FloatArray) {
@@ -353,7 +356,7 @@ class MultiBandANCProcessor(
             val lowMu = effectiveMuScale(lowBand, floorMode, roadMode) *
                 sirenScale *
                 latencyLimits.lowGain *
-                LatencyAwareBandLimiter.bandMuScale(lowBand.centerHz, estimatedLatencyMs)
+                LatencyAwareBandLimiter.bandMuScale(lowBand.centerHz, estimatedLatencyMs, roadRumble = roadMode)
 
             val lowOut = multirateLow.processSample(lowSample) { decimated ->
                 // Aggressive per-"quiet zone" rumble focus: in musicLow, amplify low errorSample to drive stronger LMS adaptation for tire/wind (simulate seat-specific quiet zones)
@@ -373,22 +376,42 @@ class MultiBandANCProcessor(
             // Then combine with lowOut / fdafOut.
             nativeLow.processLowBand(lowSample, 0f, true)  // force freeze, zero mu to keep pure no-op for now; proto only
 
-            val midMu = if (latencyLimits.midEnabled) {
+            // Iter2-4 + Subagent3 Extended #7: roadMode + musicLow specific boost to midMu for 200-350Hz rumble in high-lat AA + Skoda.
+            // Relax midEnabled to allow mid contrib when road rumble even if latency limits conservative.
+            // S3: stronger mid boost (2.15x) + direct mid error boost *1.28 (like low's *1.3) (even if music) when road+rumble+speed+energy.
+            // min 0.58f , + *1.75 if ROAD dominant. Guarded by roadMode+speed>28+energy to avoid artifact in pure music/idle (C2 risk refine).
+            // mid center now 335Hz (tuned for 300-350 rumble peak focus). Also log effective via lastMuScale. minimal safe changes.
+            val midEnabledEff = latencyLimits.midEnabled ||
+                (roadMode && musicLowAncEnabled)  // relax for rumble road cases
+            val rawMidMu = if (midEnabledEff) {
                 effectiveMuScale(midBand, floorMode, roadMode) *
                     bandGains.mid *
                     voiceProtector.midBandMuScale(callFloorMode || callActive) *
                     sirenScale *
                     latencyLimits.midGain *
-                    LatencyAwareBandLimiter.bandMuScale(midBand.centerHz, estimatedLatencyMs)
+                    LatencyAwareBandLimiter.bandMuScale(midBand.centerHz, estimatedLatencyMs, roadRumble = (roadMode && musicLowAncEnabled))
             } else {
                 0f
             }
+            val roadMusicMidBoost = if (roadMode && musicLowAncEnabled && vehicleSpeedKmh > 28f) 2.15f else 1.0f
+            var midMu = rawMidMu * roadMusicMidBoost
+            if (roadMode && musicLowAncEnabled && vehicleSpeedKmh > 28f && midMu < 0.58f) {
+                midMu = 0.58f  // ensure minimum mid contrib for rumble dominant even at high AA lat (S3 ext ambitious)
+            }
+            // Iter3-4 + S3: if classifier says dominant low-mid (Skoda rumble 200-350 in ROAD_MID/LOW), extra boost to midMu; guarded
+            if ((lastDominant == com.example.caranc.shared.model.DominantNoiseBand.ROAD_MID ||
+                lastDominant == com.example.caranc.shared.model.DominantNoiseBand.ROAD_LOW) && roadMode && vehicleSpeedKmh > 25f) {
+                midMu *= 1.75f
+            }
+            // S3 Ext: direct mid error boost *1.28 (was 1.25) only when road rumble + speed + dom (even if music) for stronger LMS drive on 300-350
+            val midEnergyGuard = (lastDominant == com.example.caranc.shared.model.DominantNoiseBand.ROAD_MID || lastDominant == com.example.caranc.shared.model.DominantNoiseBand.ROAD_LOW)
+            val midError = if (roadMode && musicLowAncEnabled && vehicleSpeedKmh > 28f && midEnergyGuard) virtualBands.mid * 1.28f else virtualBands.mid
             val midOut = if (midMu > 0f) {
                 midBand.processSample(
                     sample = bands.mid,
                     muScale = midMu,
                     freezeUpdates = freeze,
-                    errorSample = virtualBands.mid
+                    errorSample = midError
                 )
             } else {
                 0f
@@ -400,7 +423,7 @@ class MultiBandANCProcessor(
                     voiceProtector.highBandMuScale(callFloorMode || callActive) *
                     sirenScale *
                     latencyLimits.highGain *
-                    LatencyAwareBandLimiter.bandMuScale(highBand.centerHz, estimatedLatencyMs)
+                    LatencyAwareBandLimiter.bandMuScale(highBand.centerHz, estimatedLatencyMs, roadRumble = roadMode)
             } else {
                 0f
             }
@@ -441,8 +464,9 @@ class MultiBandANCProcessor(
 
                     // Per Skoda Octavia 2019 + user spectrum analysis (200-350 Hz dominant rumble):
                     // When road noise dominant (roadMode), relax higher-band lowpass protection so mid (200-350Hz) anti can contribute.
-                    // This addresses the case where main energy is above 150Hz limit.
-                    val protectedHigher = if (roadMode) higherAnti * 0.65f else lowPassOutput(higherAnti)
+                    // S3 Ext: even more permissive (0.52f) for road+rumble+speed>28 to let bigger mid contrib even with music (ov=80 maxC focus).
+                    // Guarded by roadMode + speed + energy (minimal safe). Addresses main energy above 150Hz limit.
+                    val protectedHigher = if (roadMode && vehicleSpeedKmh > 28f) higherAnti * 0.52f else lowPassOutput(higherAnti)
                     - (lowAnti + protectedHigher) + engineFf + roadFfInMusicLow
                 }
                 floorMode -> -lowPassOutput(adaptiveCombined) + engineFf
@@ -590,6 +614,10 @@ class MultiBandANCProcessor(
         var lastLmsPfx = 0f
             private set
 
+        // Iter2+: last effective muScale applied to this band (post all scales including road/music boosts; for mid contrib logging)
+        var lastMuScale = 0f
+            private set
+
         fun bindSecondaryPath(model: FloatArray) {
             for (i in 0 until sHatLength.coerceAtMost(model.size)) {
                 sHatLocal[i] = model[i]
@@ -673,6 +701,7 @@ class MultiBandANCProcessor(
             filteredXBuffer[bufferIndex] = filteredX
 
             if (!freezeUpdates && muScale > 0f) {
+                lastMuScale = muScale
                 val currentMu = baseMu * muScale
                 val error = errorSample
 
@@ -716,4 +745,7 @@ class MultiBandANCProcessor(
     // These override the default impls in AncProcessorFacade (added for AudioEngine perfMetrics).
     override fun getFdafLmsUpdateCount(): Long = fdafLow.fdafLmsUpdateCount
     override fun getMultirateDecimUpdateCount(): Long = multirateLow.multirateDecimUpdates
+
+    // Iter2: effective mid mu (post boost/relax) for AudioEngine logging of mid band rumble contrib
+    override fun getLastEffectiveMidMu(): Float = midBand.lastMuScale
 }

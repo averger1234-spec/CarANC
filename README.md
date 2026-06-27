@@ -200,27 +200,34 @@ gradlew.bat assembleRelease
 App 內建兩套引導測試腳本：
 
 - `car_field_v3`：一般實車驗證流程
-- **`car_road_tuning_v1`**：**第一次實車 LMS 調校推薦流程**（專為 phone + USB AA + 粗糙路設計）
+- **`car_road_tuning_v1`**：**第一次實車 LMS 調校推薦流程**（專為 phone + USB AA + 粗糙路設計；已延伸 #6/#7 + sub-agent 模擬迭代，使用 old parts 作為單輪 A/B 穩定 baseline）
 
-### 推薦：第一次實車 LMS 調校測試（car_road_tuning_v1）
+### 推薦：第一次實車 LMS 調校測試（car_road_tuning_v1，快速迭代版 + sub-agent 模擬）
 
-請用以下順序測試（**同一段粗糙路面，40-70km/h，無/低音樂**）：
+**為何在「測試腳本」分頁有兩個按鈕？**
+- 「標準 v3 實車測試」：啟動完整一般驗證腳本 `car_field_v3`（14 步，涵蓋延遲/MIMO/怠速/市區/高速/音樂/通話/顛簸等全功能）。適合做廣泛實車驗證。
+- 「開始路噪調校測試（推薦）」：啟動**專為你 Skoda Octavia 2019 路噪 rumble（200-350Hz 主導）設計的快速迭代腳本** `car_road_tuning_v1`。已根據「快速迭代」需求 prune 掉早期無用 baseline（1/2/3，那些只重複確認已知高延遲問題），直接聚焦有用的 #4/#4b 低延遲 + musicLow 對比 + 對照。**第一次實車調校強烈建議按這個**。
 
-| 測試編號 | muMult | freezeThreshold | freezeConsecutive | latencyOverride | 預期觀察重點 |
-|----------|--------|-----------------|-------------------|-----------------|--------------|
-| #1 (Baseline) | 1.0 | 15 | 3 | 0 | 目前穩定度 |
-| #2 | 1.3 | 14 | 3 | 0 | 看 lmsUpdateCount 是否明顯上升 |
-| #3 | 1.5 | 12 | 2 | 0 | 較積極適應，觀察 freeze 是否太頻繁 |
-| #4 | 1.5 | 12 | 2 | 80 | 強制低延遲，看 mid band 是否開始有貢獻（bandMuScale、midGain） |
-| #5 | 1.8 | 13 | 3 | 0 | 再激進一點，注意 antiArtifactGain 是否有壓制白噪 |
+目前腳本內容（已 streamline，prep + 3 組核心對比 + finish，更快可重複跑 3 輪）：
 
-**操作方式**：
-1. 開啟「實車測試 Log」面板，把「強制正常模式」與「音樂模式仍抗低頻路噪」打開，userAncGain 設 0.75~0.9，選擇 PRO 等級。
-2. 進入 **實車引導測試**，按「開始路噪調校測試（推薦）」。
-3. 每一步先在 TestLogPanel 調整對應的 4 個 debug 參數，再上路跑 60-90 秒。
-4. 完成後匯出 log（建議在 scenario 欄位標註組合，例如 `tuning#4_mu1.5_f12_c2_o80`）。
+請用以下順序測試（**同一段粗糙路面，40-70km/h，無/低音樂**）。每步進入時**系統自動套用 debug 參數**（mu/freeze/override/musicLow），你**不需要**手動去「測試平台」調滑桿，只負責開車 + 按「完成這步」+ 最後匯出。
 
-詳細說明與 log 指標請參考 `MULTI_MACHINE_SYNC.md` 中的「關鍵 Log 指標解讀表」與「第一次實車測試的參數組合」章節。
+| 測試編號 | muMult | freezeThreshold | freezeConsecutive | latencyOverride | musicLow | 預期觀察重點 |
+|----------|--------|-----------------|-------------------|---------------|----------|--------------|
+| tuning_prep | auto | - | - | - | ON | 快速準備 + 自動 forceNormal + musicLow + gain=1.0；強調 Skoda 200-350Hz 專用 + 跳過無用 baseline，計劃 3 次快速循環 |
+| #4 | 1.7 | 11 | 2 | 120 | ON | **#4 強制低延遲 + musicLow 對比（Skoda 200-350Hz rumble 專用）**。override=120 推 maxCancel 接近 250Hz+，觀察 mid band 是否開始有貢獻（你的主力頻段） |
+| #4b_Skoda | 1.6 | 12 | 2 | 150 | ON | **#4b 延伸**（基於#4經驗）。override=150 再推延遲，mu 微調針對 mid-focus，讓 200-350Hz rumble 降得更深更穩 |
+| #5_contrast | 2.2 | 9 | 2 | 0 | OFF | **musicLow OFF 快速對比**（證明 musicLow 對 rumble 的重要性）。比較前兩步有無 musicLow 時 rumble 降低程度 |
+| tuning_finish | - | - | - | - | - | 結束 + 直接「儲存到下載 / CarANC_Logs」按鈕（不用切測試平台）。記錄 scenario（含 "Skoda #4/#4b 經驗, iter X"）、配外部錄音+spectrum。下一輪優先重跑 #4/#4b 變體 + 針對 mid 微調 mu |
+
+**操作方式**（已簡化）：
+1. 開啟「實車測試 Log」面板，把「強制正常模式」與「音樂模式仍抗低頻路噪」打開，userAncGain 設 ~0.8~1.0，選擇 PRO 等級。
+2. 切到底部「測試腳本」分頁，按「開始路噪調校測試（推薦）」。
+3. 啟動 ANC 完成校正後，依照每步說明維持同一段路跑夠時間（腳本會在進入步驟時自動套用對應參數）。
+4. 每步按「完成這步」（可填簡單 user note）。
+5. 最後一步直接用 GuidedTest 面板的「儲存到下載 / CarANC_Logs」按鈕匯出（或分享 Log）。記錄情境與主觀 rumble 降低 0-10 分。
+
+詳細說明與 log 指標請參考 `MULTI_MACHINE_SYNC.md` 中的「腳本更新 + 第一次實車測試推薦參數組合」章節。
 
 ---
 
