@@ -279,19 +279,19 @@ object CarAncTestScript {
 
 object CarRoadTuningScript {
     const val SCRIPT_ID = "car_road_tuning_v1"
-    const val SCRIPT_NAME = "路噪 LMS 調校測試（v1·第一次實車推薦·粗糙路 40-70km/h 低音樂·5 組）"
+    const val SCRIPT_NAME = "Skoda 200-350Hz rumble 快速迭代測試（基於#4/#4b 低延遲 + musicLow 對比，跳過無用 baseline，3 次快速循環直達有感）"
 
     // 注意：根據 Skoda Octavia 2019 真實錄音頻譜分析（用戶提供）：
     // 主要路噪能量在 200-350 Hz（57.6%），峰值 ~305 Hz 會隨路段浮動 220-310 Hz。
     // 目前 150 Hz maxCancel 嚴重不足，只吃到邊緣 → 即使 LMS 活躍，reduction 仍極低。
-    // 延伸改進重點（基於#4 強制低延遲 + musicLow 對比）：繼續推 override（120→150+）、放寬 mid band（已在 processor）、在#4b 等步驟微調 mu 針對 mid focus。
-    // 迭代 3 次完整腳本（每次完整跑 prep+1-4-4b-5+finish），每次配外部錄音 + spectrum（50-250Hz rumble 能量下降），直到 effective latency 改善（maxCancel 250Hz+）、200-350Hz reduction 有感（-3~-5dB+，mid 貢獻，主觀 rumble 0-10 分明顯）。
-    // 調校時優先觀察 midBand 貢獻與 200-350 Hz reduction。每步 scenario 註 "Skoda #4/#4b 經驗, iter X"。
+    // 快速迭代版本（已 streamline）：移除無用早期 baseline（1/2/3，已知問題，不新增數據）。保留/延伸有用的 #4/#4b（低延遲 + musicLow 對比 Skoda rumble 專用）+ quick prep + contrast + finish。
+    // 目標：每次跑完整 prep+4+4b+5+finish（更少步驟，更快），配外部錄音 + spectrum。迭代 3 次後，effective latency 改善（override 推 maxCancel 250Hz+）、200-350Hz reduction 有感（-3~-5dB+，mid 貢獻）。
+    // 調校時優先觀察 midBand 貢獻與 200-350 Hz reduction。每步 scenario 註 "Skoda #4/#4b 經驗, iter X"。finish 強調下一輪優先重跑#4/#4b 變體。
 
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
             id = "tuning_prep",
-            title = "調校準備",
+            title = "調校準備（快速）",
             instructions = listOf(
                 "USB AA 連車機",
                 "車型/手機位置/情境在「實車測試 Log」填寫清楚（例如「個人 Pixel + USB AA + 粗糙國道」）",
@@ -299,7 +299,7 @@ object CarRoadTuningScript {
                 "準備好後進入同一条粗糙路面（40-70km/h 顛簸），全程無/低音樂",
                 "接下來每步按「完成這步」前，系統會自動套用對應的 LMS 調校參數",
                 "只需專心開車並在每步維持時間即可，最後一步匯出 log",
-                "延伸：這是 Skoda 專用低延遲 musicLow 迭代腳本（基於#4/#4b）。計劃跑 3 次完整腳本，每次配錄音+spectrum。#4/#4b 是核心對比步驟，優先記錄 mid band 貢獻與 200-350Hz reduction。"
+                "延伸：這是 Skoda 專用低延遲 musicLow 快速迭代腳本（基於#4/#4b）。跳過無用早期 baseline（已知高延遲問題），直接進入#4/#4b 核心對比。計劃跑 3 次完整腳本，每次配錄音+spectrum。優先記錄 mid band 貢獻與 200-350Hz reduction。"
             ),
             durationSec = 0,
             requiresAncRunning = false,
@@ -308,67 +308,7 @@ object CarRoadTuningScript {
             debugPresets = mapOf(
                 "forceNormalMode" to true,
                 "musicLowAncEnabled" to true,
-                "userAncGain" to 1.0f  // full aggressive output for perceived reduction (user feedback: still insensitive)
-            )
-        ),
-        TestScriptStep(
-            id = "tuning_1_baseline",
-            title = "#1 Baseline（mu=1.0, freeze=15, c=3, override=0）",
-            instructions = listOf(
-                "系統已自動套用 Baseline 參數（mu=1.0 / freeze=15 / c=3 / override=0）",
-                "進入/維持 40-70 km/h 同一段粗糙路面",
-                "無/低音樂，維持 60-90 秒",
-                "預期觀察重點：目前穩定度、lmsUpdate 是否正常上升、freeze 很少",
-                "Skoda Octavia 2019 特別注意：真實路噪主力 200-350Hz（錄音證實），目前 150Hz 上限只能碰邊緣，觀察 mid band 是否有貢獻、reduction 是否仍低"
-            ),
-            durationSec = 75,
-            suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.0", "freezeTh=15", "consec=3", "override=0", "40-70km/h 粗路"),
-            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
-            debugPresets = mapOf(
-                "lmsMuMultiplier" to 1.2f,  // slightly more aggressive baseline for better perceived reduction (user feedback)
-                "freezeThreshold" to 15f,
-                "freezeConsec" to 3,
-                "latencyOverrideMs" to 0f
-            )
-            // Skoda Octavia 2019 專用提醒：這台車路噪主力 ~305Hz (200-350Hz 區)，若這步 reduction 仍低，下一輪可試 latencyOverride=80~120 來推 maxCancel 接近 200Hz+ 做對照（即使實際延遲高，override 會影響 processor 內部 band 限制計算）
-        ),
-        TestScriptStep(
-            id = "tuning_2",
-            title = "#2 積極一點（mu=1.4, freeze=13, c=2, override=0）",
-            instructions = listOf(
-                "系統已自動套用參數（mu=1.4 / freeze=13 / c=2 / override=0）",
-                "同一段粗糙路 40-70km/h，無/低音樂，維持 60-90 秒",
-                "預期觀察重點：lmsUpdateCount 是否明顯比 #1 上升更快，低頻 rumble 感覺是否改善"
-            ),
-            durationSec = 75,
-            suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.4", "freezeTh=13", "consec=2", "override=0"),
-            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
-            debugPresets = mapOf(
-                "lmsMuMultiplier" to 1.4f,
-                "freezeThreshold" to 13f,
-                "freezeConsec" to 2,
-                "latencyOverrideMs" to 0f
-            )
-        ),
-        TestScriptStep(
-            id = "tuning_3",
-            title = "#3 更激進（mu=1.8, freeze=10, c=2, override=0）",
-            instructions = listOf(
-                "系統已自動套用參數（mu=1.8 / freeze=10 / c=2 / override=0）",
-                "同一段路，60-90 秒",
-                "預期觀察重點：lowBandLms 成長更快，reduction 在 rumble 時是否有感（配 spectrum 50-250Hz）。這是較激進設定，觀察 artifact。"
-            ),
-            durationSec = 75,
-            suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.8", "freezeTh=10", "consec=2", "override=0"),
-            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
-            debugPresets = mapOf(
-                "lmsMuMultiplier" to 1.8f,
-                "freezeThreshold" to 10f,
-                "freezeConsec" to 2,
-                "latencyOverrideMs" to 0f
+                "userAncGain" to 1.0f
             )
         ),
         TestScriptStep(
@@ -412,12 +352,12 @@ object CarRoadTuningScript {
             )
         ),
         TestScriptStep(
-            id = "tuning_5",
-            title = "#5 極激進 + musicLow OFF 對比（mu=2.2, freeze=9, c=2, override=0）",
+            id = "tuning_5_contrast",
+            title = "#5 musicLow OFF 對比（mu=2.2, freeze=9, c=2, override=0） - 證明 musicLow 重要",
             instructions = listOf(
                 "系統已自動套用參數（mu=2.2 / freeze=9 / c=2 / override=0） - musicLow OFF 對比",
                 "同一段路 60-90 秒",
-                "預期觀察重點：anti 更強但注意 artifact；比較前 step（尤其是#4/#4b的低延遲 musicLow）有無 musicLow 時 rumble 降低（記錄 scenario musicLow=OFF）。這是最激進，觀察是否感覺到明顯降噪。基於#4經驗，注意 mid band 是否因 OFF 而掉。"
+                "預期觀察重點：anti 更強但注意 artifact；比較前 step（尤其是#4/#4b的低延遲 musicLow）有無 musicLow 時 rumble 降低（記錄 scenario musicLow=OFF）。基於#4經驗，注意 mid band 是否因 OFF 而掉。快速對比用，不需多次重複。"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
@@ -433,16 +373,16 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束與匯出（務必）",
+            title = "結束與匯出 + 準備下次迭代（快速）",
             instructions = listOf(
                 "停止降噪",
-                "在「實車測試 Log」點「匯出 Log」",
+                "在「實車測試 Log」點「匯出 Log」或直接用 GuidedTest finish 的「儲存到下載 / CarANC_Logs」按鈕（無需切測試平台）",
                 "把完整 log 傳回分析",
                 "記錄 scenario 註明各 step 參數組合 + speed 範圍 + \"musicLow=ON/OFF\"",
                 "建議配外部錄音 + spectrum（重點 50-250Hz rumble 能量下降）",
                 "觀察重點：不同 debug 設定下 lowBandLms 更新率、freezeRem 頻率、reduction 在 rumble 主導時變化、主觀低頻 rumble 降低程度（0-10分）",
                 "比較重點：lmsUpdate 上升速度、freeze 頻率、antiNoiseDb 負值、reductionDb、midBand 貢獻（尤其是 Skoda 200-350Hz 區）、是否出現 artifact",
-                "延伸重點（基於#4/#4b）：記錄哪組低延遲 musicLow 讓 200-350Hz reduction 最深。下一輪迭代時優先重跑#4/#4b 變體 + 微調 mu 針對 mid。累積 3 次完整腳本後，比較 effective maxCancel 與 rumble 有感程度。"
+                "延伸重點（基於#4/#4b）：記錄哪組低延遲 musicLow 讓 200-350Hz reduction 最深。下一輪迭代時**優先重跑#4/#4b 變體 + 微調 mu 針對 mid**（跳過無用早期 baseline）。累積 3 次快速腳本後，比較 effective maxCancel 與 rumble 有感程度。目標快速迭代到延遲改善、降噪有感。"
             ),
             durationSec = 0,
             requiresAncRunning = false,
