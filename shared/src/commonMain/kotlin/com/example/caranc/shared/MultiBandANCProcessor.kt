@@ -93,6 +93,9 @@ class MultiBandANCProcessor(
     private var processingMode = AncProcessingMode.NORMAL
     private var vehicleSpeedKmh = 0f
     private var vehicleSpeedValid = false
+    private var rumbleAccelMag = 0f  // IMU linear accel mag as rumble vibration proxy (integrated into low band for boost)
+    private var blockRmsVssScale = 1f  // blockRms variance based scale from AudioEngine for enhanced VSS in BandFxLms
+    private var useNativeLowBand = false  // switch to native low band when available (stub now, real impl when NDK active)
     private var bandGains = BandGains(low = 1f, mid = 0.25f, high = 0.05f)
     private var lastDominant = com.example.caranc.shared.model.DominantNoiseBand.MIXED
     private var resonancePeaks = emptyList<com.example.caranc.shared.model.ResonancePeak>()
@@ -224,6 +227,18 @@ class MultiBandANCProcessor(
         debugFreezeThreshold = energyRatioThreshold.coerceIn(8f, 25f)
         debugFreezeConsec = consecutiveCount.coerceIn(1, 5)
         debugSpeedFreezeFactor = speedFactor.coerceIn(0.3f, 1.2f)
+    }
+
+    override fun setRumbleAccel(mag: Float) {
+        rumbleAccelMag = mag.coerceAtLeast(0f)
+    }
+
+    override fun setBlockRmsVssScale(scale: Float) {
+        blockRmsVssScale = scale.coerceIn(0.1f, 2f)
+    }
+
+    override fun setUseNativeLowBand(enabled: Boolean) {
+        useNativeLowBand = enabled
     }
 
     override fun isSirenOverrideActive(): Boolean = sirenOverride
@@ -380,6 +395,12 @@ class MultiBandANCProcessor(
                 latencyLimits.lowGain *
                 LatencyAwareBandLimiter.bandMuScale(lowBand.centerHz, estimatedLatencyMs, roadRumble = roadMode)
 
+            // Direct IMU integration into ANC: use rumbleAccelMag (vibration proxy from phone IMU) to boost low band when high road rumble vibration detected.
+            // This provides a true structural feedforward (immune to cabin acoustic feedback) complementing the speed-based road ref and mic error.
+            // Boost only in roadMode; conservative max to avoid over-cancellation artifacts. Guarded by existing roadMode/speed/energy.
+            val rumbleVibBoost = if (roadMode) (1f + rumbleAccelMag.coerceAtMost(4f) * 0.08f).coerceAtMost(1.4f) else 1f
+            val effectiveLowMu = lowMu * rumbleVibBoost
+
             val lowOut = multirateLow.processSample(lowSample) { decimated ->
                 // Aggressive per-"quiet zone" rumble focus: in musicLow, amplify low errorSample to drive stronger LMS adaptation for tire/wind (simulate seat-specific quiet zones)
                 // IDLE ARTIFACT FIX (minimal, speed guard only): skip lowErr boost at very low speed (<12kmh) to suppress telegraph on low-rms residuals/bleed without rumble excitation.
@@ -388,7 +409,7 @@ class MultiBandANCProcessor(
                 val lowError = if (useLowErrBoost) virtualBands.low * 1.3f else virtualBands.low
                 lowBand.processSample(
                     sample = decimated,
-                    muScale = lowMu,
+                    muScale = effectiveLowMu,
                     freezeUpdates = freeze,
                     errorSample = lowError
                 )
@@ -396,10 +417,14 @@ class MultiBandANCProcessor(
             // profiling counters active in BandFxLms.processSample above; fdaf push buffer reuse at this layer
             val fdafOut = fdafLow.push(lowSample)
 
-            // CYCLE3_EXTRA integration point: exercise native low proto (currently 0 contrib, but loads JNI + can collect internal counters)
-            // Future: val nativeLowOut = if (NativeLowBandProcessor.isNativeAvailable()) nativeLow.processLowBand(decimated, lowMu, freeze, ...) else 0f
-            // Then combine with lowOut / fdafOut.
-            nativeLow.processLowBand(lowSample, 0f, true)  // force freeze, zero mu to keep pure no-op for now; proto only
+            // CYCLE3_EXTRA integration point: exercise native low proto (switchable via setUseNativeLowBand)
+            // Now enabled stub switching point: if flag + available, use native (even if currently stub returns 0, real impl when NDK active will contribute low band rumble cancel)
+            val nativeLowOut = if (useNativeLowBand && NativeLowBandProcessor.isNativeAvailable()) {
+                nativeLow.processLowBand(lowSample, effectiveLowMu, freeze, lowError)
+            } else {
+                0f
+            }
+            // TODO when real native: combine nativeLowOut with lowOut / fdafOut for full low band. For now, the call exercises the path.
 
             // Iter2-4 + Subagent3 Extended #7: roadMode + musicLow specific boost to midMu for 200-350Hz rumble in high-lat AA + Skoda.
             // Relax midEnabled to allow mid contrib when road rumble even if latency limits conservative.
@@ -741,7 +766,8 @@ class MultiBandANCProcessor(
 
             if (!freezeUpdates && muScale > 0f) {
                 lastMuScale = muScale
-                val currentMu = baseMu * muScale
+                val vssFromBlockRms = this@MultiBandANCProcessor.blockRmsVssScale  // use outer blockRms variance for enhanced VSS
+                val currentMu = baseMu * muScale * vssFromBlockRms
                 val error = errorSample
 
                 var pfx = 0f

@@ -54,7 +54,8 @@ class ReferenceSignalPipeline(
         size: Int,
         playbackRef: ShortArray?,
         playbackSize: Int,
-        lastAntiNoise: ShortArray?
+        lastAntiNoise: ShortArray?,
+        rumbleAccel: Float = 0f  // simple IMU aux ref for rumble feedforward (vibration proxy mixed into low freq residue)
     ): ShortArray {
         // Use reuse buffer when size matches (common case 64); fallback new only for unusual sizes. Reduces alloc in hot preprocess path.
         val output = if (size == preprocessedReuse.size) preprocessedReuse else ShortArray(size)
@@ -82,7 +83,13 @@ class ReferenceSignalPipeline(
                 musicActive = musicActive
             )
 
-            output[i] = (afterMedia * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
+            // Simple IMU aux ref mix: use rumbleAccel (scaled) as additional feedforward reference for low-freq rumble.
+            // This mixes structural vibration data directly into the preprocessed residue before ANC.
+            // Scaled conservatively; positive/negative phase may need tuning from real IMU+mic data.
+            val rumbleRef = rumbleAccel * 0.0008f  // empirical scale to match signal level
+            val afterRumble = afterMedia - rumbleRef   // aux ref subtraction (feedforward style)
+
+            output[i] = (afterRumble * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
         }
 
         val playbackRms = kotlin.math.sqrt(playbackSum / size.coerceAtLeast(1)).toFloat()

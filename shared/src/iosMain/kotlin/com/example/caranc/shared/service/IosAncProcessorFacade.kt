@@ -143,4 +143,16 @@ class IosAncProcessorFacade(
     override fun setDebugFreezeConfig(energyRatioThreshold: Float, consecutiveCount: Int, speedFactor: Float) {
         // stub
     }
+
+    override fun setBlockRmsVssScale(scale: Float) {
+        // iOS stub
+    }
+
+    override fun setUseNativeLowBand(enabled: Boolean) {
+        // iOS stub (no native low band)
+    }
+
+    override fun setRumbleAccel(mag: Float) {
+        // iOS stub for IMU
+    }
 }

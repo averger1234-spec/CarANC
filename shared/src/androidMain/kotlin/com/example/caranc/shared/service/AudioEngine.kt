@@ -122,6 +122,7 @@ class AudioEngine(
     private var lastVisUpdate = 0L
     private var lastSessionLogUpdate = 0L
     private var lastBlockRms = 0f  // for idle telegraph diagnostic in running_snapshot (protocol)
+    private var lastBlockRmsVssScale = 1f  // VSS scale passed to processor based on blockRms + pfx variance for dynamic mu
 
     fun start() {
         if (processingJob?.isActive == true) return
@@ -544,6 +545,7 @@ class AudioEngine(
                     ancProcessor?.setDebugMuMultiplier(lmsMuMult)
                     val leakage = AncTestPreferences.getDebugLeakage(appContext)
                     ancProcessor?.setDebugLeakage(leakage)  // from prefs, allows A/B 0.9998 vs 0.9995 etc for Leaky LMS stability
+                    ancProcessor?.setUseNativeLowBand(AncTestPreferences.isDebugUseNativeLowBand(appContext))  // enable native low band switching point (stub now; real when NDK port active)
                     ancProcessor?.setDebugFreezeConfig(freezeThresh, freezeConsec, 0.6f)
                     referencePipeline?.setContext(musicActive = isMusic, callActive = isCall)
 
@@ -554,12 +556,14 @@ class AudioEngine(
                         sessionContext.perfMetrics.lastBlockTimestampNs = t0
 
                         val playbackRead = mediaPlaybackCapture?.read(playbackRefBuffer, read) ?: 0
+                        val speedSnap = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
                         val preprocessed = referencePipeline?.preprocessBlock(
                             micInput = input,
                             size = read,
                             playbackRef = if (playbackRead > 0) playbackRefBuffer else null,
                             playbackSize = playbackRead,
-                            lastAntiNoise = lastAntiNoise
+                            lastAntiNoise = lastAntiNoise,
+                            rumbleAccel = speedSnap.linearAccelMagnitude
                         ) ?: input.copyOf(read)
 
                         val detector = sirenDetector
@@ -594,6 +598,17 @@ class AudioEngine(
                         } else {
                             0.98 * profileEnergyEma + 0.02 * blockRms
                         }
+
+                        // Compute VSS scale from blockRms (and previous pfx varEma for variance based dynamic mu)
+                        val prevVar = sessionContext.perfMetrics.lastLmsPfxVarEma
+                        val vssFromRms = when {
+                            blockRms > 0.02 -> 1.0f
+                            blockRms > 0.01 -> 0.9f
+                            else -> 0.7f
+                        }
+                        val vssFromVar = if (prevVar > 5f) 0.8f else if (prevVar > 1f) 0.95f else 1.05f
+                        lastBlockRmsVssScale = (vssFromRms * vssFromVar).coerceIn(0.5f, 1.3f)
+                        ancProcessor?.setBlockRmsVssScale(lastBlockRmsVssScale)
 
                         maybeRecalibrateProfile(blockRms.toDouble())
 
@@ -1064,6 +1079,7 @@ class AudioEngine(
         }
 
         val speed = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
+        ancProcessor?.setRumbleAccel(speed.linearAccelMagnitude)  // feed IMU rumble proxy directly into ANC (boosts low band in roadMode)
         // CYCLE3_EXTRA: classify via scoped instance from context (NoiseBandClassifier now class, wired to road ref)
         val classification = sessionContext.noiseBandClassifier.classify(
             spectrum = rawSpectrum,

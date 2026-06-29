@@ -52,6 +52,18 @@ interface AncProcessorFacade : AudioProcessor {
     // energyRatioThreshold: higher = less sensitive to "bumps" (e.g. 12-18); consec: require N consecutive high ratio before freeze; speedFactor scales duration at >50kmh.
     fun setDebugFreezeConfig(energyRatioThreshold: Float, consecutiveCount: Int, speedFactor: Float)
 
+    // IMU prototype integration: pass linear accel magnitude (from VehicleSpeedProvider) as rumble vibration proxy.
+    // Used inside low-band processing to boost roadMode gains / low mu when high vibration detected (complements speed-based road ref).
+    // Currently only logging in snapshots; now directly fed into ANC for feedforward boost.
+    fun setRumbleAccel(mag: Float) {}
+
+    // Pass blockRms variance based VSS scale (computed in AudioEngine from perfMetrics) into processor.
+    // Allows using full block energy variance (not just per-sample pfx) for dynamic mu in VSS logic.
+    fun setBlockRmsVssScale(scale: Float) {}
+
+    // Enable native low band switching point (for when NDK/native impl is active; currently falls back to no-op)
+    fun setUseNativeLowBand(enabled: Boolean) {}
+
     // Iter2+: expose effective mid band mu (after road/musicLow boosts + bandMuScale) for logging mid contrib to 200-350Hz rumble.
     // 0 means no mid adaptation (pre-iter1 case for 136ms AA).
     fun getLastEffectiveMidMu(): Float = 0f
