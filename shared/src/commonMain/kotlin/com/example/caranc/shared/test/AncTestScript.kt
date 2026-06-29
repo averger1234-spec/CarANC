@@ -293,7 +293,15 @@ object CarAncTestScript {
         "coarseLon",
         "roughness",
         "speedKmh",
-        "speedValid"
+        "speedValid",
+        // C8: crowd vision / IMU hybrid Road Preview / NVH predictive preload (1.5x on agg coarse/rough from prior #7)
+        "crowdsourcedPreloadBoost",
+        "rumbleAuxFactor",
+        "crowdsourcedNVHPreload",
+        "rumbleAuxPreviewFactor",
+        "imuHybridImprove",
+        "hasClusterMatch",
+        "clusterHash"
     )
 }
 
@@ -439,11 +447,13 @@ object CarRoadTuningScript {
                 "**切到粗糙路面，嚴格維持 50+ km/h 粗糙顛簸路 60-90秒**（確保 speed>28 + low/mid energy ratio >0.06 觸發 classifier pure ROAD_MID，即使 music=true；guarded by roadMode+speed+energy。2026-06-29 log 實測：高音樂時 max 只有 0.071，必須嚴格低 vol 才行）",
                 "Skoda Octavia 專用：#7 目標是 dominant shift 至 rumble + bigger mid 貢獻。觀察 effectiveMidMu 0.6+、midScale high、maxC 300-380Hz、200-350Hz reduction -4~-6dB（比#6 更深）；比較 vs old #4b baseline + #6 A/B（old parts 穩定不變）",
                 "記錄 scenario \"Skoda #7_ext strong S3 iter4, roadMode active, effectiveMidMu=XX dominant=ROAD_MID speed=XX music=low-strict reduction=XX\"",
-                "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_7_strong_road + effectiveMidMu>0.6 + dominant=ROAD_MID + midBandMuScale>0.6 + reductionDb>3 + maxC>300 + lmsUpdateCount high；若 music 強仍 MUSIC_BROAD 則無效（退回用#4b/#6 baseline A/B）"
+                "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_7_strong_road + effectiveMidMu>0.6 + dominant=ROAD_MID + midBandMuScale>0.6 + reductionDb>3 + maxC>300 + lmsUpdateCount high；若 music 強仍 MUSIC_BROAD 則無效（退回用#4b/#6 baseline A/B）",
+                "C8: 嚴格維持 speed 55+ rough (sustained) 觸發 full crowd vision 1.5x preloadBoost (agg from prior #7 coarse/rough clusters) + new fields: crowdsourcedPreloadBoost/rumbleAuxFactor/crowdsourcedNVHPreload/rumbleAuxPreviewFactor/imuHybridImprove 高值。記錄 scenario 含 'C8 crowdPre=1.5 rough=XX coarse=XX'。",
+                "C15/C11 延伸（更多 cycle 模擬）：STRICT: 維持 sustained spd>55kmh (enforce via vehicleSpeedProvider; if <50 during step WARN + partial data) rough (國道/台68 bumps) low-music<15% pers=1.28 tier=PRO. #7 rumble 200-350Hz focus. LOG clusters (coarse~0.001 + rough>1.1 + rumbleEma>2.5 + red>4) for NVH preload. Monitor running_snapshot: rumbleAuxPreviewFactor crowdsourcedPreloadBoost imuHybridMidErrImprove roughness personalRumbleBias rumbleAccelEma coarse* energyFactor speedKmh dominant effectiveMidMu reductionDb. If spd<55 -> repeat for full C15 data. Compare vs same-run #4b A/B (old unchanged). C15 master: high spd rough pers1.28 + IMU hybrid + crowd 1.5-1.8 unlocks 8-10.5dB / 1.65 effMid vs real partial logs (0.147/3.95, newfields=0, low spd~10); 11-18x delta vs #4b baseline. Use c15_full_cycle11_report.txt + c11_cycle_output.txt for planning."
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,  // tier PRO for most aggressive auto (low leak high boost native); demonstrates only manual switch is tier (sims pick values for balance)
-            checklist = listOf("muMult=2.05", "freezeTh=9", "consec=2", "override=80", "musicLow=ON", "roadMode active", "effectiveMidMu>0.6", "speed>50 rough low-music", "compare vs old #4b/#6 A/B", "tier=PRO auto (leakage=0.9995 etc from sims)"),
+            checklist = listOf("muMult=2.05", "freezeTh=9", "consec=2", "override=80", "musicLow=ON", "roadMode active", "effectiveMidMu>0.6", "speed>55 sustained rough low-music pers=1.28", "compare vs old #4b/#6 A/B", "tier=PRO auto (leakage=0.9995 etc from sims)", "C15: log clusters coarse/rough/ema/red for NVH 1.5-1.8x; monitor new fields"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing", "debug_presets_apply"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 2.05f,
@@ -466,7 +476,9 @@ object CarRoadTuningScript {
                 "建議配外部錄音 + spectrum（重點 50-250Hz rumble 能量下降，特別 200-350Hz）",
                 "觀察重點：不同 debug 設定下 lowBandLms 更新率、freezeRem 頻率、reduction 在 rumble 主導時變化、主觀低頻 rumble 降低程度（0-10分）",
                 "比較重點：lmsUpdate 上升速度、freeze 頻率、antiNoiseDb 負值、reductionDb、midBand 貢獻（尤其是 Skoda 200-350Hz 區）、是否出現 artifact、effectiveMidMu、dominant shift、maxC",
-                "延伸重點（tier auto + sim_iter）：現在**唯一手動切換是 tier (LIGHT/STANDARD/PRO)**； leakage / vssScale / rumbleBoost / native 全部由 updateTier 自動（依 sims 推薦值）。建議在 prep 用 LIGHT，#4b 用 STANDARD，#6/#7 用 PRO 測試不同 auto 行為。記錄 tier 變化 + running_snapshot 中的 tier + debugLeakage(effective from tier) + blockRmsVssScale + rumbleBoostFactor + useNativeLowBand + lmsPfxVarEma (stability) + effMidMu + reductionDb。單輪內 A/B 用不同 suggestedTier 步驟比較 auto 配置。**sims (sim_iter.ps1) 決定其餘**；累積 log 後 re-run sims 微調 tier* 值。目標：用戶只 flip tier，sims 保駕護航平衡穩定(低varEma無pop)與性能(高effMid red rumble)。驗證 red -4~-6dB on PRO strict rough。"
+                "延伸重點（tier auto + sim_iter）：現在**唯一手動切換是 tier (LIGHT/STANDARD/PRO)**； leakage / vssScale / rumbleBoost / native 全部由 updateTier 自動（依 sims 推薦值）。建議在 prep 用 LIGHT，#4b 用 STANDARD，#6/#7 用 PRO 測試不同 auto 行為。記錄 tier 變化 + running_snapshot 中的 tier + debugLeakage(effective from tier) + blockRmsVssScale + rumbleBoostFactor + useNativeLowBand + lmsPfxVarEma (stability) + effMidMu + reductionDb。單輪內 A/B 用不同 suggestedTier 步驟比較 auto 配置。**sims (sim_iter.ps1) 決定其餘**；累積 log 後 re-run sims 微調 tier* 值。目標：用戶只 flip tier，sims 保駕護航平衡穩定(低varEma無pop)與性能(高effMid red rumble)。驗證 red -4~-6dB on PRO strict rough。",
+                "C15/C11 匯出 + NVH：after drive, terminal: powershell -File scripts/pull-latest-log.ps1; Select-String -Path \"C:\\Users\\user\\AndroidStudioProjects\\CarANC\\log\\anc_session_*.log\" -Pattern \"tuning_7_strong_road|coarseLat|roughness|personalRumbleBias|rumbleAccelEma|reductionDb|ROAD_MID|rumbleAuxPreviewFactor|effectiveMidMu\" | group coarse/rough/ema/red -> save local NVH json (privacy, e.g. clusters.json). Future #7 on 國道 match auto *1.5 rumbleAuxPreviewFactor + crowdsourcedPreloadBoost (predictive from prior C15 clusters). Update scenario log with C15 cond name + spectrum 200-350Hz red validate. re-run powershell -File sim_iter.ps1 for C15 update + seed 1.5-1.8x. Monitor in #7: all new IMU/rough/pers/crowd fields for validation.",
+                "C14 5-drive NVH Waze (long-term cumulative): after drive, parse log for clusters -> save to local nvh_map.json (quantized coarse~0.001° hash + rough>1.1 + ema>2.0 + red>4); next drive auto preload in sim/real (crowdsourcedPreloadBoost=1.5 + rumbleAuxPreviewFactor*1.5 on match e.g. 國道/台68). Use Get-ClusterMatchBoost + Simulate-C14NVHStep. Cumulative after 3+: #7 red +50% from crowd history (1.28 pers * 1.12 imu * 1.5 crowd). Full 5-drive target: eff>1.8 red>11 98% ROAD_MID. Old parts (prep/4/4b/5) always unchanged for low A/B control. Monitor hasClusterMatch/clusterHash/crowdsourcedPreloadBoost/rumbleAuxPreviewFactor etc. See c14_nvh_longterm_5drive.txt for table/JSONL/nvh_map ex +50% quant. re-run powershell -File sim_iter.ps1 (C14 funcs loaded)."
             ),
             durationSec = 0,
             requiresAncRunning = false,

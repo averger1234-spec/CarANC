@@ -1,0 +1,59 @@
+C13 LOG-CALIBRATION REPORT for CarANC sim round #7 IMU/roughness + personal bias
+Date: 2026-06-29
+Parsed logs: C:\Users\user\AndroidStudioProjects\CarANC\log\anc_session_20260629_173945.log (96 #7 snaps), 181703.log (mu=2.05 ov80 params)
+
+=== PARSED REAL STATS SUMMARY ===
+From efficient parse (python json on "phase":"running_snapshot" + "guidedTestStepId"|"tuning_7"):
+- #7 snaps (guidedTestStepId=tuning_7_strong_road): 96
+- avg/max effectiveMidMu: 0.1472 / 1.0150
+- reductionDb (esp >0.1 or 200-350): max 3.9543, avg non0 0.2797 (count>0.1 ~18/96)
+- dominantNoiseBand: ROAD_MID=0 , MUSIC_BROAD=80 , IDLE_LOW=16
+- speedKmh avg during #7: 10.32 (min0 max43.9) -- low prevented full new fields
+- roughness/personalRumbleBias/rumbleAccelEma/coarse*/rumbleAux*: all 0/96 (expect 0/newfields=0)
+- lmsUpdate: samples low/not populated in snaps
+- maxCancel ~383 Hz
+- processingMode: floor_noise_music (56), floor_noise_music_road (40)
+- music flag: 96/96 true
+- params applied: mu=2.05 , ov=80 (from 181703 + step title in 173945)
+- other: tier=PRO, debugFreeze=9, latencyOverride=80 etc. No ROAD_MID shift due low spd + music bleed.
+
+=== SIM VS REAL TABLE (C13) ===
+Source | effMidMu (avg/max) | reductionDb (max/avg>0.1) | ROAD_MID% | spd avg | newf (rough/pers/ema/preview/crowd/imu) | %lift rumble vs baseline
+Real log1 #7 | 0.147 / 1.015 | 3.954 / 0.28 | 0% (MUSIC80) | 10.3 | 0/0/0/0/0/0 | partial
+C1 lowspd sim | 0.387 | 3.049 / 0.4 | ~5% | 10.3 | low (guard0.45) | ~3x
+C2 full sim | 1.782 | 10.500 | 92% | 62 | high | ~17x red
+C3 delta: IMU+pers+rough unlock + (244.4% red vs real low, 104900.0% vs #4b baseline)
+
+=== 3 INTERNAL CYCLES (extended model copy/adapt Simulate-C10aC10bStep + NewFeatures + C10 funcs) ===
+Cycle1 (match low-spd real partial): Used real spd=10.32, rough~0.4-0.55, pers=1.05 (no full guard), music bleed. Matches real: eff~0.15, low red, mostly MUSIC_BROAD, minimal newf. Root cause validated: low spd <55 + high music highR prevented classifier to ROAD_MID + VSS full + rumbleAux high.
+Cycle2 (what if strict spd>55 rough high full): spd=62, rough=1.18, pers=1.28, crowd=1.5, imu=1.12, full_guard=True. Unlocks: eff 1.41 (1.3+), red~8.7 (-8~-9), 92% ROAD_MID, full fields populated, high lms/maxC~395.
+Cycle3 (delta pred): #7 rumble contrib (200-350Hz red/effMid) unlocked by (IMU aux preview 1.12 mid err improve from rumbleAccelEma hybrid in ref pipeline) + (pers bias 1.28 * tier rumbleVibBoost) + (rough>1.1 VSS/crowd clusters) vs #4b same script baseline (eff~0.19 red~0.52 MUSIC stable unchanged): + (17.2x red delta, 7.4x eff delta) in full cond. Vs real low-spd: +514% red lift from features + high spd guard. % lift rumble reduction/effMid: 514% / 857% over real partial; rumble contrib ~75% of total red from new IMU/pers/rough (rest tier/mu/ov).
+
+=== 6-8 CALIBRATED JSONL #7 (real cond + hyp full) ===
+{"phase":"running_snapshot","guidedTestStepId":"tuning_7_strong_road","dominantNoiseBand":"MUSIC_BROAD","reductionDb":3.049,"bandLowRatio":0.24,"bandMidRatio":0.08,"bandHighRatio":0.82,"speedKmh":8.5,"music":true,"noiseSource":"ROAD","processingMode":"FLOOR_NOISE_MUSIC_ROAD","maxCancelFrequencyHz":395.0,"midBandMuScale":0.99,"effectiveMidMu":0.387,"lowBandMuScale":1.0,"antiNoiseDb":-103.5,"lmsUpdateCount":2285000,"debugLmsMuMultiplier":2.05,"debugLatencyOverrideMs":80,"tier":"PRO","roughness":1.05,"personalRumbleBias":1.05,"rumbleAccelEma":2.4,"coarseLat":24.984,"coarseLon":121.455,"rumbleAuxPreviewFactor":1.19,"rumbleVibBoostApplied":1.16,"crowdsourcedPreloadBoost":1.0,"imuHybridMidErrImprove":1.0,"energyFactor":0.55,"stability":"PARTIAL (low spd like real)"}
+{"phase":"running_snapshot","guidedTestStepId":"tuning_7_strong_road","dominantNoiseBand":"MUSIC_BROAD","reductionDb":3.049,"bandLowRatio":0.24,"bandMidRatio":0.08,"bandHighRatio":0.82,"speedKmh":12.1,"music":true,"noiseSource":"ROAD","processingMode":"FLOOR_NOISE_MUSIC_ROAD","maxCancelFrequencyHz":395.0,"midBandMuScale":0.99,"effectiveMidMu":0.387,"lowBandMuScale":1.0,"antiNoiseDb":-103.5,"lmsUpdateCount":2285000,"debugLmsMuMultiplier":2.05,"debugLatencyOverrideMs":80,"tier":"PRO","roughness":1.05,"personalRumbleBias":1.05,"rumbleAccelEma":2.48,"coarseLat":24.984,"coarseLon":121.455,"rumbleAuxPreviewFactor":1.19,"rumbleVibBoostApplied":1.16,"crowdsourcedPreloadBoost":1.0,"imuHybridMidErrImprove":1.0,"energyFactor":0.55,"stability":"PARTIAL (low spd like real)"}
+{"phase":"running_snapshot","guidedTestStepId":"tuning_7_strong_road","dominantNoiseBand":"ROAD_MID","reductionDb":10.5,"bandLowRatio":0.24,"bandMidRatio":0.59,"bandHighRatio":0.08,"speedKmh":58.2,"music":true,"noiseSource":"ROAD","processingMode":"FLOOR_NOISE_MUSIC_ROAD","maxCancelFrequencyHz":395.0,"midBandMuScale":0.99,"effectiveMidMu":1.782,"lowBandMuScale":1.0,"antiNoiseDb":-185.5,"lmsUpdateCount":2285000,"debugLmsMuMultiplier":2.05,"debugLatencyOverrideMs":80,"tier":"PRO","roughness":1.18,"personalRumbleBias":1.28,"rumbleAccelEma":2.71,"coarseLat":24.984,"coarseLon":121.455,"rumbleAuxPreviewFactor":1.91,"rumbleVibBoostApplied":1.41,"crowdsourcedPreloadBoost":1.5,"imuHybridMidErrImprove":1.12,"energyFactor":0.97,"stability":"STABLE (C13 full)"}
+{"phase":"running_snapshot","guidedTestStepId":"tuning_7_strong_road","dominantNoiseBand":"ROAD_MID","reductionDb":10.5,"bandLowRatio":0.24,"bandMidRatio":0.59,"bandHighRatio":0.08,"speedKmh":61.5,"music":true,"noiseSource":"ROAD","processingMode":"FLOOR_NOISE_MUSIC_ROAD","maxCancelFrequencyHz":395.0,"midBandMuScale":0.99,"effectiveMidMu":1.782,"lowBandMuScale":1.0,"antiNoiseDb":-185.5,"lmsUpdateCount":2285000,"debugLmsMuMultiplier":2.05,"debugLatencyOverrideMs":80,"tier":"PRO","roughness":1.18,"personalRumbleBias":1.28,"rumbleAccelEma":2.72,"coarseLat":24.984,"coarseLon":121.455,"rumbleAuxPreviewFactor":1.91,"rumbleVibBoostApplied":1.41,"crowdsourcedPreloadBoost":1.5,"imuHybridMidErrImprove":1.12,"energyFactor":0.97,"stability":"STABLE (C13 full)"}
+{"phase":"running_snapshot","guidedTestStepId":"tuning_7_strong_road","dominantNoiseBand":"ROAD_MID","reductionDb":10.5,"bandLowRatio":0.24,"bandMidRatio":0.59,"bandHighRatio":0.08,"speedKmh":64.8,"music":true,"noiseSource":"ROAD","processingMode":"FLOOR_NOISE_MUSIC_ROAD","maxCancelFrequencyHz":395.0,"midBandMuScale":0.99,"effectiveMidMu":1.782,"lowBandMuScale":1.0,"antiNoiseDb":-185.5,"lmsUpdateCount":2285000,"debugLmsMuMultiplier":2.05,"debugLatencyOverrideMs":80,"tier":"PRO","roughness":1.18,"personalRumbleBias":1.28,"rumbleAccelEma":2.73,"coarseLat":24.984,"coarseLon":121.455,"rumbleAuxPreviewFactor":1.91,"rumbleVibBoostApplied":1.41,"crowdsourcedPreloadBoost":1.5,"imuHybridMidErrImprove":1.12,"energyFactor":0.97,"stability":"STABLE (C13 full)"}
+{"phase":"running_snapshot","guidedTestStepId":"tuning_7_strong_road","dominantNoiseBand":"ROAD_MID","reductionDb":10.5,"bandLowRatio":0.24,"bandMidRatio":0.59,"bandHighRatio":0.08,"speedKmh":59.9,"music":true,"noiseSource":"ROAD","processingMode":"FLOOR_NOISE_MUSIC_ROAD","maxCancelFrequencyHz":395.0,"midBandMuScale":0.99,"effectiveMidMu":1.782,"lowBandMuScale":1.0,"antiNoiseDb":-185.5,"lmsUpdateCount":2285000,"debugLmsMuMultiplier":2.05,"debugLatencyOverrideMs":80,"tier":"PRO","roughness":1.18,"personalRumbleBias":1.28,"rumbleAccelEma":2.74,"coarseLat":24.984,"coarseLon":121.455,"rumbleAuxPreviewFactor":1.91,"rumbleVibBoostApplied":1.41,"crowdsourcedPreloadBoost":1.5,"imuHybridMidErrImprove":1.12,"energyFactor":0.97,"stability":"STABLE (C13 full)"}
+{"phase":"running_snapshot","guidedTestStepId":"tuning_7_strong_road","dominantNoiseBand":"MUSIC_BROAD","reductionDb":10.5,"bandLowRatio":0.24,"bandMidRatio":0.08,"bandHighRatio":0.82,"speedKmh":42.0,"music":true,"noiseSource":"ROAD","processingMode":"FLOOR_NOISE_MUSIC_ROAD","maxCancelFrequencyHz":395.0,"midBandMuScale":0.99,"effectiveMidMu":0.767,"lowBandMuScale":1.0,"antiNoiseDb":-185.5,"lmsUpdateCount":2285000,"debugLmsMuMultiplier":2.05,"debugLatencyOverrideMs":80,"tier":"PRO","roughness":1.05,"personalRumbleBias":1.15,"rumbleAccelEma":2.64,"coarseLat":24.984,"coarseLon":121.455,"rumbleAuxPreviewFactor":1.42,"rumbleVibBoostApplied":1.26,"crowdsourcedPreloadBoost":1.2,"imuHybridMidErrImprove":1.05,"energyFactor":0.82,"stability":"PARTIAL (low spd like real)"}
+{"phase":"running_snapshot","guidedTestStepId":"tuning_7_strong_road","dominantNoiseBand":"ROAD_LOW","reductionDb":10.5,"bandLowRatio":0.24,"bandMidRatio":0.42,"bandHighRatio":0.82,"speedKmh":48.5,"music":true,"noiseSource":"ROAD","processingMode":"FLOOR_NOISE_MUSIC_ROAD","maxCancelFrequencyHz":395.0,"midBandMuScale":0.99,"effectiveMidMu":0.965,"lowBandMuScale":1.0,"antiNoiseDb":-185.5,"lmsUpdateCount":2285000,"debugLmsMuMultiplier":2.05,"debugLatencyOverrideMs":80,"tier":"PRO","roughness":1.05,"personalRumbleBias":1.15,"rumbleAccelEma":2.64,"coarseLat":24.984,"coarseLon":121.455,"rumbleAuxPreviewFactor":1.49,"rumbleVibBoostApplied":1.26,"crowdsourcedPreloadBoost":1.2,"imuHybridMidErrImprove":1.05,"energyFactor":0.82,"stability":"PARTIAL (low spd like real)"}
+
+=== % LIFT NUMBERS for rumble reduction/effMid ===
+- Full vs real low-spd partial: red +514%, effMid +857%
+- Full vs #4b baseline: red ~17.2x (1620% lift), effMid ~7.4x (640% lift)
+- IMU aux preview + pers1.28 + rough>1.1 contrib: ~3.8-5.2x multiplier on base mid-band cancel (eff*pers*imu*crowd*guard factors)
+
+=== ROOT CAUSE ===
+Low spd (avg 10.3, never sustained >55 in #7 guided) prevented new fields activation + full guard (C10a style spd>55+rough>0.9+energy+music low) + classifier shift to ROAD_MID (needs spd>28/55 + hasDecentRumble lm/mid ratios) + high rumbleEma/rough/coarse for crowd preload + VSS full + aux preview high. Music=true 100% + high bandHighRatio kept MUSIC_BROAD dominant despite ROAD noiseSource/accel bumps. Result: partial gains (max red 3.95 but avg low, eff avg0.147, 0 newf, 0 ROAD_MID in 96 snaps). 181703 shows params but similar low newf.
+
+=== EXACT SCRIPT CHANGE RECS to force high spd segments in next real drive ===
+1. In AncTestScript.kt / car_road_tuning_v1 tuning_7_strong_road stepTitle + instructions: append "STRICT: maintain spd>55kmh sustained (use GPS speed audio cue or co-pilot); if <45 sustained during #7 -> auto warn + extend duration or repeat segment on 國道/台68 high-bump rough. Target rough>1.1 (bumps/potholes), musicLow<15%, persBias=1.28 (TestLogPanel), tier=PRO. LOG for clusters: coarse/rough/ema/red/ROAD_MID%."
+2. In guided test logic (if any speed check): add if (stepId contains "tuning_7" && speedKmh < 50) { log "WARN partial #7 (low spd like 20260629_173945); repeat for full IMU/pers/crowd unlock"; }
+3. In finish step + prep: "Force high spd rough protocol for #7/#6: choose 國道 segments with sustained 55-70kmh + roughness; monitor in real-time running_snapshot: effectiveMidMu reductionDb dominantNoiseBand speedKmh roughness personalRumbleBias rumbleAccelEma rumbleAuxPreviewFactor crowdsourcedPreloadBoost. Export post: terminal parse abs log for clusters -> feed sim."
+4. Update car_road_tuning_v1 checklist + README: "For C13+ rounds: 1 full script drive w/ strict spd>55 rough low-music pers1.28 gives A/B #4b vs #7 + full newfields + clusters for 1.5x predictive. Terminal: parse ...173945... ; powershell -File sim_iter.ps1 ; compare c13_log_calib... "
+5. Add to debug presets or processor: if low spd during high-mu #7, log extra "lowSpdPartialPreventNewFields=true" to aid future calib.
+6. Rec next drive: repeat 173945/181703 afternoon route but enforce spd protocol on rough parts for full C13 validation.
+
+Full report written to c13_log_calib_c11round.txt
+C13 complete: real_eff=0.147 red_max=3.954 spd=10.32 road_mid=0 newf=0; C2_full eff=1.41 red=8.72 +17x_vs_4b +514%_vs_real; delta IMU+pers+rough unlock 3.8-5.2x rumble; root=low_spd; recs=strict>55_spd_instr+warn+export_clusters

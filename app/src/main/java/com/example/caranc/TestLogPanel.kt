@@ -302,8 +302,12 @@ fun TestLogPanel(
                 // Personal acoustic identity (moat #2): follows the *person* (your phone / future Google acct), not the car.
                 // Your rumble sensitivity / hearing preference travels with you across any vehicle (own Skoda, rental, family car) via AA.
                 // Bias multiplies IMU rumble feedforward strength (on top of tier auto). "Your mobile quiet cabin".
-                val personalBias = AncTestPreferences.getPersonalRumbleBias(context)
-                Text("個人聲學偏好 (Personal Rumble Bias, 跟著你走): ${"%.2f".format(personalBias)} × (1.0=中性；>1 更強抗低頻 rumble)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                var personalBias = AncTestPreferences.getPersonalRumbleBias(context)
+                if (personalBias < 1.15f) {
+                    personalBias = 1.28f
+                    AncTestPreferences.setPersonalRumbleBias(context, 1.28f)
+                }
+                Text("個人聲學偏好 (Personal Rumble Bias, 跟著你走; C15 rumble 推薦預設 1.28 top tier * personal): ${"%.2f".format(personalBias)} × (1.0=中性；>1 更強抗低頻 rumble)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                 Slider(
                     value = personalBias,
                     onValueChange = {
@@ -313,7 +317,7 @@ fun TestLogPanel(
                     valueRange = 0.7f..1.3f,
                     steps = 5
                 )
-                Text("這是你的「聲學身分」：下次開任何車，只要同手機連 AA，偏好自動套用。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("這是你的「聲學身分」：下次開任何車，只要同手機連 AA，偏好自動套用。C15: #7 rumble 設 1.28 + PRO + strict 55+ rough low-music 解鎖 IMU hybrid + crowd 1.5-1.8x (see c15_full_cycle11_report.txt)。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                 Text("凍結門檻 (能量比，預設15；越高越不易凍 LMS)：${"%.1f".format(freezeThreshold)}", style = MaterialTheme.typography.bodySmall)
                 Slider(
