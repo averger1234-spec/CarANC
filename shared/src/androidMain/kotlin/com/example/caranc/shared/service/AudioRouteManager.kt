@@ -60,6 +60,20 @@ class AudioRouteManager(context: Context) {
     private var deviceCallback: AudioDeviceCallback? = null
     private var routeChangeListener: ((RouteApplyResult) -> Unit)? = null
 
+    // AA routing 保險機制：
+    // 如果使用 SONIFICATION 在 AA 環境下無法正確路由到 car sink / remote-submix，
+    // 則標記 fallback 為 true，後續 buildTrackAudioAttributes 會切回 MEDIA 以確保 routing。
+    // 這是「如果 SONIFICATION routing 變差就 fallback」的保險。
+    private var aaSonificationRoutingFailed = false
+
+    /** 供外部（測試或 UI）呼叫，重置 AA SONIFICATION fallback 狀態，下次可重新嘗試 SONIFICATION */
+    fun resetAaSonificationFallback() {
+        aaSonificationRoutingFailed = false
+        Log.i(TAG, "AA SONIFICATION fallback 已重置，下次 build 將重新嘗試 SONIFICATION。")
+    }
+
+    fun isAaSonificationFallbackActive(): Boolean = aaSonificationRoutingFailed
+
     @Volatile
     var ancOutputGain: Float = 1f
         private set
@@ -128,11 +142,18 @@ class AudioRouteManager(context: Context) {
 
     fun buildTrackAudioAttributes(isAaConnected: Boolean): AudioAttributes {
         val builder = AudioAttributes.Builder()
-            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-        if (isAaConnected) {
-            // AA 投影時與車機媒體走同一 mixer path，較容易進入 car sink。
-            builder.setUsage(AudioAttributes.USAGE_MEDIA)
+
+        val useSonification = !(isAaConnected && aaSonificationRoutingFailed)
+
+        if (useSonification) {
+            // 優先使用 SONIFICATION，避免 ANC 被系統當成主要媒體來源
+            // （搶 AudioFocus / 車機音量旋鈕控制 ANC 而不是音樂）
+            builder.setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            builder.setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
         } else {
+            // 保險 fallback：AA SONIFICATION routing 失敗時，切回 MEDIA 確保能走到 car sink
+            // 這是「如果 SONIFICATION routing 變差就 fallback」的機制
+            builder.setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
             builder.setUsage(AudioAttributes.USAGE_MEDIA)
         }
         return builder.build()
@@ -164,8 +185,9 @@ class AudioRouteManager(context: Context) {
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                // 與 ANC track 一致，使用 SONIFICATION 類型，避免 focus 跟音樂 media 衝突
+                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                 .setAudioAttributes(attrs)
@@ -218,11 +240,27 @@ class AudioRouteManager(context: Context) {
         isAaConnected: Boolean
     ): RouteApplyResult {
         val route = resolveRoute(isAaConnected)
-        return if (audioRecord != null) {
+        val result = if (audioRecord != null) {
             applyRoute(audioRecord, audioTrack, route)
         } else {
             applyTrackRoute(audioTrack, route)
         }
+
+        // AA routing 保險機制偵測
+        if (isAaConnected && !result.carSinkRouted && !aaSonificationRoutingFailed) {
+            // 嘗試判斷是否是因為 SONIFICATION 導致 routing 失敗
+            // (carSinkRouted false 且 routed 到非車機 sink)
+            val routedName = result.routedOutputName ?: ""
+            if (!routedName.contains("car", ignoreCase = true) &&
+                !routedName.contains("submix", ignoreCase = true) &&
+                !routedName.contains("bus", ignoreCase = true)) {
+                aaSonificationRoutingFailed = true
+                Log.w(TAG, "AA SONIFICATION routing 未成功到達 car sink (routed=$routedName)，啟用 MEDIA fallback 保險。")
+                Log.w(TAG, "下次 rebuild track 或重啟 App 將使用 USAGE_MEDIA 以確保 AA 路由。")
+            }
+        }
+
+        return result
     }
 
     fun isCarSinkRouted(audioTrack: AudioTrack?, isAaConnected: Boolean = false): Boolean {

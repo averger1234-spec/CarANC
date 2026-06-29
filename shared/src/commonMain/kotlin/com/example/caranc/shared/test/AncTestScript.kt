@@ -258,6 +258,11 @@ object CarAncTestScript {
         "mimoZoneCount",
         "playbackRefActive",
         "aecErleDb",
+        "mediaSubtracted",
+        "mediaCorrelation",
+        "mediaActiveFilterLen",
+        "mediaMuStep",
+        "mediaAdaptationActive",
         "sirenOverride",
         // 新增：LMS 調校實驗關鍵欄位（mu/freeze/latency override + band muScale + dominant）
         "dominantNoiseBand",

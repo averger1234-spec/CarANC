@@ -7,6 +7,9 @@ data class ReferencePipelineMetrics(
     val aecErleDb: Float = 0f,
     val mediaSubtracted: Float = 0f,
     val mediaCorrelation: Float = 0f,
+    val mediaActiveFilterLen: Int = 0,
+    val mediaMuStep: Float = 0f,
+    val mediaAdaptationActive: Boolean = false,
     val engineRpm: Float = 0f,
     val engineRpmValid: Boolean = false,
     val engineFundamentalHz: Float = 0f,
@@ -18,7 +21,7 @@ class ReferenceSignalPipeline(
     private val sampleRate: Int
 ) {
     private val aec = AcousticEchoCanceller(filterLength = 96)
-    private val mediaSubtractor = MediaReferenceSubtractor(filterLength = 64)
+    private val mediaSubtractor = MediaReferenceSubtractor(filterLength = 128)  // 強化：使用更長 filter 提升音樂扣除能力
     private val engineHarmonic = EngineHarmonicGenerator(sampleRate)
 
     private var musicActive = false
@@ -89,6 +92,9 @@ class ReferenceSignalPipeline(
             aecErleDb = aec.lastErleDb,
             mediaSubtracted = mediaSubtractor.lastSubtracted,
             mediaCorrelation = mediaSubtractor.lastCorrelation,
+            mediaActiveFilterLen = mediaSubtractor.lastActiveFilterLength,
+            mediaMuStep = mediaSubtractor.lastMuStep,
+            mediaAdaptationActive = mediaSubtractor.adaptationActive,
             engineRpm = engineHarmonic.rpm,
             engineRpmValid = engineHarmonic.valid,
             engineFundamentalHz = engineHarmonic.fundamentalHz,
