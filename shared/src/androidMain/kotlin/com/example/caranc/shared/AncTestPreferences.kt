@@ -20,6 +20,7 @@ object AncTestPreferences {
     private const val KEY_DEBUG_FREEZE_THRESHOLD = "debug_freeze_threshold"
     private const val KEY_DEBUG_FREEZE_CONSEC = "debug_freeze_consec"
     private const val KEY_DEBUG_LATENCY_OVERRIDE_MS = "debug_latency_override_ms"
+    private const val KEY_DEBUG_LEAKAGE = "debug_leakage"
 
     fun isLoggingEnabled(context: Context): Boolean {
         return prefs(context).getBoolean(KEY_LOGGING_ENABLED, true)
@@ -126,6 +127,14 @@ object AncTestPreferences {
 
     fun setDebugLatencyOverrideMs(context: Context, ms: Float) {
         prefs(context).edit().putFloat(KEY_DEBUG_LATENCY_OVERRIDE_MS, ms.coerceAtLeast(0f)).apply()
+    }
+
+    fun getDebugLeakage(context: Context): Float {
+        return prefs(context).getFloat(KEY_DEBUG_LEAKAGE, 0.9998f).coerceIn(0.99f, 0.99999f)
+    }
+
+    fun setDebugLeakage(context: Context, alpha: Float) {
+        prefs(context).edit().putFloat(KEY_DEBUG_LEAKAGE, alpha.coerceIn(0.99f, 0.99999f)).apply()
     }
 
     private fun prefs(context: Context) =

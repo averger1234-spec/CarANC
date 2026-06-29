@@ -132,6 +132,14 @@ class IosAncProcessorFacade(
         // stub
     }
 
+    override fun setDebugLeakage(alpha: Float) {
+        // stub (iOS native path not implemented; leakage handled in common BandFxLms if ported)
+    }
+
+    override fun setDebugVssEnergyScale(enabled: Boolean) {
+        // stub
+    }
+
     override fun setDebugFreezeConfig(energyRatioThreshold: Float, consecutiveCount: Int, speedFactor: Float) {
         // stub
     }

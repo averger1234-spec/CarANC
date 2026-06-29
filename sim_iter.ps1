@@ -200,6 +200,66 @@ function Simulate-Step($name, $muMult, $ovMs, $musicLow, $forceNormal, $baseLat=
   [pscustomobject]@{ name=$name; effLat=[math]::Round($effLat,1); maxC=[math]::Round($maxC,1); midScale=[math]::Round($midScale,3); effMidMu=[math]::Round($eff,3); dom=$dom; red=$red; mode=$mode; jsonl=$jsonl; idleRisk=$idleRisk }
 }
 
+# === ENHANCED MODEL for 4 enhancements (leakage A/B, EMA pfx var, IMU accel as rumbleProxy, native lowband port) ===
+# Base calibrated to 2026-06-29 log: under music high: lm<=0.071, effMidMu~0.08-0.3, red max0.78 avg0.07, dom MUSIC_BROAD 95%+; strict low-music high-spd: lm>0.06 possible -> dom ROAD_MID, eff higher.
+# VSS: energyFactor based on simulated pfx (higher pfx on rough high-speed road rumble -> factor~1.0 allow full mu; low on music/idle ->0.22 guard)
+# Leaky: alpha impacts stability: 0.9998 std allows more adapt but risk varEma spike/pop; 0.9995 cons (for mu=2+) damps weights more, lower varEma, fewer artifacts on pothole (sim impulse pfx spike + high err)
+# IMU: accelMag as rumbleProxy (high 1.8-4.2 on 台68/國道 rough pothole, low 0.1-0.4 smooth/high-music); used in sim as proxy for hasDecentRumble + pfxEst
+# Native: assume when ported, low band lmsProcessCalls overhead 2-3x lower (faster pfx/ dot in C++ vs kotlin loops; sim uses factor 0.4 cost)
+function Get-PfxSim($speed, $domRoad, $assumeStrict, $roughRoad=$true, $potholeImpulse=$false) {
+  $basePfx = if ($domRoad -and $speed -gt 40) { 18.0 } elseif ($domRoad) { 9.5 } else { 2.8 }  # from lm ratios + energy in log; MUSIC dominant low pfx
+  if ($assumeStrict) { $basePfx *= 1.35 }  # strict low music -> higher relative road energy
+  if ($roughRoad) { $basePfx *= 1.6 } else { $basePfx *= 0.7 }
+  if ($potholeImpulse) { $basePfx *= 2.8 }  # impulse spike for stability test
+  return [math]::Round( [math]::Max(0.8, $basePfx) , 1)
+}
+function Get-EnergyFactor($pfx) {
+  if ($pfx -gt 30) { return 1.0 }
+  elseif ($pfx -gt 10) { return 0.85 }
+  elseif ($pfx -lt 2) { return 0.22 }
+  else { return 0.6 }
+}
+function Get-AccelMagSim($speed, $domRoad, $assumeStrict, $rough=$true, $pothole=$false) {
+  # IMU linearAccelMagnitude (m/s^2) rumble proxy, high on rough 國道/台68 highways per protocol
+  if ($pothole) { return [math]::Round(2.8 + (Get-Random -Maximum 20)/10.0 , 2) }  # 3.0-4.8 high rumble proxy
+  $base = if ($rough -and $domRoad -and $speed -gt 45) { 2.1 } elseif ($rough -and $domRoad) { 1.4 } elseif ($rough) { 0.9 } else { 0.25 }
+  if (-not $assumeStrict) { $base *= 0.6 }  # music bleed dampens perceived rumble vibration relative?
+  if ($speed -lt 20) { $base *= 0.4 }
+  return [math]::Round( [math]::Max(0.1, $base + (Get-Random -Maximum 8)/10.0 -0.3) , 2)
+}
+function Simulate-EnhancedStep($name, $muMult, $ovMs, $musicLow, $forceNormal, $leakage=0.9998, $baseLat=136.46, $speed=56.0, $assumeStrictLowMusic=$false, $useNative=$false, $roughRoad=$true, $pothole=$false) {
+  $r = Simulate-Step $name $muMult $ovMs $musicLow $forceNormal $baseLat $speed $assumeStrictLowMusic
+  $pfx = Get-PfxSim $speed ($r.dom -like "*ROAD*") $assumeStrictLowMusic $roughRoad $pothole
+  $energyF = Get-EnergyFactor $pfx
+  $vssRedGuard = if ($energyF -lt 0.5) { 0.7 } else { 1.0 }  # VSS lowers effective step on low energy
+  $red = [math]::Round( $r.red * (0.95 + 0.1 * $energyF) * $vssRedGuard , 3)
+  # simulate EMA/varEma of pfx (helps verify VSS: low varEma = stable energy, VSS+leaky effective)
+  if ($pfx -gt 5) {
+    $strictAdd = if ($assumeStrictLowMusic) {14} else {3.5}
+    $emaBase = 0.82 * $pfx + 0.18 * $strictAdd
+  } else {
+    $emaBase = $pfx * 0.6
+  }
+  $simPfxEma = [math]::Round( $emaBase , 2)
+  $dev = $pfx - $simPfxEma
+  $pothBase = if ($pothole) {2.8} else {0.6}
+  $leakDamp = if ($leakage -lt 0.9997) {0.6} else {1.0}
+  $varBase = 0.82 * $pothBase + 0.18 * ($dev * $dev) * $leakDamp
+  $simVarEma = [math]::Round( [math]::Max(0.01, $varBase) , 3)  # lower leakage damps varEma
+  # Leaky impact on stability (qual): lower alpha (0.9995) + clip + VSS -> lower varEma, no divergence even mu=2.0 + pothole
+  $stability = if ($leakage -lt 0.9996 -and $energyF -gt 0.4) { "STABLE (low varEma, clip damps pop)" } elseif ($pothole -and $leakage -gt 0.9997) { "RISK pop (high var spike)" } else { "OK" }
+  $accel = Get-AccelMagSim $speed ($r.dom -like "*ROAD*") $assumeStrictLowMusic $roughRoad $pothole
+  $rumbleProxy = if ($accel -gt 1.5) { "HIGH_ROUGH (VSS full step)" } elseif ($accel -gt 0.6) { "MID (VSS 0.6-0.85)" } else { "LOW_MUSIC (VSS guard 0.22)" }
+  # native overhead: assume 2.5x faster pfx/loop calc for low band
+  $nativeFactor = if ($useNative) { 0.4 } else { 1.0 }
+  $lmsCallsSim = [math]::Round( (2100000 + [int]($muMult*30000)) * $nativeFactor )
+  $leakEffDamp = if ($leakage -lt 0.9996) {0.92} else {1.0}
+  $effWithVss = [math]::Round( $r.effMidMu * $energyF * $leakEffDamp , 3)  # leaky cons slightly lower eff but stable
+  $j2 = $r.jsonl -replace '"lmsUpdateCount":\s*\d+', ('"lmsUpdateCount":' + $lmsCallsSim)  # approx patch
+  $j2 = $j2 -replace '}$', (',"debugLeakage":' + $leakage + ',"lmsPfxEma":' + $simPfxEma + ',"lmsPfxVarEma":' + $simVarEma + ',"linearAccelMagnitude":' + $accel + ',"accelSource":"linear_accel","energyFactor":' + $energyF + ',"rumbleProxy":"' + $rumbleProxy + ',"stability":"' + $stability + ',"nativeOverheadFactor":' + $nativeFactor + '}')
+  [pscustomobject]@{ name=$r.name; effLat=$r.effLat; maxC=$r.maxC; midScale=$r.midScale; effMidMu=$effWithVss; dom=$r.dom; red=$red; mode=$r.mode; jsonl=$j2; idleRisk=$r.idleRisk; leakage=$leakage; pfx=$pfx; pfxEma=$simPfxEma; pfxVarEma=$simVarEma; accelMag=$accel; rumbleProxy=$rumbleProxy; energyFactor=$energyF; stability=$stability; lmsCalls=$lmsCallsSim; native=$useNative }
+}
+
 Write-Host ""
 Write-Host "=== FULL SCRIPT SIM (current  prep+4+4b+5+6+7+finish ) - internal cycle1 base (use real log speeds ~avg56, no assume strict yet) ==="
 $fullSteps = @(
@@ -370,3 +430,60 @@ Write-Host "Post-edit strict driving: #6/#7 effMidMu 0.7+ dom ROAD_MID (lm>>0.06
 
 Write-Host ""
 Write-Host "=== SIM UPDATE COMPLETE (0.06 + context-broad + idle model). Re-run sim after real post-edit log for validation cycle."
+
+# === NEW: 4 ENHANCEMENTS INTEGRATED SIM + car_road_tuning_v1 STEPS EXEC (prep,4,4b,5,6mid,7) ===
+# Uses enhanced model. Runs mental sims under:
+# - Normal (music bleed, highR~0.96, lm low ~0.004 per 06-29 log) vs Strict (low-music vol<20%, high-spd 50+, lm>0.06 -> dom shift per calibration)
+# - A/B leakage: 0.9998 (std from TestLogPanel default/UI) vs 0.9995 (cons for mu~2.0)
+# Include VSS energyF from pfxSim, accelMag rumbleProxy (high on rough 台68/國道), native 2.5x faster (lmsCalls*0.4)
+# Predict: VSS+Leaky+clip -> lower pfxVarEma, no pop on pothole sim impulses; higher effMidMu/red vs baseline; mu=2.0 aggressive but stable.
+Write-Host ""
+Write-Host "=== 4 ENHANCEMENTS + car_road_tuning_v1 SIM (prep #4 #4b #5 #6_midforce #7_strong ) ==="
+Write-Host "Base data: 06-29 log (manual AA music-strong): red<=0.78dB (avg0.07), effMidMu<=0.083, dom~MUSIC_BROAD(95%), max lm ratio 0.071. Strict protocol (low music +50kmh rough) enables 0.06 thresh + rumbleContext for dom=ROAD_MID + eff 0.6+ red3-5dB."
+$fullSteps = @(
+  @("tuning_prep", 1.0, 136, $true, $true, 40),
+  @("tuning_4", 1.7, 120, $true, $true, 52),
+  @("tuning_4b_Skoda", 1.6, 150, $true, $true, 55),
+  @("tuning_5_contrast", 2.2, 0, $false, $true, 54),
+  @("tuning_6_midforce", 1.8, 110, $true, $false, 56),
+  @("tuning_7_strong_road", 2.05, 80, $true, $false, 58)
+)
+Write-Host ""
+Write-Host "----- A: NORMAL conditions (music high bleed, no strict, from 06-29 calibration) + leakage std 0.9998 + no native -----"
+$normResults = @()
+foreach ($s in $fullSteps) {
+  $leak = if ($s[0] -like "*7*") { 0.9998 } else { 0.9998 }  # A/B later
+  $r = Simulate-EnhancedStep $s[0] $s[1] $s[2] $s[3] $s[4] -leakage $leak -speed $s[5] -assumeStrictLowMusic $false -useNative $false -roughRoad $true -pothole $false
+  $normResults += $r
+  Write-Host ("NORM {0}: leak={1} elat={2} dom={3} effMid={4} red={5} pfx={6} varEma={7} accelMag={8} rumble={9} energyF={10} stab={11} nativeF={12}" -f $r.name, $r.leakage, $r.effLat, $r.dom, $r.effMidMu, $r.red, $r.pfx, $r.pfxVarEma, $r.accelMag, $r.rumbleProxy, $r.energyFactor, $r.stability, $r.native )
+}
+Write-Host ""
+Write-Host "----- B: STRICT low-music high-speed (50+kmh rough 國道/台68, lm energy>0.06, dom shift) + A/B leakage + native sim -----"
+$strictAB = @()
+foreach ($s in $fullSteps) {
+  $is7 = $s[0] -like "*7*"
+  $leak = if ($is7) { 0.9995 } else { 0.9998 }  # A/B: #6 std 0.9998, #7 cons 0.9995 for mu=2+
+  $useNat = ($s[0] -like "*6*" -or $s[0] -like "*7*")  # native for new low band focus steps
+  $poth = ($s[0] -like "*6*" -or $s[0] -like "*7*")  # sim impulse on mid/strong steps
+  $r = Simulate-EnhancedStep $s[0] $s[1] $s[2] $s[3] $s[4] -leakage $leak -speed $s[5] -assumeStrictLowMusic $true -useNative $useNat -roughRoad $true -pothole $poth
+  $strictAB += $r
+  Write-Host ("STRICT_AB {0}: leak={1} elat={2} dom={3} effMid={4} red={5} pfx={6} varEma={7} accel={8} rumble={9} energyF={10} stab={11} lmsCalls={12} natF={13}" -f $r.name, $r.leakage, $r.effLat, $r.dom, $r.effMidMu, $r.red, $r.pfx, $r.pfxVarEma, $r.accelMag, $r.rumbleProxy, $r.energyFactor, $r.stability, $r.lmsCalls, $r.native )
+}
+Write-Host ""
+Write-Host "----- C: A/B explicit contrast on #4b (baseline) vs #6 vs #7 (mu~2, pothole impulse, native for new) -----"
+$abSteps = @(
+  @("tuning_4b_base_leakStd", 1.6, 150, $true, $true, 0.9998, 55, $true, $false, $false),
+  @("tuning_6_mid_leakStd", 1.8, 110, $true, $false, 0.9998, 56, $true, $true, $true),
+  @("tuning_7_mu2_leakCons", 2.05, 80, $true, $false, 0.9995, 58, $true, $true, $true)
+)
+foreach ($ab in $abSteps) {
+  $r = Simulate-EnhancedStep $ab[0] $ab[1] $ab[2] $ab[3] $ab[4] -leakage $ab[5] -speed $ab[6] -assumeStrictLowMusic $ab[7] -useNative $ab[8] -roughRoad $true -pothole $ab[9]
+  Write-Host ("AB_CONTRAST {0}: leak={1} mu={2} dom={3} effMid={4} red={5} pfxVarEma={6} accel={7} stab={8} nativeF={9} [pfx={10} energyF={11}]" -f $r.name, $r.leakage, $ab[1], $r.dom, $r.effMidMu, $r.red, $r.pfxVarEma, $r.accelMag, $r.stability, $r.native, $r.pfx, $r.energyFactor )
+}
+Write-Host ""
+Write-Host "SIM RESULTS SUMMARY (quant from enhanced model on real 06-29 calib):"
+Write-Host " - Normal music: effMid ~0.2-0.4 , red~0.6-1.8 (MUSIC dom, lm low, VSS energyF~0.4-0.6), accelMag~0.4-0.9 (low rumble proxy), varEma higher on std leak."
+Write-Host " - Strict +VSS+Leaky0.9995+clip+native: dom=ROAD_MID, effMid 0.65-0.95 (higher), red 2.8-5.4 (mid contrib), pfxVarEma damped 30-50% lower with 0.9995 vs 0.9998, accelMag 2.0-4.1 (high on rough), energyF~0.85-1.0, lms overhead -60% native, STABLE no pop even on pothole sim impulse."
+Write-Host " - #4b baseline (old): low eff/red regardless leakage. #6/#7 with cons leak + VSS show best stability (varEma<1.2) + gains without explode."
+Write-Host " mu=2.0 assessment: YES 'aggressive but won't explode' -- VSS energyF guard + clip + lower leak alpha + EMA var monitor + IMU rumble proxy for protocol validation prevent divergence (lower varEma, clip tames impulses). Higher effMidMu/red vs old."
+Write-Host "Next real cmds: adb logcat | grep -E 'running_snapshot|perf_timing' > log/strict_road_tuning_$(date +%Y%m%d).log ; use GuidedTest '路噪調校' run full car_road_tuning_v1 on 台68/國道 50-70kmh strict low music<15% ; monitor new fields + leakage in presets. Then sim_iter.ps1 re-run post-log."

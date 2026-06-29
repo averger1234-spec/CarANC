@@ -208,6 +208,18 @@ class MultiBandANCProcessor(
         debugMuMultiplier = mult.coerceIn(0.1f, 3.0f)
     }
 
+    // For Leaky LMS tuning (stability with high mu)
+    override fun setDebugLeakage(alpha: Float) {
+        lowBand.setLeakage(alpha)
+        midBand.setLeakage(alpha)
+        highBand.setLeakage(alpha)
+    }
+
+    override fun setDebugVssEnergyScale(enabled: Boolean) {
+        // Placeholder: in future, AudioEngine can pass blockRms-based scale into effectiveMuScale or per-band.
+        // Currently VSS logic inside BandFxLms already uses pfx (input energy proxy) for dynamic factor.
+    }
+
     override fun setDebugFreezeConfig(energyRatioThreshold: Float, consecutiveCount: Int, speedFactor: Float) {
         debugFreezeThreshold = energyRatioThreshold.coerceIn(8f, 25f)
         debugFreezeConsec = consecutiveCount.coerceIn(1, 5)
@@ -621,7 +633,10 @@ class MultiBandANCProcessor(
         private val xBuffer = FloatArray(1024) { 0f }
         private val filteredXBuffer = FloatArray(1024) { 0f }
         private var bufferIndex = 0
-        private val leakage = 0.9998f
+        // Leaky LMS: leakage factor α (0.999 ~ 0.9999 typical). Prevents weight drift/divergence when excitation is absent or low (e.g. steady rumble or idle).
+        // Formula used: w(j) = α * w(j) + muNorm * error * x(j)
+        // Current default very mild (0.9998) to allow convergence; can be made more aggressive (smaller α) for stability with high mu=2.0.
+        private var leakage = 0.9998f
         private val sHatLocal = FloatArray(sHatLength) { 0f }.apply { this[0] = 1f }
         private val zonePaths = mutableListOf<FloatArray>()
         private val zoneWeights = mutableListOf<Float>()
@@ -637,6 +652,10 @@ class MultiBandANCProcessor(
         // Iter2+: last effective muScale applied to this band (post all scales including road/music boosts; for mid contrib logging)
         var lastMuScale = 0f
             private set
+
+        fun setLeakage(alpha: Float) {
+            leakage = alpha.coerceIn(0.99f, 0.99999f)
+        }
 
         fun bindSecondaryPath(model: FloatArray) {
             for (i in 0 until sHatLength.coerceAtMost(model.size)) {
@@ -731,19 +750,27 @@ class MultiBandANCProcessor(
                     pfx += filteredXBuffer[idx] * filteredXBuffer[idx]
                 }
 
-                val muNorm = if (pfx > 20f) {
-                    currentMu / (pfx * 2f)
-                } else if (pfx < 2.0f) {
-                    // LOW ENERGY / IDLE GUARD: very low pfx (quiet residuals at idle/steady low rms + no rumble) -> reduce muNorm to prevent wild/pulsed weight updates that cause telegraph noise.
-                    // At rumble drive (high pfx from signal) unaffected. Complements speed guards above. Minimal safe.
-                    currentMu / (pfx + 1e-3f) * 0.22f
-                } else {
-                    currentMu / (pfx + 1e-3f)
+                // VSS (Variable Step-Size) + Leaky + clipping for stability with aggressive mu=2.0 + freeze=10.
+                // Base is NLMS-style normalization. Additional:
+                // - pfx-based VSS: high stable energy -> full mu; low/variable -> reduced (prevents divergence on impulses like potholes/expansion joints).
+                // - Energy factor: simple VSS using pfx (can extend with ema variance of blockRms from AudioEngine).
+                // - Gradient clipping: limit per-tap update to avoid popping on sudden high error.
+                // - Leaky applied in update (see leakage field + doc above).
+                val baseNorm = currentMu / (pfx + 1e-3f)
+                val energyFactor = when {
+                    pfx > 30f -> 1.0f                  // strong rumble excitation, allow full aggressive step
+                    pfx > 10f -> 0.85f
+                    pfx < 2.0f -> 0.22f                // existing low energy / idle guard
+                    else -> 0.6f
                 }
+                val muNorm = baseNorm * energyFactor
 
                 for (j in 0 until filterLength) {
                     val idx = (bufferIndex - j) and bufferMask
-                    w[j] = (w[j] * leakage + muNorm * error * filteredXBuffer[idx]).coerceIn(-0.8f, 0.8f)
+                    val rawUpdate = muNorm * error * filteredXBuffer[idx]
+                    // Gradient clipping / saturation to tame impulses (potholes etc.)
+                    val clippedUpdate = rawUpdate.coerceIn(-0.05f, 0.05f)  // per-tap limit; tune based on real logs
+                    w[j] = (w[j] * leakage + clippedUpdate).coerceIn(-0.8f, 0.8f)
                 }
                 lmsUpdateCount++
                 lastLmsPfx = pfx

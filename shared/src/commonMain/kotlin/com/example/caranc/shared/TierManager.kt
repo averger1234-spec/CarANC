@@ -64,6 +64,8 @@ class AncPerfMetrics {
     var lmsUpdateCount: Long = 0L
     var lmsProcessCalls: Long = 0L
     var lastLmsPfx: Float = 0f
+    var lastLmsPfxEma: Float = 0f
+    var lastLmsPfxVarEma: Float = 0f  // EMA of squared deviation for variance proxy, to verify VSS stability (high var -> more conservative mu)
     var fdafLmsUpdates: Long = 0L
     var multirateDecimUpdates: Long = 0L
 
@@ -91,6 +93,12 @@ class AncPerfMetrics {
         lmsUpdateCount = updates
         lmsProcessCalls = calls
         lastLmsPfx = pfx
+
+        // EMA variance proxy for lastLmsPfx (for VSS verification in perf logs)
+        lastLmsPfxEma = if (lastLmsPfxEma < 1e-6f) pfx else 0.85f * lastLmsPfxEma + 0.15f * pfx
+        val dev = pfx - lastLmsPfxEma
+        val varSample = dev * dev
+        lastLmsPfxVarEma = if (lastLmsPfxVarEma < 1e-6f) varSample else 0.85f * lastLmsPfxVarEma + 0.15f * varSample
     }
 
     fun updateLowBandExtra(fdaf: Long, multi: Long) {

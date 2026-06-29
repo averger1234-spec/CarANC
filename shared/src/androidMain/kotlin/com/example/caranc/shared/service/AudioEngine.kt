@@ -542,6 +542,8 @@ class AudioEngine(
 
                     ancProcessor?.setMusicLowAncEnabled(musicLowAnc)
                     ancProcessor?.setDebugMuMultiplier(lmsMuMult)
+                    val leakage = AncTestPreferences.getDebugLeakage(appContext)
+                    ancProcessor?.setDebugLeakage(leakage)  // from prefs, allows A/B 0.9998 vs 0.9995 etc for Leaky LMS stability
                     ancProcessor?.setDebugFreezeConfig(freezeThresh, freezeConsec, 0.6f)
                     referencePipeline?.setContext(musicActive = isMusic, callActive = isCall)
 
@@ -721,7 +723,9 @@ class AudioEngine(
                                         "debugLmsMuMultiplier" to AncTestPreferences.getDebugLmsMuMultiplier(appContext),
                                         "debugFreezeThreshold" to AncTestPreferences.getDebugFreezeThreshold(appContext),
                                         "debugFreezeConsec" to AncTestPreferences.getDebugFreezeConsecutive(appContext),
-                                        "debugLatencyOverrideMs" to AncTestPreferences.getDebugLatencyOverrideMs(appContext)
+                                        "debugLatencyOverrideMs" to AncTestPreferences.getDebugLatencyOverrideMs(appContext),
+                                        "lmsPfxEma" to sessionContext.perfMetrics.lastLmsPfxEma,
+                                        "lmsPfxVarEma" to sessionContext.perfMetrics.lastLmsPfxVarEma  // EMA variance proxy of pfx for VSS/Leaky validation (high var indicates instability risk with aggressive mu)
                                     )
                                 )
                             }
@@ -1007,7 +1011,12 @@ class AudioEngine(
             "speedValid" to speed.valid,
             "speedAccuracyM" to speed.accuracyMeters,
             "speedSource" to speed.source,
-            "noiseSource" to sessionContext.roadNoiseReferenceModel.classify(speed.speedKmh, speed.valid).name
+            "noiseSource" to sessionContext.roadNoiseReferenceModel.classify(speed.speedKmh, speed.valid).name,
+            // IMU prototype log (rumble proxy, for strict protocol data collection on 68/國道 etc; not yet used in ANC path)
+            "accelMag" to speed.linearAccelMagnitude,
+            "accelSource" to speed.accelSource,
+            "linearAccelMagnitude" to speed.linearAccelMagnitude,  // item3: explicit in speedLogFields + snapshots for VehicleSpeedSnapshot
+            "speedKmh" to speed.speedKmh  // ensure
         )
     }
 
@@ -1135,6 +1144,7 @@ class AudioEngine(
                         "latencyHighEnabled" to ancProcessor?.getLatencyBandLimits()?.highEnabled,
                         // Debug tuning params for "PID-like" LMS experiments (user requested key indicators)
                         "debugLmsMuMultiplier" to AncTestPreferences.getDebugLmsMuMultiplier(appContext),
+                        "debugLeakage" to AncTestPreferences.getDebugLeakage(appContext),  // for A/B leakage impact in logs/snapshots
                         "debugFreezeThreshold" to AncTestPreferences.getDebugFreezeThreshold(appContext),
                         "debugFreezeConsec" to AncTestPreferences.getDebugFreezeConsecutive(appContext),
                         "debugLatencyOverrideMs" to AncTestPreferences.getDebugLatencyOverrideMs(appContext),
@@ -1148,7 +1158,10 @@ class AudioEngine(
                         "effectiveMidMu" to (ancProcessor?.getLastEffectiveMidMu() ?: 0f),
                         // For idle telegraph diagnostic (protocol addition): log current block rms + computed risk at low speed
                         "blockRms" to lastBlockRms,
-                        "artifactRisk" to (if ((vehicleSpeedProvider?.currentSnapshot()?.speedKmh ?: 99f) < 8f && AncTestPreferences.isMusicLowAncEnabled(appContext) && AncTestPreferences.getDebugLmsMuMultiplier(appContext) > 1.3f) "HIGH(telegraph/idle)" else "normal")
+                        "artifactRisk" to (if ((vehicleSpeedProvider?.currentSnapshot()?.speedKmh ?: 99f) < 8f && AncTestPreferences.isMusicLowAncEnabled(appContext) && AncTestPreferences.getDebugLmsMuMultiplier(appContext) > 1.3f) "HIGH(telegraph/idle)" else "normal"),
+                        // item2: EMA variance of lastLmsPfx into running_snapshot (in addition to perf_timing) for VSS effect verification in strict protocol logs
+                        "lmsPfxEma" to sessionContext.perfMetrics.lastLmsPfxEma,
+                        "lmsPfxVarEma" to sessionContext.perfMetrics.lastLmsPfxVarEma
                     ) + speedLogFields(speed),
                     latency = latency
                 )

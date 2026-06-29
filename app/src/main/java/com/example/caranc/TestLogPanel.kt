@@ -51,6 +51,7 @@ fun TestLogPanel(
     var freezeThreshold by remember { mutableStateOf(15f) }
     var freezeConsec by remember { mutableStateOf(3) }
     var latencyOverrideMs by remember { mutableStateOf(0f) }
+    var debugLeakage by remember { mutableStateOf(0.9998f) }  // Leaky LMS alpha for A/B stability (0.9998 vs 0.9995)
     var latestLogName by remember { mutableStateOf(TestLogExporter.latestLogFileName(context)) }
 
     // UI improvement: collapse advanced tuning by default (guided script auto-applies most of them)
@@ -85,6 +86,7 @@ fun TestLogPanel(
         freezeThreshold = AncTestPreferences.getDebugFreezeThreshold(context)
         freezeConsec = AncTestPreferences.getDebugFreezeConsecutive(context)
         latencyOverrideMs = AncTestPreferences.getDebugLatencyOverrideMs(context)
+        debugLeakage = AncTestPreferences.getDebugLeakage(context)
     }
 
     Card(modifier = modifier.fillMaxWidth()) {
@@ -278,6 +280,17 @@ fun TestLogPanel(
                     },
                     valueRange = 0.1f..3.0f,
                     steps = 28
+                )
+
+                Text("Leaky LMS 洩漏因子 α (0.99~0.99999，越低越保守防發散/clicking with 高mu)：${"%.5f".format(debugLeakage)}", style = MaterialTheme.typography.bodySmall)
+                Slider(
+                    value = debugLeakage,
+                    onValueChange = {
+                        debugLeakage = it
+                        AncTestPreferences.setDebugLeakage(context, it)
+                    },
+                    valueRange = 0.99f..0.99999f,
+                    steps = 99
                 )
 
                 Text("凍結門檻 (能量比，預設15；越高越不易凍 LMS)：${"%.1f".format(freezeThreshold)}", style = MaterialTheme.typography.bodySmall)

@@ -80,6 +80,9 @@ fun GuidedTestPanel(
                 fields["latencyOverrideMs"]?.let { v ->
                     if (v is Number) AncTestPreferences.setDebugLatencyOverrideMs(context, v.toFloat())
                 }
+                fields["debugLeakage"]?.let { v ->
+                    if (v is Number) AncTestPreferences.setDebugLeakage(context, v.toFloat())
+                }
             }
         }
     }

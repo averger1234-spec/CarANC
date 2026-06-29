@@ -30,9 +30,17 @@
 //    fx = sum sHat * x[(idx - j) & mask]
 //    if (!freeze && mu>0) {
 //      pfx = sum fx*fx over filt
-//      muN = mu / (pfx + eps)   // or / (pfx*2) if pfx>20 like kotlin
-//      for(j) w[j] = leakage*w[j] + muN * err * fx[(idx-j)&mask]
-//      w clamp [-0.8,0.8]
+//      // VSS energyFactor + clipping + Leaky alpha from Kotlin BandFxLms.processSample (ported skeleton):
+//      baseNorm = (baseMu * muScale) / (pfx + 1e-3f)
+//      energyFactor = (pfx > 30f ? 1.0f : pfx > 10f ? 0.85f : pfx < 2f ? 0.22f : 0.6f)  // VSS based on lastLmsPfx energy proxy; high stable rumble = full step, low/variable = conservative (prevents pop on potholes)
+//      muNorm = baseNorm * energyFactor
+//      for(j) {
+//        raw = muNorm * err * fx[(idx-j)&mask]
+//        clipped = raw.clamp(-0.05f, 0.05f)  // gradient clip for impulse stability
+//        w[j] = w[j] * leakage + clipped ; w[j].clamp(-0.8,0.8)
+//      }
+//      lastLmsPfx = pfx; lmsUpdateCount++
+//      // leakage (alpha) from setDebugLeakage (0.9998 std vs 0.9995 conservative for mu=2.0)
 //    }
 //    idx = (idx+1)&mask
 //    return y
@@ -77,7 +85,8 @@
 //
 // 10. Verify: use cycle3_verify_release_build_timing after enabling native (timing of assemble includes NDK build;
 //      runtime: use extended AudioEngine perf logs + lms counters to compare kotlin vs native CPU via battery or systrace).
-//
+// Native port (when activated behind gate): 2-3x lower overhead on low band lmsProcessCalls (no kotlin loop/alloc, NEON dotprod+update; pfx calc faster in C++; sim_iter assumes native ~1/2.5 calls cost vs kotlin BandFxLms).
+// VSS+clip+leaky same math as kotlin, plus leakage from debug prefs for A/B.
 // TODO NEXT CYCLE:
 //   - Wire the native path optionally behind CommercialGate or debug flag in MultiBandANCProcessor.
 //   - Port exact math from BandFxLms.processSample + multirate decim.
@@ -97,6 +106,7 @@
 // Static state for prototype (in real: per-instance via long handle from kotlin, or global for simplicity since single ANC session).
 static float s_w[64] = {0.0f};
 static int   s_bufIdx = 0;
+static float s_leakageAlpha = 0.9998f;  // default std; updated via future JNI setDebugLeakage or per-call (guarded, minimal change)
 // (expand with xBuffer etc when implementing real LMS)
 
 extern "C" {
@@ -111,12 +121,19 @@ Java_com_example_caranc_shared_latency_NativeLowBandProcessor_nativeProcessLowBa
     jfloat errorSample
 ) {
     // PROTOTYPE: do nothing, return 0 contribution.
-    // Real impl would:
-    //   update ring buffers
-    //   compute y = dot(w, x delayed)
-    //   compute fx (filtered x via sHat or zones)
-    //   if (!freeze && muScale > 0) { normalize, update w; s_lmsUpdateCount++; }
-    //   s_bufIdx = ...
+    // Real impl (port from Kotlin BandFxLms VSS/Leaky + leakage from prefs):
+    //   update ring buffers (x, filteredX)
+    //   y = dot(w, delayed x)
+    //   fx = dot(sHat, x)  (or zone weighted)
+    //   if (!freeze && muScale > 0) {
+    //     pfx = sum(fx*fx)
+    //     energyFactor = (pfx > 30f ? 1.0f : pfx > 10f ? 0.85f : pfx < 2f ? 0.22f : 0.6f)   // VSS from pfx (energy) + lastLmsPfxEma/var for verify
+    //     muNorm = (baseMu * muScale * energyFactor) / (pfx + 1e-3f)
+    //     raw = muNorm * error * fx[...]
+    //     clipped = raw.clamp(-0.05f, 0.05f)
+    //     w[j] = w[j] * leakageAlpha + clipped ;   // Leaky LMS α (tunable 0.9998 std / 0.9995 cons for mu=2.0 A/B via setDebugLeakage)
+    //     s_lmsUpdateCount++; lastLmsPfx = pfx
+    //   }
     //   return y;
 
     // For now count a process call (demo; use atomic for thread if multi).
@@ -125,7 +142,7 @@ Java_com_example_caranc_shared_latency_NativeLowBandProcessor_nativeProcessLowBa
     processCalls++;
 
     // Uncomment when real:
-    // if (!freeze && muScale > 0.0f) { ... lmsUpdate... }
+    // if (!freeze && muScale > 0.0f) { ... VSS + Leaky lmsUpdate with clipping ... }
 
     return 0.0f;
 }

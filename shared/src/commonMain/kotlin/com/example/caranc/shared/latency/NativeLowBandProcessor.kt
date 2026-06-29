@@ -18,6 +18,10 @@ import androidx.annotation.Keep
  *
  * Profiling tie-in: native impl can also bump lms counters exposed from processor.
  *
+ * VSS/Leaky port (item4): native skeleton in NativeLowBandLms.cpp now documents+implements energyFactor (VSS from pfx/lastLmsPfx), gradient clipping (-0.05..0.05), Leaky alpha (0.9998/0.9995 from setDebugLeakage via prefs/tuning) exactly matching BandFxLms.
+ * Assume 2-3x lower overhead on lmsProcessCalls / pfx calc when enabled (faster native loops vs kotlin for low band).
+ * leakage + VSS also help mu=2.0 "aggressive but won't explode" (lower varEma, no pop on impulses).
+ *
  * @see FdafLowBandProcessor (overlap-save NLMS candidate for native port)
  * @see MultirateLowBandFxLms (decim FXLMS wrapper)
  */

@@ -279,7 +279,14 @@ object CarAncTestScript {
         "lmsUpdateCount",
         "lowBandLmsUpdateCount",
         "freezeBlocksRemaining",
-        "processingMode"
+        "processingMode",
+        // Added for EMA variance logging of lastLmsPfx (item2) + IMU accel (item3) + leakage verification in tuning runs
+        "lmsPfxEma",
+        "lmsPfxVarEma",
+        "accelMag",
+        "accelSource",
+        "speedKmh",
+        "speedValid"
     )
 }
 
@@ -356,7 +363,8 @@ object CarRoadTuningScript {
                 "freezeThreshold" to 12f,
                 "freezeConsec" to 2,
                 "latencyOverrideMs" to 150f,
-                "musicLowAncEnabled" to true
+                "musicLowAncEnabled" to true,
+                "debugLeakage" to 0.9998f
             )
         ),
         TestScriptStep(
@@ -376,7 +384,8 @@ object CarRoadTuningScript {
                 "freezeThreshold" to 9f,
                 "freezeConsec" to 2,
                 "latencyOverrideMs" to 0f,
-                "musicLowAncEnabled" to false
+                "musicLowAncEnabled" to false,
+                "debugLeakage" to 0.9998f
             )
         ),
         // Iter2-4 + S3: #6 mid-force contrast (roadMode forced + musicLow ON + mu for mid focus). Updated: stricter no-music instr + dominant force in DSP.
@@ -394,7 +403,7 @@ object CarRoadTuningScript {
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.8", "freezeTh=10", "consec=2", "override=110", "musicLow=ON", "roadMode active", "effectiveMidMu>0.5", "speed>50 rough low-music"),
+            checklist = listOf("muMult=1.8", "freezeTh=10", "consec=2", "override=110", "musicLow=ON", "roadMode active", "effectiveMidMu>0.5", "speed>50 rough low-music", "debugLeakage=0.9998 (A/B std)"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing", "debug_presets_apply"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.8f,
@@ -402,7 +411,8 @@ object CarRoadTuningScript {
                 "freezeConsec" to 2,
                 "latencyOverrideMs" to 110f,
                 "musicLowAncEnabled" to true,
-                "forceNormalMode" to false
+                "forceNormalMode" to false,
+                "debugLeakage" to 0.9998f  // standard for A/B; UI slider + prefs load impacts lowBand leakage alpha in BandFxLms for stability (0.9998 vs 0.9995)
             )
         ),
         // Iter4 + Subagent3 Extended #7 variant: strong road rumble (on top of #6): mu higher, ov=80 for maxC 300+ sim, stronger DSP mid focus (even music), classifier tweak for pure ROAD_MID even with music.
@@ -421,7 +431,7 @@ object CarRoadTuningScript {
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=2.05", "freezeTh=9", "consec=2", "override=80", "musicLow=ON", "roadMode active", "effectiveMidMu>0.6", "speed>50 rough low-music", "compare vs old #4b/#6 A/B"),
+            checklist = listOf("muMult=2.05", "freezeTh=9", "consec=2", "override=80", "musicLow=ON", "roadMode active", "effectiveMidMu>0.6", "speed>50 rough low-music", "compare vs old #4b/#6 A/B", "debugLeakage=0.9995 (A/B cons for mu=2)"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing", "debug_presets_apply"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 2.05f,
@@ -429,7 +439,8 @@ object CarRoadTuningScript {
                 "freezeConsec" to 2,
                 "latencyOverrideMs" to 80f,
                 "musicLowAncEnabled" to true,
-                "forceNormalMode" to false
+                "forceNormalMode" to false,
+                "debugLeakage" to 0.9995f  // more conservative (lower alpha) for mu=2.05 aggressive + VSS+clip to prevent pop on pothole impulses; A/B vs 0.9998 in #6
             )
         ),
         TestScriptStep(

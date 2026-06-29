@@ -23,6 +23,19 @@ class VehicleSpeedProvider(context: Context) {
 
     private val appContext = context.applicationContext
     private val fusedClient = LocationServices.getFusedLocationProviderClient(appContext)
+    private val sensorManager = appContext.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager
+    private var linearAccelMag = 0f
+    private val accelListener = object : android.hardware.SensorEventListener {
+        override fun onSensorChanged(event: android.hardware.SensorEvent?) {
+            if (event?.sensor?.type == android.hardware.Sensor.TYPE_LINEAR_ACCELERATION) {
+                val x = event.values[0]
+                val y = event.values[1]
+                val z = event.values[2]
+                linearAccelMag = kotlin.math.sqrt(x * x + y * y + z * z)
+            }
+        }
+        override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
+    }
 
     private val _snapshot = MutableStateFlow(VehicleSpeedSnapshot.invalid())
     val snapshot: StateFlow<VehicleSpeedSnapshot> = _snapshot.asStateFlow()
@@ -73,6 +86,14 @@ class VehicleSpeedProvider(context: Context) {
         fusedClient.lastLocation.addOnSuccessListener { location ->
             if (location != null) publish(location, source = "last_known")
         }
+
+        // IMU prototype for rumble proxy (linear accel, only logging for data collection in strict protocol runs on 68/國道)
+        val accelSensor = sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_LINEAR_ACCELERATION)
+        if (accelSensor != null) {
+            sensorManager.registerListener(accelListener, accelSensor, android.hardware.SensorManager.SENSOR_DELAY_GAME)
+            Log.i(TAG, "IMU accel listener registered for rumble proxy logging")
+        }
+
         Log.i(TAG, "GPS 車速追蹤已啟動")
         return true
     }
@@ -81,10 +102,12 @@ class VehicleSpeedProvider(context: Context) {
         if (!running) return
         running = false
         fusedClient.removeLocationUpdates(callback)
+        sensorManager.unregisterListener(accelListener)
+        linearAccelMag = 0f
         _snapshot.value = VehicleSpeedSnapshot.invalid()
         lastLocation = null
         smoothedSpeedKmh = 0f
-        Log.i(TAG, "GPS 車速追蹤已停止")
+        Log.i(TAG, "GPS 車速追蹤已停止 (IMU listener unregistered)")
     }
 
     private fun publish(location: Location, source: String) {
@@ -104,7 +127,9 @@ class VehicleSpeedProvider(context: Context) {
             speedKmh = smoothedSpeedKmh,
             valid = valid,
             accuracyMeters = accuracy,
-            source = if (hasGpsSpeed) "$source:gps_speed" else source
+            source = if (hasGpsSpeed) "$source:gps_speed" else source,
+            linearAccelMagnitude = linearAccelMag,
+            accelSource = if (linearAccelMag > 0f) "linear_accel" else "none"
         )
     }
 
