@@ -220,3 +220,16 @@
 - 好處：我之後可以直接用工具讀你本機 log/ 裡的檔案分析，不用每次請你上傳；整體一輪迭代時間大幅縮短。
 - 仍然保留原本 Drive 路徑作為備援。
 - 強烈建議搭配手機無線 ADB 使用。
+
+**2026-06-29 最新 ANC 演算法穩定度 + 感測器融合強化（Leaky LMS / VSS / IMU / Native）**：
+- 完成 4 項核心改動並直接導入 ANC 處理路徑：
+  1. setDebugLeakage 完整接線到 AncTestPreferences + TestLogPanel（滑桿 A/B 0.9998 vs 0.9995） + guided tuning presets。AudioEngine 啟動時從 prefs 讀取並套用至所有 BandFxLms（low/mid/high）。
+  2. 在 AncPerfMetrics + AudioEngine 加入 lastLmsPfxEma / lastLmsPfxVarEma（EMA variance proxy），同時寫入 perf_timing 與 running_snapshot。monitored fields 同步更新，讓 strict protocol log 可直接驗證 VSS 效果（高 varEma = 衝擊時不穩風險）。
+  3. IMU 原型完整化：VehicleSpeedSnapshot 新增 linearAccelMagnitude / accelSource；VehicleSpeedProvider 加入 SensorManager TYPE_LINEAR_ACCELERATION listener（SENSOR_DELAY_GAME）；stop/start 正確註冊/取消。speedLogFields 輸出到 snapshot。**已直接導入 ANC**：在 AudioEngine 每 block 取得 accel 後呼叫 ancProcessor?.setRumbleAccel()；MultiBandANCProcessor 儲存 rumbleAccelMag，並在 low band 計算時加入 rumbleVibBoost = 1 + accel*0.08 (max 1.4) 乘到 effectiveLowMu，只在 roadMode 生效（結構振動前饋，免疫聲學回授，補強 speed-based road ref + mic error）。
+  4. Native low band 推進：NativeLowBandLms.cpp skeleton 完整 port VSS energyFactor + gradient clipping + Leaky（含 alpha 0.9995/0.9998 範例）；NativeLowBandProcessor.kt 文件更新；facade/iOS stub 補 setDebugLeakage / setDebugVss / setRumbleAccel（no-op）。低頻 overhead 預期 2x+ 節省（待 NDK 啟用時切換）。
+- 這些讓 mu=2.0 + freeze=10 在 pothole/伸縮縫衝擊下更穩定（VSS + clip + cons leak 壓制 varEma；IMU boost 在高振動時自動加強 rumble 取消）。
+- 測試腳本更新：sim_iter.ps1 model 擴充支援 leakage/VSS/accel/native 模擬 + 完整 A/B 表格（strict 條件下 #7 cons leak + VSS + native = STABLE、高 effMidMu/red）；AncTestScript / GuidedTestPanel / TestLogPanel 加入新 presets / fields / UI。
+- 已 git push（commit e8bd471） + install-debug 成功部署最新 debug APK。
+- 仍待（可後續直接加）：完整 native 啟用（需 NDK + 真實 C++ 實作切換）；IMU 更進階 upsampling + aux ref 混合到 ReferenceSignalPipeline；online S(z) 動態切換；完整 VSS 用 blockRms 變異數而非僅 pfx。
+
+更新後記得 git pull 再貼 resume 給新 Grok session。
