@@ -60,20 +60,26 @@ class NoiseBandClassifier(
         val lowRatio = lowEnergy / total
         val midRatio = midEnergy / total
         val highRatio = highEnergy / total
+        val lowMidRatio = lowRatio + midRatio
+
+        // BREAKTHROUGH for AA music + Skoda rumble (2026-06-29 real log data):
+        // In cabin AA playback, music energy swamps total power (highRatio~0.999, low+mid max observed 0.071 even @90kmh rough).
+        // Original 0.30 thresh never triggers force-ROAD even with driving. 
+        // Lowered to 0.06 + relaxed subconds so "some rumble presence" + speed + musicLow intent can force ROAD_MID for mid boost.
+        // Rumble presence now wins over pure high-dominant for adaptation goal (protection still handled in gains/mode).
+        val hasDecentRumbleForMid = lowMidRatio >= 0.06f
 
         val dominantBand = when {
             isCallActive -> DominantNoiseBand.MUSIC_BROAD
             // Subagent3 Extended #7 + iter variant: classifier tweak for pure ROAD_MID even with music.
-            // If speed>28 + (low+mid energy decent for rumble 200-350 focus) -> force ROAD_MID/LOW even if music=true.
-            // Calib to real log weakness (MUSIC_BROAD dominant at low speed/energy). Lowered thresh + or-energy for more pure shift.
-            // Guarded by speedValid + energy ratios (no change for low speed <28 or low rumble energy).
-            // Prioritizes dominant shift to rumble for deeper mid contrib (effMidMu 0.6+) when strict low-music rough 50+.
-            // Only fall to MUSIC_BROAD if high truly dominant (>0.65) or insufficient rumble energy.
-            speedValid && speedKmh > 28f && (lowRatio + midRatio) >= 0.30f && (midRatio >= 0.20f || (lowRatio + midRatio) >= 0.48f) ->
+            // Data-driven: speed>28 + decent rumble energy (low+mid>=~0.06, observed max~0.071 in real AA mic under music) -> force ROAD_MID/LOW.
+            // This enables effectiveMidMu 0.5-0.8, higher mid contrib to 200-350Hz Skoda rumble despite music=true.
+            // Guarded by speedValid. See car_road_tuning_v1 #6/#7 steps + strict low-music test protocol.
+            speedValid && speedKmh > 28f && hasDecentRumbleForMid && (midRatio >= 0.04f || lowMidRatio >= 0.08f) ->
                 DominantNoiseBand.ROAD_MID
-            speedValid && speedKmh > 28f && (lowRatio + midRatio) >= 0.30f && lowRatio >= 0.23f ->
+            speedValid && speedKmh > 28f && hasDecentRumbleForMid && lowRatio >= 0.05f ->
                 DominantNoiseBand.ROAD_LOW
-            isMusicActive && highRatio > 0.65f -> DominantNoiseBand.MUSIC_BROAD
+            isMusicActive && highRatio > 0.65f && !(speedValid && speedKmh > 28f && hasDecentRumbleForMid) -> DominantNoiseBand.MUSIC_BROAD
             speedValid && speedKmh >= RoadNoiseReferenceModel.DRIVING_SPEED_THRESHOLD_KMH && lowRatio >= 0.42f ->
                 DominantNoiseBand.ROAD_LOW
             speedValid && speedKmh >= RoadNoiseReferenceModel.DRIVING_SPEED_THRESHOLD_KMH && midRatio >= 0.38f ->
@@ -106,7 +112,7 @@ class NoiseBandClassifier(
             DominantNoiseBand.IDLE_LOW -> BandGains(low = 1f, mid = 0.2f, high = 0.05f)
             DominantNoiseBand.ROAD_LOW -> BandGains(low = 1f, mid = 0.28f, high = 0.08f)
             DominantNoiseBand.ROAD_MID -> BandGains(low = 0.7f, mid = 0.55f, high = 0.12f)  // iter4+S3: higher mid for 300-350 rumble focus (pure ROAD_MID)
-            DominantNoiseBand.MUSIC_BROAD -> BandGains(low = 0.55f, mid = 0.15f, high = 0.03f)
+            DominantNoiseBand.MUSIC_BROAD -> BandGains(low = 0.55f, mid = 0.28f, high = 0.03f)  // raised 0.15->0.28 as safer fallback for rumble-under-music (AA cabin); still < ROAD_MID 0.55
             DominantNoiseBand.MIXED -> BandGains(low = 0.85f, mid = 0.25f, high = 0.06f)
         }
     }

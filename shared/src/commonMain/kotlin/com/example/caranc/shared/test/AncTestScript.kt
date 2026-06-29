@@ -282,11 +282,13 @@ object CarRoadTuningScript {
     const val SCRIPT_ID = "car_road_tuning_v1"
     const val SCRIPT_NAME = "Skoda 200-350Hz rumble 快速迭代測試（基於#4/#4b/#6/#7_ext Subagent3 Extended#7+iter variant 低延遲 + musicLow + mid-force + strong-road-pure-ROAD_MID-even-music 對比，iter1-4+ S3突破，跳過無用 baseline，4 次快速循環直達有感；用 old prep/4/4b/5 UNCHANGED 穩定 baseline + #6/#7 A/B 單輪比）"
 
-    // 注意：根據 Skoda Octavia 2019 真實錄音頻譜分析（用戶提供）：
+    // 注意：根據 Skoda Octavia 2019 真實錄音頻譜分析（用戶提供）+ 2026-06-29 實車 AA log 分析：
     // 主要路噪能量在 200-350 Hz（57.6%），峰值 ~305 Hz 會隨路段浮動 220-310 Hz。
+    // AA 實測：即使 90kmh rough，low+mid ratio 最高僅 ~0.071（music 能量主導 highRatio~0.999），原 0.30 thresh 永遠不 trigger force ROAD_MID。
+    // → 已 data-driven 放寬 classifier (0.06) + processor rumbleContext guard + MUSIC mid gain 0.15->0.28。
     // 目前 150 Hz maxCancel 嚴重不足，只吃到邊緣 → 即使 LMS 活躍，reduction 仍極低。
-    // 快速迭代版本（已 streamline）：移除無用早期 baseline（1/2/3，已知問題，不新增數據）。保留 old prep/4/4b/5 UNCHANGED 作為穩定 baseline；延伸 #6 midforce + #7 strong road rumble（iter4 + Subagent3 Extended #7 variant: stronger mid boost, classifier pure ROAD_MID even with music (speed>28+low+mid energy>=0.30), ov=80 maxC300+, mid error*1.28, centerHz 335 for 300-350 focus）。
-    // 目標：每次跑完整 prep+4+4b+5+6+7+finish（更少步驟，更快），配外部錄音 + spectrum。迭代 後，effective latency 改善（override 推 maxCancel 250-340Hz+）、200-350Hz reduction 有感（-4~-6dB+，mid 貢獻 via effectiveMidMu 0.6+）。使用 old parts (prep/4/4b/5) 單輪 A/B 測試穩定 baseline 對比新 #6/#7 突破。所有新 boost 最小安全 guarded by roadMode + speed + energy。
+    // 快速迭代版本（已 streamline）：移除無用早期 baseline（1/2/3，已知問題，不新增數據）。保留 old prep/4/4b/5 UNCHANGED 作為穩定 baseline；延伸 #6 midforce + #7 strong road rumble（iter4 + Subagent3 Extended #7 variant: stronger mid boost, classifier pure ROAD_MID even with music (speed>28+low+mid energy>=0.06 now), ov=80 maxC300+, mid error*1.28, centerHz 335 for 300-350 focus）。
+    // 目標：每次跑完整 prep+4+4b+5+6+7+finish（更少步驟，更快），配外部錄音 + spectrum。迭代 後，effective latency 改善（override 推 maxCancel 250-340Hz+）、200-350Hz reduction 有感（-4~-6dB+，mid 貢獻 via effectiveMidMu 0.6+）。使用 old parts (prep/4/4b/5) 單輪 A/B 測試穩定 baseline 對比新 #6/#7 突破。所有新 boost 最小安全 guarded by roadMode + speed + energy + musicLow。
     // 調校時優先觀察 midBand 貢獻、effectiveMidMu、maxC 與 200-350 Hz reduction。每步 scenario 註 "Skoda #4/#4b/#6/#7 經驗, iter X"。finish 強調下一輪優先重跑#4b/#6/#7 變體（old for A/B）。
 
     val steps: List<TestScriptStep> = listOf(
@@ -380,7 +382,7 @@ object CarRoadTuningScript {
             title = "#6 mid-force road rumble 對比（mu=1.8, freeze=10, c=2, override=110, musicLow=ON, force road） - 驗證 mid 突破 (iter4+S3: stricter for dominant shift)",
             instructions = listOf(
                 "系統已自動套用參數（mu=1.8 / freeze=10 / c=2 / override=110 / musicLow=ON）",
-                "切到**粗糙路面，嚴格維持 speed 50+ km/h**（>30 且 rough 讓 GPS+energy 觸發 roadMode + classifier ROAD_MID/LOW） 60-90秒；**全程低音樂或無音樂（vol<20%）** 避免 high energy 讓 MUSIC_BROAD 勝出",
+                "切到**粗糙路面，嚴格維持 speed 50+ km/h**（>30 且 rough 讓 GPS+energy 觸發 roadMode + classifier ROAD_MID/LOW） 60-90秒；**全程低音樂或無音樂（vol<15-20% 或 off）** —— 這是關鍵！music 音量高會讓 highRatio~1.0、low+mid<0.07，無法有效 shift dominant 或拿到高 midMu（見 20260629 log 實測）。低音量讓 rumble energy 相對浮現，0.06 thresh 才能 trigger。",
                 "Skoda Octavia 專用：強制 mid 貢獻，觀察 effectiveMidMu 是否 >0.5 (iter4 目標)，midOut 對 200-350Hz rumble 的貢獻，比較 reductionDb 與 band ratios；與前#4b A/B（old baseline）",
                 "記錄 scenario \"Skoda #6 midforce iter4, roadMode active, effectiveMidMu=XX dominant=ROAD_MID speed=XX musicLow=ON music=low\"",
                 "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_6_midforce + effectiveMidMu>0.5 + dominant=ROAD_MID/ROAD_LOW + midBandMuScale>0.5 + reduction >2dB improvement；低速/高音樂仍會 MUSIC_BROAD（effMidMu=0，無效此步，改用#4b baseline）"
@@ -407,7 +409,7 @@ object CarRoadTuningScript {
             title = "#7 strong road rumble ignore-music 對比（mu=2.05, freeze=9, c=2, override=80, musicLow=ON, force road+mid） - iter4 + S3 Extended#7 更深 rumble 突破",
             instructions = listOf(
                 "系統已自動套用參數（mu=2.05 / freeze=9 / c=2 / override=80 / musicLow=ON） - 基於#6經驗 + iter4 + Subagent3 Extended DSP 強化 (stronger mid boost, pure ROAD_MID classifier, midErr*1.28, center 335)",
-                "**切到粗糙路面，嚴格維持 50+ km/h 粗糙顛簸路 60-90秒**（確保 speed>28 + low/mid energy ratio >0.30 觸發 classifier pure ROAD_MID，即使 music=true；guarded by roadMode+speed+energy）",
+                "**切到粗糙路面，嚴格維持 50+ km/h 粗糙顛簸路 60-90秒**（確保 speed>28 + low/mid energy ratio >0.06 觸發 classifier pure ROAD_MID，即使 music=true；guarded by roadMode+speed+energy。2026-06-29 log 實測：高音樂時 max 只有 0.071，必須嚴格低 vol 才行）",
                 "Skoda Octavia 專用：#7 目標是 dominant shift 至 rumble + bigger mid 貢獻。觀察 effectiveMidMu 0.6+、midScale high、maxC 300-380Hz、200-350Hz reduction -4~-6dB（比#6 更深）；比較 vs old #4b baseline + #6 A/B（old parts 穩定不變）",
                 "記錄 scenario \"Skoda #7_ext strong S3 iter4, roadMode active, effectiveMidMu=XX dominant=ROAD_MID speed=XX music=low-strict reduction=XX\"",
                 "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_7_strong_road + effectiveMidMu>0.6 + dominant=ROAD_MID + midBandMuScale>0.6 + reductionDb>3 + maxC>300 + lmsUpdateCount high；若 music 強仍 MUSIC_BROAD 則無效（退回用#4b/#6 baseline A/B）"

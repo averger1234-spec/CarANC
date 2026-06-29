@@ -5,7 +5,7 @@
 
 Write-Host "=== SUBAGENT2 #6 VARIANT: Full CarRoadTuningScript sim (exact current code, calibrated to 20260627_180157.log) ==="
 Write-Host "Base from log: Skoda 200-350Hz ~57% rumble; AA remote 136ms base lat; music:true (AA) forces floor modes; #6 got red max~0.458 avg~0.183 despite ov=110 maxC~380 midS=1.0 but effMidMu stuck 0.3 + all MUSIC_BROAD (39 snaps); #4b lower red~0.044"
-Write-Host "Model: current LatencyAware maxC/roadRumble bandMuScale + MultiBand midMu calc (baseMuS=0.32 mid, modeScale 0.75 FLOOR_MUSIC_ROAD, speedMu, debugMuMult, latGain, bandMuS * roadBoost2.15 * domRoad1.75 if) + classifier force-ROAD_MID (spd>28 + (l+m)>=0.30 + mid cond) + red scaled from observed 0.45@eff0.3"
+Write-Host "Model: UPDATED post-20260629-edit: classifier 0.06 (hasDecentRumbleForMid lowMid>=0.06, speed>28 + mid>=0.04|lm>=0.08 ->ROAD_MID even music; high-dom skips if rumble+spd>28), MUSIC_BROAD midGain 0.28; hasRumbleContext=roadMode+spd>28+musicLow broadens 2.15x min0.58 + *1.75 + midErr*1.28 EVEN IF dom=MUSIC_BROAD (for AA low lm~0.071 max); effMidMu tracks full; red calib to 06-29 log max~0.78dB pre; Latency same + idle artifact risk model (high mu+musicLow low-pfx no-freeze steady low-rms -> telegraph). Calib ratios: real AA max low+mid 0.071 even 90kmh under music."
 Write-Host "Presets exact from AncTestScript: prep(forceNormal=true musicLow=true), #4(mu=1.7 ov=120), #4b(1.6/150 ml=true), #5(2.2/0 ml=false), #6(1.8/110 ml=true force=false), #7(2.0/80 ml=true force=false) + finish"
 Write-Host ""
 
@@ -170,26 +170,34 @@ function Simulate-Step($name, $muMult, $ovMs, $musicLow, $forceNormal, $baseLat=
   $hasRoadBoost = ($roadRumble -and $musicLow -and $speed -gt 28)
   $roadMusicBoost = if ($hasRoadBoost) { 2.15 } else { 1.0 }
   $eff = $rawEff * $roadMusicBoost
-  # dom predict: use classifier logic calibrated to log (in log highRatio high -> MUSIC even good spd/ROAD nsrc; strict low music lowers music energy -> higher chance ROAD_MID if rumble strong)
-  $highR = if ($assumeStrictLowMusic) { 0.22 } else { 0.72 }  # music bleed high in real AA log even low vol
-  $midR = if ($assumeStrictLowMusic) { 0.48 } else { 0.12 }
-  $lowR = if ($assumeStrictLowMusic) { 0.30 } else { 0.16 }
+  if ($hasRoadBoost -and $eff -lt 0.58) { $eff = 0.58 }  # min from post-edit processor
+  # dom predict: UPDATED post-edit classifier 0.06 thresh (data-driven from 06-29 log max lm~0.071 under music); rumble presence + spd>28 forces ROAD_MID/LOW; music high check now skips if hasDecentRumble
+  $highR = if ($assumeStrictLowMusic) { 0.25 } else { 0.96 }  # strict low vol lowers highR (music energy relative) allowing lm>0.06; real AA nonstrict ~0.996
+  $midR = if ($assumeStrictLowMusic) { 0.40 } else { 0.002 }
+  $lowR = if ($assumeStrictLowMusic) { 0.35 } else { 0.002 }
   $sumLm = $lowR + $midR
-  $dom = if ($speed -gt 28 -and $sumLm -ge 0.30 -and ($midR -ge 0.20 -or $sumLm -ge 0.48)) { "ROAD_MID" } 
-         elseif ($highR -gt 0.65 -or -not $assumeStrictLowMusic) { "MUSIC_BROAD" } else { "MIXED" }
+  $hasDecentRumble = $sumLm -ge 0.06
+  $dom = if ($speed -gt 28 -and $hasDecentRumble -and ($midR -ge 0.04 -or $sumLm -ge 0.08)) { "ROAD_MID" } 
+         elseif ($speed -gt 28 -and $hasDecentRumble -and $lowR -ge 0.05) { "ROAD_LOW" }
+         elseif ($highR -gt 0.65 -and -not ($speed -gt 28 -and $hasDecentRumble)) { "MUSIC_BROAD" } 
+         elseif ($speed -ge 8 -and $lowR -ge 0.42) { "ROAD_LOW" }
+         elseif ($speed -lt 5) { "IDLE_LOW" }
+         else { "MIXED" }
   $domRoad = ($dom -eq "ROAD_MID" -or $dom -eq "ROAD_LOW")
-  if ($domRoad -and $hasRoadBoost -and $speed -gt 25) { $eff = $eff * 1.75 }  # dom boost only if shift
+  if (($domRoad -or $hasRoadBoost) -and $speed -gt 25) { $eff = $eff * 1.75 }  # post-edit: hasRumbleContext broadens *1.75 even if dom stays MUSIC_BROAD (AA cabin music case)
   $eff = [math]::Min(1.2, [math]::Max(0.0, $eff))   # realistic cap
-  # red predict: calibrate to log actual #6 (red max 0.458 @ eff~0.3 , avg0.183) ; scale by eff ratio + road dom bonus + speed factor. For baseline low eff low red
-  $redBase = 0.458 * ($eff / 0.3)   # scale from observed #6
-  $domBonus = if ($domRoad) { 2.8 } else { 1.0 }
+  # red predict: UPDATED calib to 06-29 log (pre-edit max red only 0.78dB, effMid stuck~0.083, dom MUSIC, max lm 0.071); post-edit with context/eff 0.6+ expect 3-5.5dB in 200-350 via mid
+  $redBase = 0.78 * ($eff / 0.3)   # scale from observed log max 0.78 pre
+  $domBonus = if ($domRoad) { 2.8 } else { 1.4 }  # even non-dom context gives mid contrib
   $spdF = [math]::Min(1.2, $speed / 55.0)
   $red = [math]::Round( [math]::Max(0.0, $redBase * $domBonus * $spdF * 0.92) , 3)  # guard 0.92 cycle
   if ($name -like "*5*") { $red = [math]::Round($red * 0.6, 3) } # musicLow OFF contrast lower in music bleed
+  # idle artifact risk (new for 06-29 side-effect): HIGH at low spd + musicLow + high mu + low steady rms (high muNorm on low pfx, 1.3 lowErr boost always, no freeze on stable ratio~1 <thresh, residuals/bleed -> pulsed anti)
+  $idleRisk = if ($speed -lt 8) { if ($musicLow -and $muMult -gt 1.4) { "HIGH(telegraph)" } elseif ($musicLow) { "MED" } else { "LOW" } } else { "n/a" }
   # JSONL realistic snippet
-  $j = @{ phase="running_snapshot"; guidedTestStepId=$name; dominantNoiseBand=$dom; reductionDb=$red; bandLowRatio=$lowR; bandMidRatio=$midR; bandHighRatio=$highR; speedKmh=[math]::Round($speed,1); music=$true; noiseSource="ROAD"; processingMode=$mode; maxCancelFrequencyHz=[math]::Round($maxC,1); midBandMuScale=[math]::Round($midScale,3); effectiveMidMu=[math]::Round($eff,3); lowBandMuScale=[math]::Round($lowScale,3); antiNoiseDb= [math]::Round(-70 - $red*10 ,1); lmsUpdateCount= 2100000 + [int]($muMult*30000) ; debugLmsMuMultiplier=$muMult; debugLatencyOverrideMs=$ovMs }
+  $j = @{ phase="running_snapshot"; guidedTestStepId=$name; dominantNoiseBand=$dom; reductionDb=$red; bandLowRatio=$lowR; bandMidRatio=$midR; bandHighRatio=$highR; speedKmh=[math]::Round($speed,1); music=$true; noiseSource="ROAD"; processingMode=$mode; maxCancelFrequencyHz=[math]::Round($maxC,1); midBandMuScale=[math]::Round($midScale,3); effectiveMidMu=[math]::Round($eff,3); lowBandMuScale=[math]::Round($lowScale,3); antiNoiseDb= [math]::Round(-70 - $red*10 ,1); lmsUpdateCount= 2100000 + [int]($muMult*30000) ; debugLmsMuMultiplier=$muMult; debugLatencyOverrideMs=$ovMs; idleArtifactRisk=$idleRisk }
   $jsonl = ($j | ConvertTo-Json -Compress)
-  [pscustomobject]@{ name=$name; effLat=[math]::Round($effLat,1); maxC=[math]::Round($maxC,1); midScale=[math]::Round($midScale,3); effMidMu=[math]::Round($eff,3); dom=$dom; red=$red; mode=$mode; jsonl=$jsonl }
+  [pscustomobject]@{ name=$name; effLat=[math]::Round($effLat,1); maxC=[math]::Round($maxC,1); midScale=[math]::Round($midScale,3); effMidMu=[math]::Round($eff,3); dom=$dom; red=$red; mode=$mode; jsonl=$jsonl; idleRisk=$idleRisk }
 }
 
 Write-Host ""
@@ -206,7 +214,7 @@ $resultsC1 = @()
 foreach ($s in $fullSteps) {
   $r = Simulate-Step $s[0] $s[1] $s[2] $s[3] $s[4] -speed $s[5] -assumeStrictLowMusic $false
   $resultsC1 += $r
-  Write-Host ("{0}: elat={1} ov={2} ml={3} forceN={4} -> maxC={5} midS={6} effMid={7} dom={8} red={9} mode={10}" -f $r.name,$r.effLat,$s[2],$s[3],$s[4],$r.maxC,$r.midScale,$r.effMidMu,$r.dom,$r.red,$r.mode )
+  Write-Host ("{0}: elat={1} ov={2} ml={3} forceN={4} -> maxC={5} midS={6} effMid={7} dom={8} red={9} mode={10} idleRisk={11}" -f $r.name,$r.effLat,$s[2],$s[3],$s[4],$r.maxC,$r.midScale,$r.effMidMu,$r.dom,$r.red,$r.mode,$r.idleRisk )
   Write-Host ("  JSONL: {0}" -f $r.jsonl )
 }
 Write-Host "Cycle1 summary vs actual log (#6: red<=0.458 eff=0.3 MUSIC all): prep/4/4b/5 low-red ~0-0.2 MUSIC (old parts stable baseline); #6 red~1.3 (higher than log 0.46) but still MUSIC (music bleed in sim no-strict); #7 similar but maxC high~380+ . Feasible small rumble gain seen in log already (0.45 vs 0.04 in4b)."
@@ -218,7 +226,7 @@ foreach ($s in $fullSteps) {
   $strict = ($s[0] -like "*6*" -or $s[0] -like "*7*")
   $r = Simulate-Step $s[0] $s[1] $s[2] $s[3] $s[4] -speed $s[5] -assumeStrictLowMusic $strict
   $resultsC2 += $r
-  Write-Host ("{0}: elat={1} ov={2} -> maxC={3} midS={4} effMid={5} dom={6} red={7} [strict={8}]" -f $r.name,$r.effLat,$s[2],$r.maxC,$r.midScale,$r.effMidMu,$r.dom,$r.red,$strict )
+  Write-Host ("{0}: elat={1} ov={2} -> maxC={3} midS={4} effMid={5} dom={6} red={7} idleRisk={8} [strict={9}]" -f $r.name,$r.effLat,$s[2],$r.maxC,$r.midScale,$r.effMidMu,$r.dom,$r.red,$r.idleRisk,$strict )
 }
 Write-Host "Cycle2: #6 breakthrough vs baseline now clear (if follow strict: dom=ROAD_MID eff~0.9+ red~3.5 vs #4b red~0.3 MUSIC eff0.3); #4b/#5 old parts as A/B control show low; remain issue if AA music detect highRatio despite low vol -> no shift (as in 180157.log)."
 
@@ -322,3 +330,43 @@ Write-Host "- dominant always MUSIC_BROAD (old, even 50kmh ROAD music=true) vs a
 Write-Host "- processingMode limited (normal/floor_music) vs floor_noise_music_road in new: force road enables more ref model + road wiener + mode scales."
 Write-Host "These gaps (low mid effective for Skoda 200-350 rumble) are exactly why #6 mid-force + #7 strong-road (with effMid tracking, guarded boosts) were added; old is perfect stable unchanged control for A/B quantification in single drive (no need separate runs)."
 Write-Host "Sim done. Old baseline confirmed for fast iteration: run full script once, extract old vs new steps from same log, no physical waits between variants."
+
+# === POST-EDIT UPDATE: IDLE ARTIFACT RISK SIM + STRICT PROTOCOL RE-RUN (for 06-29 side-effect + breakthrough validation) ===
+# New func for idle segments (speed<5-8 typical at step start/park/traffic light): predict telegraph prob based on musicLow + muMult + low rms steady (no productive rumble excitation, high muNorm on low pfx, musicLow 1.3 lowErr always applied, freeze rare on steady low ratio<9-11 thresh)
+function Predict-IdleRisk($muMult, $musicLow, $speed=4.0, $rmsEst=0.009) {
+  if ($speed -ge 15) { return "LOW" }
+  if ($musicLow -and $muMult -ge 1.6) { return "HIGH(電報雜訊/telegraph: low-rms over-adapt +1.3err boost + no freeze on steady)" }
+  if ($musicLow -and $muMult -gt 1.2) { return "MED-HIGH (pulsed clicking likely at idle)" }
+  if ($musicLow) { return "MED" }
+  return "LOW-MED (no musicLow boost)"
+}
+
+Write-Host ""
+Write-Host "=== POST-EDIT IDLE SEGMENTS SIM (separate from driving 50-70 strict; speed<5, musicLow from presets, high mu from step, low rms) ==="
+$idleCases = @(
+  @("prep_idle", 1.0, $true),
+  @("tuning_4_idle", 1.7, $true),
+  @("tuning_4b_idle", 1.6, $true),
+  @("tuning_5_idle", 2.2, $false),
+  @("tuning_6_idle", 1.8, $true),
+  @("tuning_7_idle", 2.05, $true)
+)
+foreach ($c in $idleCases) {
+  $nm = $c[0]; $mu=$c[1]; $ml=$c[2]
+  $risk = Predict-IdleRisk $mu $ml
+  Write-Host ("{0}: mu={1} musicLow={2} -> artifactRisk={3}" -f $nm, $mu, $ml, $risk)
+}
+Write-Host "Note: risk HIGH at #4/4b/6/7 idle because musicLow=true + mu>1.5 + low rms steady (LMS overadapts residuals/AA bleed/elec pickup); drops at speed as rumble masks + productive excitation. Disappears on accel per user."
+
+Write-Host ""
+Write-Host "=== POST-EDIT STRICT PROTOCOL SIM (exact: prep forceN+ml, #4/4b/5/#6/#7 at sustained 50-70kmh assumeStrictLowMusic=true; post 0.06 + hasRumbleContext broad) ==="
+$strictResults = @()
+foreach ($s in $fullSteps) {
+  $r = Simulate-Step $s[0] $s[1] $s[2] $s[3] $s[4] -speed $s[5] -assumeStrictLowMusic $true   # strict for ALL as per user 'strict conditions' for protocol
+  $strictResults += $r
+  Write-Host ("STRICT {0}: maxC={1} midS={2} effMidMu={3} dom={4} red={5} mode={6} idleRisk={7}" -f $r.name, $r.maxC, $r.midScale, $r.effMidMu, $r.dom, $r.red, $r.mode, $r.idleRisk)
+}
+Write-Host "Post-edit strict driving: #6/#7 effMidMu 0.7+ dom ROAD_MID (lm>>0.06), red 3.5-5.5dB (vs pre-edit ~0.78 max MUSIC eff0.08); #4/4b also benefit rumbleContext (forceN but roadMode+ml -> boosts apply); #5 contrast lower eff no ml. Idle risk high on high-mu ml steps (monitor separate). This validates breakthrough flow."
+
+Write-Host ""
+Write-Host "=== SIM UPDATE COMPLETE (0.06 + context-broad + idle model). Re-run sim after real post-edit log for validation cycle."

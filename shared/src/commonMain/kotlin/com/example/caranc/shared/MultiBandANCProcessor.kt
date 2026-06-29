@@ -304,6 +304,16 @@ class MultiBandANCProcessor(
         } else {
             consecutiveHighEnergyRatio = 0
         }
+        // IDLE TELEGRAPH SUPPRESS (minimal safe, <10kmh only; drive rumble unaffected for #6/#7 eff 0.6+ goal):
+        // At low speed + low/steady rms (no strong rumble excitation, ratio near 1 < high thresh), short-freeze LMS to halt over-adaptation on residuals/bleed/elec.
+        // Complements speed-dependent minRms/thresh; productive rumble at 50+ never triggers this (high rms or varying).
+        val isIdleLowSpeed = speed < 10f
+        if (isIdleLowSpeed && rms < 0.025f && ratio < 1.6f) {
+            // steady low energy: freeze briefly (4 blocks ~16ms @64samp) to prevent pulsed weights from high mu on low pfx
+            val shortFreeze = 4
+            if (freezeWeightUpdates < shortFreeze) freezeWeightUpdates = shortFreeze
+            return true
+        }
         return false
     }
 
@@ -360,7 +370,10 @@ class MultiBandANCProcessor(
 
             val lowOut = multirateLow.processSample(lowSample) { decimated ->
                 // Aggressive per-"quiet zone" rumble focus: in musicLow, amplify low errorSample to drive stronger LMS adaptation for tire/wind (simulate seat-specific quiet zones)
-                val lowError = if (musicLowAncEnabled) virtualBands.low * 1.3f else virtualBands.low
+                // IDLE ARTIFACT FIX (minimal, speed guard only): skip lowErr boost at very low speed (<12kmh) to suppress telegraph on low-rms residuals/bleed without rumble excitation.
+                // At drive speed 50+ (for #6/#7) fully active. Preserves effMidMu 0.6+ goal.
+                val useLowErrBoost = musicLowAncEnabled && vehicleSpeedKmh > 12f
+                val lowError = if (useLowErrBoost) virtualBands.low * 1.3f else virtualBands.low
                 lowBand.processSample(
                     sample = decimated,
                     muScale = lowMu,
@@ -398,13 +411,16 @@ class MultiBandANCProcessor(
             if (roadMode && musicLowAncEnabled && vehicleSpeedKmh > 28f && midMu < 0.58f) {
                 midMu = 0.58f  // ensure minimum mid contrib for rumble dominant even at high AA lat (S3 ext ambitious)
             }
-            // Iter3-4 + S3: if classifier says dominant low-mid (Skoda rumble 200-350 in ROAD_MID/LOW), extra boost to midMu; guarded
+            // Iter3-4 + S3 + breakthrough: if dominant ROAD or (road + speed + musicLow context) -> extra mid boost + stronger error drive.
+            // This ensures rumble mid contrib (200-350Hz) even if high music energy keeps dominant=MUSIC_BROAD in AA mic spectrum (real max low+mid~0.07).
+            // Guard remains roadMode+speed+musicLow; dominant shift is bonus (via relaxed classifier).
+            val hasRumbleContext = roadMode && vehicleSpeedKmh > 28f && musicLowAncEnabled
             if ((lastDominant == com.example.caranc.shared.model.DominantNoiseBand.ROAD_MID ||
-                lastDominant == com.example.caranc.shared.model.DominantNoiseBand.ROAD_LOW) && roadMode && vehicleSpeedKmh > 25f) {
+                lastDominant == com.example.caranc.shared.model.DominantNoiseBand.ROAD_LOW || hasRumbleContext) && roadMode && vehicleSpeedKmh > 25f) {
                 midMu *= 1.75f
             }
-            // S3 Ext: direct mid error boost *1.28 (was 1.25) only when road rumble + speed + dom (even if music) for stronger LMS drive on 300-350
-            val midEnergyGuard = (lastDominant == com.example.caranc.shared.model.DominantNoiseBand.ROAD_MID || lastDominant == com.example.caranc.shared.model.DominantNoiseBand.ROAD_LOW)
+            // S3 Ext: direct mid error boost *1.28 ... broadened to rumble context (not only dom)
+            val midEnergyGuard = (lastDominant == com.example.caranc.shared.model.DominantNoiseBand.ROAD_MID || lastDominant == com.example.caranc.shared.model.DominantNoiseBand.ROAD_LOW || hasRumbleContext)
             val midError = if (roadMode && musicLowAncEnabled && vehicleSpeedKmh > 28f && midEnergyGuard) virtualBands.mid * 1.28f else virtualBands.mid
             val midOut = if (midMu > 0f) {
                 midBand.processSample(
@@ -455,7 +471,8 @@ class MultiBandANCProcessor(
                     // More aggressive dynamic boost for low band in musicLowAnc (user: perceived reduction still insensitive, make rumble cancellation stronger)
                     val lowRumbleEnergy = kotlin.math.abs(lowOut) * bandGains.low
                     val speedBoost = (vehicleSpeedKmh / 100f).coerceIn(0f, 0.6f)
-                    val dynamicLowBoost = 1.6f + (lowRumbleEnergy * 0.7f).coerceAtMost(1.0f) + speedBoost  // even more aggressive for perceived rumble reduction (user: still insensitive)
+                    // IDLE ARTIFACT FIX: at low speed no dynamic boost (prevents over-anti on quiet residuals); full at rumble speeds for #7 goal.
+                    val dynamicLowBoost = if (vehicleSpeedKmh < 12f) 1.0f else 1.6f + (lowRumbleEnergy * 0.7f).coerceAtMost(1.0f) + speedBoost  // even more aggressive for perceived rumble reduction (user: still insensitive)
                     val lowAnti = (lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f) * dynamicLowBoost
                     val higherAnti = midOut + highOut
                     // Even higher road_wiener in musicLow for tire/wind (aggressive feedforward)
@@ -547,7 +564,10 @@ class MultiBandANCProcessor(
             AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD -> if (band.label == "low" && musicLowAncEnabled) 1f else if (roadMode) 0.75f else 0.55f
         }
         val resonanceScale = CabinResonanceDetector.resonanceMuScale(band.centerHz, resonancePeaks)
-        return band.baseMuScale * modeScale * speedMuScale() * resonanceScale * debugMuMultiplier
+        // IDLE ARTIFACT FIX (minimal, speed<8 only; #7 at 50-70 untouched): lower muScale at pure idle to reduce over-adapt on low-energy residuals while musicLow/debug high mu active.
+        // roadMode at low spd rare (thresholds); rumble drive unaffected. Helps telegraph w/o touching effMidMu 0.6+ at speed.
+        val idleMuScale = if (vehicleSpeedKmh < 8f && !roadMode) 0.32f else 1f
+        return band.baseMuScale * modeScale * speedMuScale() * resonanceScale * debugMuMultiplier * idleMuScale
     }
 
     private fun speedMuScale(): Float =
@@ -713,6 +733,10 @@ class MultiBandANCProcessor(
 
                 val muNorm = if (pfx > 20f) {
                     currentMu / (pfx * 2f)
+                } else if (pfx < 2.0f) {
+                    // LOW ENERGY / IDLE GUARD: very low pfx (quiet residuals at idle/steady low rms + no rumble) -> reduce muNorm to prevent wild/pulsed weight updates that cause telegraph noise.
+                    // At rumble drive (high pfx from signal) unaffected. Complements speed guards above. Minimal safe.
+                    currentMu / (pfx + 1e-3f) * 0.22f
                 } else {
                     currentMu / (pfx + 1e-3f)
                 }

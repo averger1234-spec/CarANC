@@ -639,7 +639,11 @@ class AudioEngine(
                         val limits = ancProcessor?.getLatencyBandLimits()
                         val antiArtifactGain = if ((limits?.maxCancelFrequencyHz ?: 100f) < 60f) 0.28f else 1f
                         val userGain = AncTestPreferences.getUserAncGain(appContext)
-                        val finalWriteGain = cappedGain * antiArtifactGain * userGain
+                        // IDLE ARTIFACT SUPPRESS (minimal, speed<8 only): auto lower effective gain at idle/low speed to mask any residual telegraph clicks from low-energy LMS (musicLow + high mu).
+                        // Full gain at 50+kmh for #6/#7 rumble breakthrough validation (effMid 0.6+). User can still override via TestLogPanel but idle caps it.
+                        val speedForGain = speedProvider.currentSnapshot()
+                        val idleGainFactor = if (speedForGain.valid && speedForGain.speedKmh < 8f) 0.65f else 1f
+                        val finalWriteGain = cappedGain * antiArtifactGain * userGain * idleGainFactor
                         // reuse buffer (hot-path opt, similar to push buffer reuse)
                         if (outputBufferReuse.size < read) outputBufferReuse = ShortArray(read)
                         scaleSamplesInto(processed, read, finalWriteGain, outputBufferReuse)
@@ -1135,7 +1139,10 @@ class AudioEngine(
                         "midBandMuScale" to LatencyAwareBandLimiter.bandMuScale(335f, ancProcessor?.getLatencyBandLimits()?.estimatedLatencyMs ?: 150f, roadRumble = (ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || ancProcessor?.getProcessingMode() == AncProcessingMode.ROAD_NOISE_GPS)),
                         "highBandMuScale" to LatencyAwareBandLimiter.bandMuScale(1200f, ancProcessor?.getLatencyBandLimits()?.estimatedLatencyMs ?: 150f, roadRumble = (ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || ancProcessor?.getProcessingMode() == AncProcessingMode.ROAD_NOISE_GPS)),
                         // Iter2: effective mid mu after roadMode+musicLow boost + relax (key for 200-350Hz rumble breakthrough)
-                        "effectiveMidMu" to (ancProcessor?.getLastEffectiveMidMu() ?: 0f)
+                        "effectiveMidMu" to (ancProcessor?.getLastEffectiveMidMu() ?: 0f),
+                        // For idle telegraph diagnostic (protocol addition): log current block rms + computed risk at low speed
+                        "blockRms" to blockRms,
+                        "artifactRisk" to (if ((vehicleSpeedProvider?.currentSnapshot()?.speedKmh ?: 99f) < 8f && AncTestPreferences.isMusicLowAncEnabled(appContext) && AncTestPreferences.getDebugLmsMuMultiplier(appContext) > 1.3f) "HIGH(telegraph/idle)" else "normal")
                     ) + speedLogFields(speed),
                     latency = latency
                 )
