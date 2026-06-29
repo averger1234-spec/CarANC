@@ -420,7 +420,7 @@ class MultiBandANCProcessor(
             // CYCLE3_EXTRA integration point: exercise native low proto (switchable via setUseNativeLowBand)
             // Now enabled stub switching point: if flag + available, use native (even if currently stub returns 0, real impl when NDK active will contribute low band rumble cancel)
             val nativeLowOut = if (useNativeLowBand && NativeLowBandProcessor.isNativeAvailable()) {
-                nativeLow.processLowBand(lowSample, effectiveLowMu, freeze, lowError)
+                nativeLow.processLowBand(lowSample, effectiveLowMu, freeze, lowSample)  // use lowSample as error proxy for native (lowError is lambda local)
             } else {
                 0f
             }
