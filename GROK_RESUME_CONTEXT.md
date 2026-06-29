@@ -251,3 +251,5 @@
 - 還有哪些未實作：完整 native 啟用（NDK）、更進階 IMU fusion 等，已在之前 4 項 docs 列出。
 
 下次 git pull 後，resume 會包含最新 tier-only 哲學。
+
+**額外直接導入 (native integration)**: nativeLowOut 現在加到 adaptiveCombined (lowOut + nativeLowOut)，即使 stub 0 也為未來 real native 準備好路徑。切換點完全由 tier PRO 控制 (useNativeLowBand=true 時呼叫並貢獻)。

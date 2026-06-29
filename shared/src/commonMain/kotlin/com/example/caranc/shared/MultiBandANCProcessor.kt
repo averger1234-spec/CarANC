@@ -440,12 +440,14 @@ class MultiBandANCProcessor(
 
             // CYCLE3_EXTRA integration point: exercise native low proto (switchable via setUseNativeLowBand)
             // Now enabled stub switching point: if flag + available, use native (even if currently stub returns 0, real impl when NDK active will contribute low band rumble cancel)
-            val nativeLowOut = if (useNativeLowBand && NativeLowBandProcessor.isNativeAvailable()) {
-                nativeLow.processLowBand(lowSample, effectiveLowMu, freeze, lowSample)  // use lowSample as error proxy for native (lowError is lambda local)
+            // DIRECT INTEGRATION: nativeLowOut now added to low contribution (for when real native provides rumble cancel).
+            val nativeLowOut = if (useNativeLowBand) {
+                // Switch point open: even if !isNativeAvailable() (stub returns 0), the integration is active.
+                // When real native impl (NDK active, isNativeAvailable true), this will contribute real low rumble cancel.
+                nativeLow.processLowBand(lowSample, effectiveLowMu, freeze, lowSample)
             } else {
                 0f
             }
-            // TODO when real native: combine nativeLowOut with lowOut / fdafOut for full low band. For now, the call exercises the path.
 
             // Iter2-4 + Subagent3 Extended #7: roadMode + musicLow specific boost to midMu for 200-350Hz rumble in high-lat AA + Skoda.
             // Relax midEnabled to allow mid contrib when road rumble even if latency limits conservative.
@@ -519,7 +521,7 @@ class MultiBandANCProcessor(
                 0f
             }
 
-            val adaptiveCombined = lowOut * bandGains.low * latencyLimits.lowGain +
+            val adaptiveCombined = (lowOut + nativeLowOut) * bandGains.low * latencyLimits.lowGain +
                 midOut + highOut + fdafOut * 0.45f
 
             val combined = when {

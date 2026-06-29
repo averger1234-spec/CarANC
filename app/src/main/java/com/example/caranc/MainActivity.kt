@@ -460,7 +460,7 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
 
                 3 -> {
                     // 測試平台 tab
-                    TestLogPanel()
+                    TestLogPanel(currentTier = currentTier)
                 }
             }
         }

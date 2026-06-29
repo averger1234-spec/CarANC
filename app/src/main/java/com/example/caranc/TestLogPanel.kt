@@ -28,11 +28,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.caranc.shared.AncTestEnvironment
 import com.example.caranc.shared.AncTestPreferences
+import com.example.caranc.shared.UserTier
 
 @Composable
 fun TestLogPanel(
     modifier: Modifier = Modifier,
-    onEnvironmentChanged: (AncTestEnvironment) -> Unit = {}
+    onEnvironmentChanged: (AncTestEnvironment) -> Unit = {},
+    currentTier: UserTier = UserTier.PRO  // Pass from MainActivity to show correct effective from tier (no more hardcoded)
 ) {
     val context = LocalContext.current
     var loggingEnabled by remember {
@@ -286,12 +288,12 @@ fun TestLogPanel(
 
                 // TIER AUTO ONLY (user requirement - no manual advanced switches): all advanced (leakage/VSS/rumbleBoost/native) auto by tier via processor.updateTier + tier* (values from sim_iter.ps1 runs).
                 // UI shows read-only effective from current tier. Legacy manual deprecated/disabled. Future: fully remove advanced sliders; only tier picker + snapshots show effective*.
-                val currentTierForLeak = "PRO" // TODO: observe from sessionContext.tierManager.currentTier (e.g. state flow or callback from main tier UI)
-                val effLeakFromTier = when (currentTierForLeak) { "LIGHT" -> 0.9999f; "STANDARD" -> 0.9998f; "PRO" -> 0.9995f; else -> 0.9998f }
-                val effVssFromTier = when (currentTierForLeak) { "LIGHT" -> 0.65f; "STANDARD" -> 0.85f; "PRO" -> 1.0f; else -> 0.85f }
-                val effBoostFromTier = when (currentTierForLeak) { "LIGHT" -> 0.015f; "STANDARD" -> 0.045f; "PRO" -> 0.09f; else -> 0.045f }
-                val effNativeFromTier = currentTierForLeak == "PRO"
-                Text("Effective leakage from tier (auto): ${"%.5f".format(effLeakFromTier)} (tier=${currentTierForLeak})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                val tierName = currentTier.name  // e.g. LIGHT / STANDARD / PRO
+                val effLeakFromTier = when (tierName) { "LIGHT" -> 0.9999f; "STANDARD" -> 0.9998f; "PRO" -> 0.9995f; else -> 0.9998f }
+                val effVssFromTier = when (tierName) { "LIGHT" -> 0.65f; "STANDARD" -> 0.85f; "PRO" -> 1.0f; else -> 0.85f }
+                val effBoostFromTier = when (tierName) { "LIGHT" -> 0.015f; "STANDARD" -> 0.045f; "PRO" -> 0.09f; else -> 0.045f }
+                val effNativeFromTier = tierName == "PRO"
+                Text("Effective leakage from tier (auto): ${"%.5f".format(effLeakFromTier)} (tier=${tierName})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 Text("Effective VSS: ${"%.2f".format(effVssFromTier)} | IMU rumble boost: ${"%.3f".format(effBoostFromTier)} | Native low: $effNativeFromTier", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 Text("提示：只 flip tier (LIGHT/STANDARD/PRO) 即可；其餘由 sims 決定 auto。見 snapshots 'effective*FromTier' + 'lmsPfxVarEma' 驗證。Legacy manual 已 disable。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Legacy debugLeakage (deprecated): ${"%.5f".format(debugLeakage)} [use tier switch instead]", style = MaterialTheme.typography.bodySmall)
