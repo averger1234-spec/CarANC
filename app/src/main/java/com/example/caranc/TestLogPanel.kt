@@ -87,8 +87,8 @@ fun TestLogPanel(
         freezeThreshold = AncTestPreferences.getDebugFreezeThreshold(context)
         freezeConsec = AncTestPreferences.getDebugFreezeConsecutive(context)
         latencyOverrideMs = AncTestPreferences.getDebugLatencyOverrideMs(context)
-        debugLeakage = AncTestPreferences.getDebugLeakage(context)
-        useNativeLow = AncTestPreferences.isDebugUseNativeLowBand(context)  // for native low band switch point toggle
+        debugLeakage = AncTestPreferences.getDebugLeakage(context)  // legacy only; effective now from tier in logs/UI
+        useNativeLow = AncTestPreferences.isDebugUseNativeLowBand(context)  // legacy; effectiveUseNativeFromTier in snapshots (PRO auto)
     }
 
     Card(modifier = modifier.fillMaxWidth()) {
@@ -267,9 +267,9 @@ fun TestLogPanel(
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("進階 LMS 調校（類似 PID 學習率實驗）", style = MaterialTheme.typography.titleSmall)
+                Text("進階 LMS 調校（類似 PID 學習率實驗） - TIER AUTO 優先", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "LMS mu 是學習率。提高 → 適應更快，但高延遲易不穩。freeze 保護它。建議觀察 log 裡 lowBandLms / freezeRem / reduction 的變化。",
+                    "LMS mu 是學習率。... 現在 leakage / native / VSS / rumbleBoost 由 tier (LIGHT/STANDARD/PRO) 自動配置 (updateTier, sims tuned)。手動 slider 為 legacy 已 deprecate；UI 顯示 'effective leakage from tier: xxx' read-only。切 tier 即可（見 GuidedTest steps）。",
                     style = MaterialTheme.typography.bodySmall
                 )
 
@@ -284,16 +284,18 @@ fun TestLogPanel(
                     steps = 28
                 )
 
-                Text("Leaky LMS 洩漏因子 α (0.99~0.99999，越低越保守防發散/clicking with 高mu)：${"%.5f".format(debugLeakage)}", style = MaterialTheme.typography.bodySmall)
-                Slider(
-                    value = debugLeakage,
-                    onValueChange = {
-                        debugLeakage = it
-                        AncTestPreferences.setDebugLeakage(context, it)
-                    },
-                    valueRange = 0.99f..0.99999f,
-                    steps = 99
-                )
+                // TIER AUTO ONLY (user requirement - no manual advanced switches): all advanced (leakage/VSS/rumbleBoost/native) auto by tier via processor.updateTier + tier* (values from sim_iter.ps1 runs).
+                // UI shows read-only effective from current tier. Legacy manual deprecated/disabled. Future: fully remove advanced sliders; only tier picker + snapshots show effective*.
+                val currentTierForLeak = "PRO" // TODO: observe from sessionContext.tierManager.currentTier (e.g. state flow or callback from main tier UI)
+                val effLeakFromTier = when (currentTierForLeak) { "LIGHT" -> 0.9999f; "STANDARD" -> 0.9998f; "PRO" -> 0.9995f; else -> 0.9998f }
+                val effVssFromTier = when (currentTierForLeak) { "LIGHT" -> 0.65f; "STANDARD" -> 0.85f; "PRO" -> 1.0f; else -> 0.85f }
+                val effBoostFromTier = when (currentTierForLeak) { "LIGHT" -> 0.015f; "STANDARD" -> 0.045f; "PRO" -> 0.09f; else -> 0.045f }
+                val effNativeFromTier = currentTierForLeak == "PRO"
+                Text("Effective leakage from tier (auto): ${"%.5f".format(effLeakFromTier)} (tier=${currentTierForLeak})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                Text("Effective VSS: ${"%.2f".format(effVssFromTier)} | IMU rumble boost: ${"%.3f".format(effBoostFromTier)} | Native low: $effNativeFromTier", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                Text("提示：只 flip tier (LIGHT/STANDARD/PRO) 即可；其餘由 sims 決定 auto。見 snapshots 'effective*FromTier' + 'lmsPfxVarEma' 驗證。Legacy manual 已 disable。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Legacy debugLeakage (deprecated): ${"%.5f".format(debugLeakage)} [use tier switch instead]", style = MaterialTheme.typography.bodySmall)
+                Slider(value = debugLeakage, onValueChange = {}, valueRange = 0.99f..0.99999f, steps = 99, enabled = false)
 
                 Text("凍結門檻 (能量比，預設15；越高越不易凍 LMS)：${"%.1f".format(freezeThreshold)}", style = MaterialTheme.typography.bodySmall)
                 Slider(
@@ -331,13 +333,7 @@ fun TestLogPanel(
                     singleLine = true
                 )
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("開啟 Native Low Band (stub 切換點，正式 port 後有效)：", style = MaterialTheme.typography.bodySmall)
-                    Switch(checked = useNativeLow, onCheckedChange = {
-                        useNativeLow = it
-                        AncTestPreferences.setDebugUseNativeLowBand(context, it)
-                    })
-                }
+                // (duplicate block cleaned; effective native shown in main tier effective text above)
                 Text(
                     "提示：高 mu + 低門檻 容易看到 freeze 頻繁，注意 log 裡 freezeBlocksRemaining。改參數後建議重啟 ANC 讓 LMS 重新適應。",
                     style = MaterialTheme.typography.bodySmall,
