@@ -238,6 +238,15 @@
 
 **額外直接導入 (native integration)**: nativeLowOut 現在加到 adaptiveCombined (lowOut + nativeLowOut)，即使 stub 0 也為未來 real native 準備好路徑。切換點完全由 tier PRO 控制 (useNativeLowBand=true 時呼叫並貢獻)。）。
 
+**重要願景更新（2026-06-29）：打造「NVH 版的 Waze」**
+完整文字見 README.md 最新章節「願景：打造「NVH 版的 Waze」...」。
+- 已實作核心 enabler：IMU aux ref 混合（ReferenceSignalPipeline + adaptive EMA/scale） + rumbleVibBoost（processor，含 personalRumbleBias）。
+- VehicleSpeedSnapshot + logs 現在帶 coarse GPS（隱私量化） + roughness + accel，為 crowdsourced NVH Map 收集數據（支援 predictive preload S(z)/VSS）。
+- Personal acoustic bias 已接線（聲學身分跟著手機走，跨車 AA 套用）。
+- Tier + sim_iter.ps1 已為 simulation-driven OTA 就緒。
+- 推薦深耕方向：#1 IMU+mic Road Preview（已領先） + #2 個人化適應系統。
+下次更新 resume 時會包含這些護城河細節 + 路測收集 NVH segment 數據的 protocol 擴充。
+
 - TestLogPanel UI 簡化：進階區塊改為 read-only 顯示 "Effective leakage from tier: xxx (tier=PRO)" 等，legacy sliders disabled，提示只 flip tier。
 
 - 測試腳本更新：car_road_tuning_v1 presets 用 "tier" key + suggestedTier，checklist 強調 "tier=PRO (auto params from sims)"，不再 manual debugLeakage。sim_iter.ps1 model 更新支援 tier auto + 產生推薦表。

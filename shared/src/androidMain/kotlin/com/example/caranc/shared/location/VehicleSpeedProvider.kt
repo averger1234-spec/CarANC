@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.sqrt
+import kotlin.math.roundToInt
 
 class VehicleSpeedProvider(context: Context) {
 
@@ -87,7 +88,7 @@ class VehicleSpeedProvider(context: Context) {
             if (location != null) publish(location, source = "last_known")
         }
 
-        // IMU prototype for rumble proxy (linear accel, only logging for data collection in strict protocol runs on 68/國道)
+        // IMU (linear accel mag) + coarse GPS for NVH crowdsourced map (Road Preview, predictive ANC, "Waze for road noise + vehicle aging"). Mixed as aux ref + boost. Privacy quantized.
         val accelSensor = sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_LINEAR_ACCELERATION)
         if (accelSensor != null) {
             sensorManager.registerListener(accelListener, accelSensor, android.hardware.SensorManager.SENSOR_DELAY_GAME)
@@ -123,13 +124,21 @@ class VehicleSpeedProvider(context: Context) {
         }
 
         lastLocation = location
+        // Coarse quantize (~0.001° ≈ 111m grid) for privacy-safe NVH crowdsourced map / road segment keying.
+        // Supports predictive ANC (preload best S(z)/VSS when approaching known rough GPS cluster) + "acoustic identity" data collection.
+        val cLat = if (location.hasAccuracy() && location.accuracy < 200f) (location.latitude * 1000).roundToInt() / 1000f else 0f
+        val cLon = if (location.hasAccuracy() && location.accuracy < 200f) (location.longitude * 1000).roundToInt() / 1000f else 0f
+        val rough = linearAccelMag.coerceAtLeast(0f)
         _snapshot.value = VehicleSpeedSnapshot(
             speedKmh = smoothedSpeedKmh,
             valid = valid,
             accuracyMeters = accuracy,
             source = if (hasGpsSpeed) "$source:gps_speed" else source,
             linearAccelMagnitude = linearAccelMag,
-            accelSource = if (linearAccelMag > 0f) "linear_accel" else "none"
+            accelSource = if (linearAccelMag > 0f) "linear_accel" else "none",
+            coarseLat = cLat,
+            coarseLon = cLon,
+            roughness = rough
         )
     }
 

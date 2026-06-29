@@ -319,6 +319,7 @@ class AudioEngine(
                 )
                 ancProcessor?.applyCabinModel(applyMimoTrial(cabinModel))
                 currentLatency?.let { ancProcessor?.setEstimatedLatencyMs(getEffectiveLatencyForSet(it.totalMs)) }
+                ancProcessor?.setPersonalRumbleBias(AncTestPreferences.getPersonalRumbleBias(appContext))  // ensure personal bias applied early (acoustic ID follows phone)
                 logMimoProfile(cabinModel)
                 logLatencyOptimization()
 
@@ -463,6 +464,7 @@ class AudioEngine(
                     val musicLowAnc = AncTestPreferences.isMusicLowAncEnabled(appContext)
                     val lmsMuMult = AncTestPreferences.getDebugLmsMuMultiplier(appContext)
                     val freezeThresh = AncTestPreferences.getDebugFreezeThreshold(appContext)
+                    val personalRumbleBias = AncTestPreferences.getPersonalRumbleBias(appContext)  // personal acoustic identity (follows user/phone)
                     val freezeConsec = AncTestPreferences.getDebugFreezeConsecutive(appContext)
                     val gpsRoadEnabled = sessionContext.entitlementManager.canUseFeature(CommercialFeature.GPS_ROAD_ANC)
                     val speedSnapshot = speedProvider.currentSnapshot()
@@ -549,6 +551,7 @@ class AudioEngine(
                     ancProcessor?.setDebugLeakage(legacyLeak)
                     val legacyNative = AncTestPreferences.isDebugUseNativeLowBand(appContext)
                     ancProcessor?.setUseNativeLowBand(legacyNative)
+                    ancProcessor?.setPersonalRumbleBias(personalRumbleBias)
                     ancProcessor?.setDebugFreezeConfig(freezeThresh, freezeConsec, 0.6f)
                     referencePipeline?.setContext(musicActive = isMusic, callActive = isCall)
 
@@ -1030,11 +1033,16 @@ class AudioEngine(
             "speedAccuracyM" to speed.accuracyMeters,
             "speedSource" to speed.source,
             "noiseSource" to sessionContext.roadNoiseReferenceModel.classify(speed.speedKmh, speed.valid).name,
-            // IMU prototype log (rumble proxy, for strict protocol data collection on 68/國道 etc; not yet used in ANC path)
+            // IMU hybrid feedforward + NVH crowdsourced map fields (Road Preview, predictive ANC, Waze-like dynamic road noise DB).
+            // coarse* for privacy-safe road segment keying (quantized ~111m). roughness + accel for vibration proxy.
+            // Enables future aggregation (user export) for pre-load optimal S(z)/VSS/params before hitting rough GPS clusters.
             "accelMag" to speed.linearAccelMagnitude,
             "accelSource" to speed.accelSource,
-            "linearAccelMagnitude" to speed.linearAccelMagnitude,  // item3: explicit in speedLogFields + snapshots for VehicleSpeedSnapshot
-            "speedKmh" to speed.speedKmh  // ensure
+            "linearAccelMagnitude" to speed.linearAccelMagnitude,
+            "coarseLat" to speed.coarseLat,
+            "coarseLon" to speed.coarseLon,
+            "roughness" to speed.roughness,
+            "speedKmh" to speed.speedKmh
         )
     }
 
@@ -1082,7 +1090,7 @@ class AudioEngine(
         }
 
         val speed = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
-        ancProcessor?.setRumbleAccel(speed.linearAccelMagnitude)  // feed IMU rumble proxy directly into ANC (boosts low band in roadMode)
+        ancProcessor?.setRumbleAccel(speed.linearAccelMagnitude)  // IMU hybrid: rumbleAccel feeds both (1) ReferenceSignalPipeline aux ref mix (afterMedia - rumbleRef for structural FF), (2) MultiBand rumbleVibBoost on effectiveLowMu (roadMode only, tier auto). Core for Road Preview + NVH map.
         // CYCLE3_EXTRA: classify via scoped instance from context (NoiseBandClassifier now class, wired to road ref)
         val classification = sessionContext.noiseBandClassifier.classify(
             spectrum = rawSpectrum,

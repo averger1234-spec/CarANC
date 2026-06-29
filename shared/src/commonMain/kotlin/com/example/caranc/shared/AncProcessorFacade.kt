@@ -64,6 +64,11 @@ interface AncProcessorFacade : AudioProcessor {
     // Enable native low band switching point (for when NDK/native impl is active; currently falls back to no-op)
     fun setUseNativeLowBand(enabled: Boolean) {}
 
+    // Personal acoustic identity follows the *person* (phone) not car. Bias on IMU rumble feedforward / low mu.
+    // >1.0 for users more sensitive to tire/wind rumble; enables "your quiet cabin" across any vehicle via AA.
+    // Applied in processor rumbleVibBoost path (on top of tier auto + sim-driven).
+    fun setPersonalRumbleBias(bias: Float) {}
+
     // Iter2+: expose effective mid band mu (after road/musicLow boosts + bandMuScale) for logging mid contrib to 200-350Hz rumble.
     // 0 means no mid adaptation (pre-iter1 case for 136ms AA).
     fun getLastEffectiveMidMu(): Float = 0f

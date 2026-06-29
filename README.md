@@ -400,3 +400,47 @@ CarANC 為輔助降噪工具，**不能**保證消除所有噪音或取代駕駛
 下次 git pull 即可。建議搭配 strict protocol 跑台68/國道收集 IMU + log 驗證 tier 自動參數效果。
 
 **額外直接導入 (native integration)**: nativeLowOut 現在加到 adaptiveCombined (lowOut + nativeLowOut)，即使 stub 0 也為未來 real native 準備好路徑。切換點完全由 tier PRO 控制 (useNativeLowBand=true 時呼叫並貢獻)。
+
+## 2026-06-29 願景：打造「NVH 版的 Waze」——跨品牌動態路噪與車體老化聲學資料網 + 個人聲學身分
+
+（核心護城河，針對原廠 ANC 盲區的破壞性方向。建議深耕 #1 IMU+mic 混合前饋（Road Preview）與 #2 個人化持續學習適應系統。）
+
+1. 跨品牌的底盤與路況數據網  
+車廠盲區：只懂自己的車 + 只懂「新車」。Skoda DSP 只有 Octavia 出廠數據，不知道 5 年後避震老化、換胎後共振變化，也不知道今天台 68 哪段施工。  
+你的護城河：已實作手機 IMU (accelMag) + GPS + varEma（LMS 發散風險）。當系統在各式二手/老車運行，並把 varEma、震動頻率、GPS 座標（粗量化，匿名）回傳，你將擁有全市場獨家的「動態道路噪音與車體老化聲學資料庫 (Crowdsourced NVH Map)」。  
+結果：**預測性降噪 (Predictive ANC)**。快開到極粗糙路段前，系統透過雲端預載最適 S(z) 模型與 VSS 參數。車廠永遠做不到。
+
+2. 聲學身分跟著「人」走，而不是跟著「車」  
+原廠限制：高級 ANC 體驗鎖死在單台車上。  
+護城河：ANC 跟隨使用者的 Google 帳號與手機算力。無論開自己的 Skoda、出差租 Toyota、借家人舊車，只要手機連 Android Auto，專屬偏好（200-350Hz 敏感度、通話頻段保留）、個人聽力曲線就瞬間套用。  
+結果：賣的不是「車載設備」，而是「個人專屬的行動靜音艙」。
+
+3. 破壞性的迭代速度 (Simulation-Driven OTA)  
+原廠：車規硬體開發 3-5 年，演算法寫死在晶片，更新困難。  
+護城河：已建構 sim_iter.ps1 模擬驅動 + Tier 等級自動封裝。如果你發現某輪胎雨天特殊低頻轟鳴，只需伺服器跑模擬，隔天 App 更新就把新 Leakage/VSS 參數推給所有 PRO 用戶。  
+結果：系統「越用越聰明」，原廠從出廠就開始落後。
+
+4. 算力與感測器的不對稱借用 (Asymmetric Sensor Fusion)  
+原廠 IVI 算力落後消費電子 5 年以上。  
+護城河：利用使用者每兩年升級一次的「口袋超級電腦」（手機）。正準備核心卸載到 Native C++ (NDK)，未來調用 NPU 跑複雜非線性 AI 模型。巧妙將手機 IMU 作為輔助前饋 (Auxiliary Feedforward) Proxy，「用非車用感測器解決車載物理問題」，原廠工程師受硬體架構限制，極難複製。
+
+### 原廠 ANC 真正難以取代的方向（優先深耕 #1 與 #2）
+
+排名 | 核心方向 | 原廠為什麼難取代？ | CarANC 的機會 | 難度 | 推薦指數
+---|---|---|---|---|---
+1 | IMU + 麥克風混合前饋（Road Preview） | 原廠加裝加速度計成本高，需重設計 DSP 架構 | 高（你已經在實驗 IMU，pipeline 已混 aux ref + processor rumbleVibBoost） | 中 | ★★★★★
+2 | 高度個人化 + 持續學習的適應系統 | 原廠「一次調好，終生使用」，很難針對單一車主長期優化 | 非常高（已加 personalRumbleBias 跟著手機走；未來 hearing curve + online adapt） | 高 | ★★★★★
+3 | 極低成本 + 廣泛普及 | 原廠 ANC 是高成本硬體方案，難以下放到中低價位車 | 高 | 低 | ★★★★☆
+4 | 即時 crowdsourcing + 線上學習 | 原廠很難收集大量真實路況數據來持續優化模型 | 高（本更新已加 coarse GPS + roughness + varEma 到 logs/snapshots，供未來匿名上傳建 NVH Map） | 高 | ★★★★☆
+5 | 軟體快速迭代 + A/B 測試能力 | 原廠更新週期長（通常以年為單位） | 極高（sim_iter.ps1 + tier auto + OTA-like push 已就緒；本機 A/B 經 guided script + logs） | 低 | ★★★★☆
+
+**當前實作進度對應願景**：
+- IMU aux ref 已直接混入 ReferenceSignalPipeline（afterMedia - rumbleRef，adaptive EMA + scale） + MultiBand rumbleVibBoost（effectiveLowMu，roadMode + tier + personalBias）。
+- VehicleSpeedSnapshot 新增 coarseLat/Lon（~111m 量化，隱私） + roughness，AudioEngine / logs 全面記錄（speedLogFields + running_snapshot），供 strict protocol 收集 68/國道 NVH 數據。
+- Personal rumble bias 已接線 prefs ↔ facade ↔ processor ↔ TestLogPanel（個人聲學身分 UI 提示）。
+- Tier + sim_iter 完美支援 simulation-driven 快速迭代。
+- 後續：將 pipeline rumbleAuxEma / metrics 暴露給 log；加簡單 local segment cache 做初步 predictive preload hint；Google 帳號 sync 個人 profile；server-side NVH map 聚合 + S(z) 預載 API。
+
+這些改動讓 CarANC 從「單車 ANC App」轉向「跨車個人化預測性靜音平台」，建立原廠難以跨越的資料 + 算力 + 迭代護城河。
+
+（文件已同步更新到 GROK_RESUME_CONTEXT.md 與 MULTI_MACHINE_SYNC.md）

@@ -22,6 +22,10 @@ object AncTestPreferences {
     private const val KEY_DEBUG_LATENCY_OVERRIDE_MS = "debug_latency_override_ms"
     private const val KEY_DEBUG_LEAKAGE = "debug_leakage"
     private const val KEY_DEBUG_USE_NATIVE_LOW = "debug_use_native_low"
+    // Personal acoustic identity: follows the *user* (phone/Google acct) not the car. Bias multiplies rumble feedforward strength.
+    // E.g. user sensitive to 200-350Hz rumble sets >1.0; protects call bands differently. Future: sync via account + hearing curve.
+    // Currently local; applied on top of tier auto params (no manual advanced needed).
+    private const val KEY_PERSONAL_RUMBLE_BIAS = "personal_rumble_bias"
 
     fun isLoggingEnabled(context: Context): Boolean {
         return prefs(context).getBoolean(KEY_LOGGING_ENABLED, true)
@@ -144,6 +148,14 @@ object AncTestPreferences {
 
     fun setDebugUseNativeLowBand(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_DEBUG_USE_NATIVE_LOW, enabled).apply()
+    }
+
+    fun getPersonalRumbleBias(context: Context): Float {
+        return prefs(context).getFloat(KEY_PERSONAL_RUMBLE_BIAS, 1.0f).coerceIn(0.7f, 1.3f)
+    }
+
+    fun setPersonalRumbleBias(context: Context, bias: Float) {
+        prefs(context).edit().putFloat(KEY_PERSONAL_RUMBLE_BIAS, bias.coerceIn(0.7f, 1.3f)).apply()
     }
 
     private fun prefs(context: Context) =

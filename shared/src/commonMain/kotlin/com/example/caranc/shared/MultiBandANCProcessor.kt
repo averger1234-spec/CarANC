@@ -97,6 +97,7 @@ class MultiBandANCProcessor(
     private var blockRmsVssScale = 1f  // blockRms variance based scale from AudioEngine for enhanced VSS in BandFxLms
     private var useNativeLowBand = false  // switch to native low band when available (stub now, real impl when NDK active)
     private var rumbleBoostFactor = 0.05f  // per-tier strength for IMU rumble boost (set by tier in updateTier)
+    private var personalRumbleBias = 1.0f  // personal acoustic identity bias (follows user/phone, not car). Applied to rumbleVibBoost.
     private var bandGains = BandGains(low = 1f, mid = 0.25f, high = 0.05f)
     private var lastDominant = com.example.caranc.shared.model.DominantNoiseBand.MIXED
     private var resonancePeaks = emptyList<com.example.caranc.shared.model.ResonancePeak>()
@@ -232,6 +233,10 @@ class MultiBandANCProcessor(
 
     override fun setRumbleAccel(mag: Float) {
         rumbleAccelMag = mag.coerceAtLeast(0f)
+    }
+
+    override fun setPersonalRumbleBias(bias: Float) {
+        personalRumbleBias = bias.coerceIn(0.7f, 1.3f)
     }
 
     override fun setBlockRmsVssScale(scale: Float) {
@@ -418,8 +423,10 @@ class MultiBandANCProcessor(
 
             // Direct IMU integration into ANC: use rumbleAccelMag (vibration proxy from phone IMU) to boost low band when high road rumble vibration detected.
             // This provides a true structural feedforward (immune to cabin acoustic feedback) complementing the speed-based road ref and mic error.
-            // Boost only in roadMode; strength from tier (auto, no manual). Guarded.
-            val rumbleVibBoost = if (roadMode) (1f + rumbleAccelMag.coerceAtMost(4f) * rumbleBoostFactor).coerceAtMost(1.4f) else 1f
+            // + personalRumbleBias (acoustic identity follows *user* via phone prefs; >1.0 for rumble-sensitive users). Tier auto + sim-driven.
+            // Boost only in roadMode; for "personal mobile quiet cabin" across any car (AA).
+            val baseRumbleBoost = if (roadMode) (1f + rumbleAccelMag.coerceAtMost(4f) * rumbleBoostFactor).coerceAtMost(1.4f) else 1f
+            val rumbleVibBoost = (baseRumbleBoost * personalRumbleBias).coerceIn(0.8f, 1.6f)
             val effectiveLowMu = lowMu * rumbleVibBoost
 
             val lowOut = multirateLow.processSample(lowSample) { decimated ->

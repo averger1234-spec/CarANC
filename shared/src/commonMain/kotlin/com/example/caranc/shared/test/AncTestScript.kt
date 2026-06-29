@@ -289,6 +289,9 @@ object CarAncTestScript {
         "lmsPfxVarEma",
         "accelMag",
         "accelSource",
+        "coarseLat",
+        "coarseLon",
+        "roughness",
         "speedKmh",
         "speedValid"
     )

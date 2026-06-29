@@ -13,7 +13,11 @@ data class ReferencePipelineMetrics(
     val engineRpm: Float = 0f,
     val engineRpmValid: Boolean = false,
     val engineFundamentalHz: Float = 0f,
-    val playbackActive: Boolean = false
+    val playbackActive: Boolean = false,
+    // IMU aux feedforward (Road Preview) metrics for NVH map / predictive.
+    // rumbleAuxEma: smoothed vibration proxy; rumbleAuxScale: adaptive mix strength used this block.
+    val rumbleAuxEma: Float = 0f,
+    val rumbleAuxScale: Float = 0f
 )
 
 @Keep
@@ -27,6 +31,11 @@ class ReferenceSignalPipeline(
     private var musicActive = false
     private var callActive = false
     private var playbackEnergyEma = 0f
+
+    // IMU rumble aux feedforward state for Road Preview / NVH hybrid (mic + structural vibration).
+    // EMA for smooth proxy; adaptive scale for preview (higher on rough detected).
+    private var rumbleAccelEma = 0f
+    private var lastRumbleScale = 0.0008f
 
     // Perf note: preprocessBlock allocates ShortArray per block (called every 64 samples ~1.5ms @44k).
     // Quick win: reuse buffer (size fixed to PROCESSING_READ_SIZE=64 in ANCService path) to reduce allocations.
@@ -83,11 +92,19 @@ class ReferenceSignalPipeline(
                 musicActive = musicActive
             )
 
-            // Simple IMU aux ref mix: use rumbleAccel (scaled) as additional feedforward reference for low-freq rumble.
-            // This mixes structural vibration data directly into the preprocessed residue before ANC.
-            // Scaled conservatively; positive/negative phase may need tuning from real IMU+mic data.
-            val rumbleRef = rumbleAccel * 0.0008f  // empirical scale to match signal level
-            val afterRumble = afterMedia - rumbleRef   // aux ref subtraction (feedforward style)
+            // IMU + mic hybrid feedforward (Road Preview / NVH Waze moat).
+            // Structural vibration proxy (phone IMU, immune to acoustic feedback) mixed as aux ref into residue.
+            // EMA smooths jitter; adaptive scale for preview (boost mix on high rumble/speed for pre-emptive low-freq cancel).
+            // This is the core for crowdsourced dynamic road noise map + predictive preload of S(z)/VSS.
+            // Future: use rumbleEma / variance to key local "segment profile" or request cloud S(z) preload.
+            rumbleAccelEma = 0.85f * rumbleAccelEma + 0.15f * rumbleAccel.coerceAtLeast(0f)
+            val baseScale = 0.0008f
+            // Adaptive: higher mix when vibration strong (preview rough road) or high speed context (caller speed not passed, infer via accel).
+            val adapt = (1f + (rumbleAccelEma * 0.6f).coerceAtMost(1.2f))
+            val rumbleScale = (baseScale * adapt).coerceIn(0.0002f, 0.0025f)
+            lastRumbleScale = rumbleScale
+            val rumbleRef = rumbleAccelEma * rumbleScale
+            val afterRumble = afterMedia - rumbleRef   // aux ref subtraction (feedforward style, hybrid with mic error)
 
             output[i] = (afterRumble * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
         }
@@ -105,7 +122,9 @@ class ReferenceSignalPipeline(
             engineRpm = engineHarmonic.rpm,
             engineRpmValid = engineHarmonic.valid,
             engineFundamentalHz = engineHarmonic.fundamentalHz,
-            playbackActive = playbackEnergyEma > 0.001f
+            playbackActive = playbackEnergyEma > 0.001f,
+            rumbleAuxEma = rumbleAccelEma,
+            rumbleAuxScale = lastRumbleScale
         )
         return output
     }

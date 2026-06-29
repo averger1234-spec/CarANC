@@ -155,4 +155,8 @@ class IosAncProcessorFacade(
     override fun setRumbleAccel(mag: Float) {
         // iOS stub for IMU
     }
+
+    override fun setPersonalRumbleBias(bias: Float) {
+        // iOS stub (personal acoustic identity follows phone; future full support)
+    }
 }
