@@ -321,6 +321,22 @@ object CarRoadTuningScript {
     // 目標：每次跑完整 prep+4+4b+5+6+7+finish，配外部錄音 + spectrum。使用 old parts 單輪 A/B 測試穩定 baseline 對比新。所有 boost 最小安全 guarded。
     // 調校時優先觀察 tier + effective from tier (leakage etc read-only), midBand 貢獻、effectiveMidMu、maxC 與 200-350 Hz reduction。每步 scenario 註 "tier=PRO auto". finish 強調下一輪優先重跑不同 tier 變體 + 外部 spectrum 驗證 + re-run sims 微調 tier*。
     // sims 決定其餘；未來用戶只 flip tier。
+    //
+    // === 完全由 log 驅動的迭代（你不要手動，我根據你給的 log 自動更新基準）===
+    // 流程（零手動調參數）：
+    // 1. 你只跑完整 script（按 UI 按鈕，照裡面最新說明開車）。
+    // 2. 匯出 log 給我（或我 pull 最新）。
+    // 3. 我 parse 真實 #7 數據（effMidMu, reduction, dominant, speed, personalRumbleBias, roughness, rumbleAccelEma, crowd boost...）。
+    // 4. 對照 sim_iter.ps1 模型 + 上次 best，決定下一輪最佳配置。
+    // 5. 我直接 edit 這支 script 的 debugPresets（把新 mu/ov/personal 等 bake 進去）、UI default、說明。
+    // 6. Push → 你 pull + install-debug → 下次 script 已經是新 bake 的「當前基準」。
+    // 你永遠不用自己記數字或調滑桿 — log 進來，我負責把迭代結果寫回程式碼當新 baseline。#4b 永遠固定當 old control。
+    //
+    // 日常/非腳本使用基準（你的問題）：
+    // - 不跑完整 script 做快速測試或日常開車時，用「上次成功 #7 迭代後的最佳配置」作為當前基準（例如 mu=2.05, ov=80, musicLow=ON, forceNormal=false, tier=PRO, personalRumbleBias=1.28）。
+    // - 流程：跑完整 script 得到改善（effMidMu 高、red 好、ROAD_MID 多、新 fields 如 roughness/personalRumbleBias/rumbleAccelEma/crowdsourcedPreloadBoost 高）→ 記錄/儲存那次成功參數作為「current baseline vX」→ 明天日常用這個 baseline 快速測試/開車 → 需要再迭代時再跑完整 script（用 #4b 當固定 old control，對比新 #7 是否更好）→ 更新 baseline。
+    // - 進步追蹤：比對 log 的 effectiveMidMu / reductionDb / dominantNoiseBand / personalRumbleBias / roughness / rumbleAccelEma / crowdsourcedPreloadBoost / lmsUpdateCount / maxCancelFrequencyHz。#4b 永遠是穩定 control，不隨 baseline 變。
+    // - 實務：用 TestLogPanel 手動設最佳值（personal bias 滑桿調到 1.28，tier 切 PRO 等），或之後加「load last baseline」功能。每次 script 後跑 sim_iter.ps1 + parse log 得到下一輪推薦，更新 baseline。
 
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
