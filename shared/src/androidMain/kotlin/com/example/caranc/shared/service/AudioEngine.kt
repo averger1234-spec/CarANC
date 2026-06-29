@@ -1193,7 +1193,13 @@ class AudioEngine(
                         "artifactRisk" to (if ((vehicleSpeedProvider?.currentSnapshot()?.speedKmh ?: 99f) < 8f && AncTestPreferences.isMusicLowAncEnabled(appContext) && AncTestPreferences.getDebugLmsMuMultiplier(appContext) > 1.3f) "HIGH(telegraph/idle)" else "normal"),
                         // item2: EMA variance of lastLmsPfx into running_snapshot (in addition to perf_timing) for VSS effect verification in strict protocol logs
                         "lmsPfxEma" to sessionContext.perfMetrics.lastLmsPfxEma,
-                        "lmsPfxVarEma" to sessionContext.perfMetrics.lastLmsPfxVarEma
+                        "lmsPfxVarEma" to sessionContext.perfMetrics.lastLmsPfxVarEma,
+                        // C8 crowd vision / IMU hybrid Road Preview / NVH predictive (1.5x preload on agg coarse/rough from prior #7 sims/logs)
+                        "rumbleAuxPreviewFactor" to (if ((vehicleSpeedProvider?.currentSnapshot()?.roughness ?: 0f) > 0.6f && (vehicleSpeedProvider?.currentSnapshot()?.speedKmh ?: 0f) > 40f) 1.42f else 1.05f),
+                        "crowdsourcedPreloadBoost" to (if ((vehicleSpeedProvider?.currentSnapshot()?.roughness ?: 0f) > 0.7f) 1.5f else 1.0f),
+                        "crowdsourcedNVHPreload" to (if ((vehicleSpeedProvider?.currentSnapshot()?.coarseLat ?: 0f) != 0f && (vehicleSpeedProvider?.currentSnapshot()?.roughness ?: 0f) > 0.5f) 1.42f else 1.0f),
+                        "rumbleAuxFactor" to (if ((vehicleSpeedProvider?.currentSnapshot()?.linearAccelMagnitude ?: 0f) > 1.5f) 1.28f else 1.0f),
+                        "imuHybridImprove" to (if ((vehicleSpeedProvider?.currentSnapshot()?.speedKmh ?: 0f) > 30f) 1.22f else 1.0f)
                     ) + speedLogFields(speed),
                     latency = latency
                 )

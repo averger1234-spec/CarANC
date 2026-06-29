@@ -332,11 +332,16 @@ object CarRoadTuningScript {
     // 6. Push → 你 pull + install-debug → 下次 script 已經是新 bake 的「當前基準」。
     // 你永遠不用自己記數字或調滑桿 — log 進來，我負責把迭代結果寫回程式碼當新 baseline。#4b 永遠固定當 old control。
     //
-    // 日常/非腳本使用基準（你的問題）：
-    // - 不跑完整 script 做快速測試或日常開車時，用「上次成功 #7 迭代後的最佳配置」作為當前基準（例如 mu=2.05, ov=80, musicLow=ON, forceNormal=false, tier=PRO, personalRumbleBias=1.28）。
-    // - 流程：跑完整 script 得到改善（effMidMu 高、red 好、ROAD_MID 多、新 fields 如 roughness/personalRumbleBias/rumbleAccelEma/crowdsourcedPreloadBoost 高）→ 記錄/儲存那次成功參數作為「current baseline vX」→ 明天日常用這個 baseline 快速測試/開車 → 需要再迭代時再跑完整 script（用 #4b 當固定 old control，對比新 #7 是否更好）→ 更新 baseline。
-    // - 進步追蹤：比對 log 的 effectiveMidMu / reductionDb / dominantNoiseBand / personalRumbleBias / roughness / rumbleAccelEma / crowdsourcedPreloadBoost / lmsUpdateCount / maxCancelFrequencyHz。#4b 永遠是穩定 control，不隨 baseline 變。
-    // - 實務：用 TestLogPanel 手動設最佳值（personal bias 滑桿調到 1.28，tier 切 PRO 等），或之後加「load last baseline」功能。每次 script 後跑 sim_iter.ps1 + parse log 得到下一輪推薦，更新 baseline。
+    // 主頁輕/中/重度 vs script #4（你的確認）：
+    // 主頁的 LIGHT/STANDARD/PRO **不是** 直接複製 #4 的測試參數。
+    // #4 是 script 裡的**測試點**：以 STANDARD tier 當 base，再加 debug override（muMult=1.7、ov=120、musicLow=ON、forceNormal=true）來強制低延遲 musicLow 情境，驗證對 200-350Hz rumble 的效果（收集數據用）。
+    // 
+    // 日常不跑 script 時，主頁 tier 選擇直接決定 auto-config（由 sim_iter.ps1 調校的基礎：filterLen、baseMu、leakage、blockRmsVssScale、rumbleBoostFactor、useNativeLowBand）。
+    // 
+    // 「當前基準」迭代方式（log 驅動，零手動）：
+    // 跑完整 script 後，好的 #7 通常會推薦用 PRO tier + personalRumbleBias=1.28 + musicLow=ON 作為日常 baseline。
+    // 我從你給的 log 分析實際跑在哪個 tier + 效果（effMidMu/red/dominant/新 fields），然後直接更新程式碼推薦（UI default bias、script 說明「日常用這個 tier + bias」），下次你開主頁或跑 script 就預設最新從 log 迭代出的最佳。
+    // #4b 永遠 script 內固定 old control，不影響日常 tier。
 
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
