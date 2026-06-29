@@ -170,6 +170,14 @@
 - 突破重點：即使 AA 媒體路由（remote-submix）導致 music=true + dominant MUSIC_BROAD（playbackRefActive=false 但上層 music flag true），仍用 musicLow + roadMode + mid 強化讓中頻 rumble 有貢獻（effectiveMidMu 追蹤 mid 實際 muScale）。#7 再強化 classifier（speed>28 + energy force ROAD_MID even music）+ DSP（guarded boosts）。
 - 最新實測 log（180157.log，#6 期間）：effMidMu=0.3（首次正值）、midBandMuScale=1.0、maxC 高達 380、processingMode=floor_noise_music_road、noiseSource=ROAD、speed~50-67kmh、red max 0.458（28 筆 >0.1）、但 dominant 仍 MUSIC_BROAD（music=true）。證明 mid 機制已生效（比舊 baseline 明顯改善）。
 - 2026-06-29 最新實車 log（anc_session_20260629_073238.log，非 guided script 手動跑，AA music 強）：reduction 極低 (max 0.78dB avg 0.07)、effMidMu 卡 0.083、dominant 幾乎全 MUSIC_BROAD (301/316)、low+mid ratio 即使高速 rough 最高僅 0.071（music 能量主導）。證實 energy thresh 0.30 過嚴 + 需嚴格低音樂 vol。已 data-driven 突破：classifier force ROAD 門檻降至 0.06 + 放寬 subcond + 音樂 high check 加入 rumble 例外；processor rumbleContext guard 擴大（即使 dominant 仍 MUSIC 也拿 1.75x / midErr*1.28）；MUSIC_BROAD mid gain 0.15→0.28。搭配 tuning script 強調「vol<15-20%」+ 50+kmh rough，即可讓 0.06 thresh + rumbleContext 生效，預期 #6/#7 effMidMu 0.5+、red -3~-6dB on 200-350。下一輪用 car_road_tuning_v1 嚴格條件跑即可驗證。
+- **2026-06-29 後續依使用者可行性分析強化（音樂扣除 + AA 整合）**：
+  - 強化 MediaReferenceSubtractor（最推薦做法）：預設 filterLength 128（更長，捕捉 AA 音樂較長路徑）、max 256；musicActive 時用完整長度強力扣除，否則縮極短（保留路噪）；增加 refEnergy + correlation guard、依 |correlation| 動態調整 mu；暴露 lastActiveFilterLength / lastMuStep / adaptationActive。
+  - ReferenceSignalPipeline 同步使用 128 filter，ReferencePipelineMetrics 新增 mediaActiveFilterLen / mediaMuStep / mediaAdaptationActive。
+  - AudioEngine running_snapshot 新增多項 subtraction 指標（mediaSubtracted、mediaActiveFilterLen、mediaMuStep、mediaAdaptationActive），方便 strict protocol 觀察扣除效果進展。
+  - AncTestScript 的 car_road_tuning_v1 monitoredSnapshotFields 同步加入這些欄位。
+  - AudioRouteManager 實作 AA routing 保險機制：新增 aaSonificationRoutingFailed 旗標；buildTrackAudioAttributes 依旗標在 AA 時自動 fallback 到 USAGE_MEDIA（否則維持 SONIFICATION 解決 focus/volume 問題）；ensureOutputRoute 自動偵測 carSinkRouted 失敗時開啟 fallback 並 log；提供 resetAaSonificationFallback() / isAaSonificationFallbackActive() 公開方法。
+  - 這些改動已 git commit/push（最新 commit 38cf16b），並執行 install-debug 成功安裝最新 debug APK 至手機。
+  - 目的：讓 AA 開音樂時的 rumble 扣除更有效（配合之前 classifier 放寬），同時有 routing 保險；strict 低 vol + 高 speed 測試時 subtraction 指標可清楚看到是否在工作。
 - UI 文字與 MULTI_MACHINE_SYNC.md 已同步更新，強調「自動套用 + sub-agent 模擬 + old A/B + #6/#7 延伸」。
 - 安裝 debug 推送到手機（含最新 script + DSP）。給朋友 APK 時，底部選單就是標準體驗。
 - UI 改進（回應「不直覺、欄位太長」 + 使用者要求「隱私政策、服務條款、方案切換放底部選單，測試腳本一個、測試平台一個，在底部點選」）：
