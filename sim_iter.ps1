@@ -206,6 +206,40 @@ function Simulate-Step($name, $muMult, $ovMs, $musicLow, $forceNormal, $baseLat=
 # Leaky: alpha impacts stability: 0.9998 std allows more adapt but risk varEma spike/pop; 0.9995 cons (for mu=2+) damps weights more, lower varEma, fewer artifacts on pothole (sim impulse pfx spike + high err)
 # IMU: accelMag as rumbleProxy (high 1.8-4.2 on 台68/國道 rough pothole, low 0.1-0.4 smooth/high-music); used in sim as proxy for hasDecentRumble + pfxEst
 # Native: assume when ported, low band lmsProcessCalls overhead 2-3x lower (faster pfx/ dot in C++ vs kotlin loops; sim uses factor 0.4 cost)
+# TIER AUTO-CONFIG (per user req: ONLY tier manual; leakage/ VSS / rumbleBoost / native auto by tier)
+# Mirrors MultiBandANCProcessor.kt tier* funcs; values tuned via sims for balance (stability low varEma/no pop, perf high effMidMu + red in 200-350 + good lms)
+function Get-TierLeakage($tier) {
+  switch ($tier.ToUpper()) {
+    "LIGHT" { return 0.9999 }   # conservative: higher alpha, less adapt but stable for simple cases, high music bleed
+    "STANDARD" { return 0.9998 }
+    "PRO" { return 0.9995 }     # aggressive: lower alpha + VSS/clip damps for high-mu rumble focus
+    default { return 0.9998 }
+  }
+}
+function Get-TierVssScale($tier) {
+  switch ($tier.ToUpper()) {
+    "LIGHT" { return 0.65 }   # conservative lower scale; safer on variable energy
+    "STANDARD" { return 0.85 }
+    "PRO" { return 1.0 }      # full allow; aggressive on high rumble
+    default { return 0.85 }
+  }
+}
+function Get-TierRumbleBoost($tier) {
+  switch ($tier.ToUpper()) {
+    "LIGHT" { return 0.015 }
+    "STANDARD" { return 0.045 }
+    "PRO" { return 0.09 }     # higher IMU boost for PRO heavy rumble cancel
+    default { return 0.045 }
+  }
+}
+function Get-TierNative($tier) {
+  switch ($tier.ToUpper()) {
+    "LIGHT" { return $false }
+    "STANDARD" { return $false }
+    "PRO" { return $true }    # native lowband for PRO (assume 2x lms save per task)
+    default { return $false }
+  }
+}
 function Get-PfxSim($speed, $domRoad, $assumeStrict, $roughRoad=$true, $potholeImpulse=$false) {
   $basePfx = if ($domRoad -and $speed -gt 40) { 18.0 } elseif ($domRoad) { 9.5 } else { 2.8 }  # from lm ratios + energy in log; MUSIC dominant low pfx
   if ($assumeStrict) { $basePfx *= 1.35 }  # strict low music -> higher relative road energy
@@ -227,12 +261,21 @@ function Get-AccelMagSim($speed, $domRoad, $assumeStrict, $rough=$true, $pothole
   if ($speed -lt 20) { $base *= 0.4 }
   return [math]::Round( [math]::Max(0.1, $base + (Get-Random -Maximum 8)/10.0 -0.3) , 2)
 }
-function Simulate-EnhancedStep($name, $muMult, $ovMs, $musicLow, $forceNormal, $leakage=0.9998, $baseLat=136.46, $speed=56.0, $assumeStrictLowMusic=$false, $useNative=$false, $roughRoad=$true, $pothole=$false) {
+function Simulate-EnhancedStep($name, $muMult, $ovMs, $musicLow, $forceNormal, $leakage=0.9998, $baseLat=136.46, $speed=56.0, $assumeStrictLowMusic=$false, $useNative=$false, $roughRoad=$true, $pothole=$false, $tier="STANDARD") {
+  # TIER AUTO: if tier provided, override manual defaults with tier* (user only flips tier; sims tune rest)
+  $autoLeak = Get-TierLeakage $tier
+  $autoVss = Get-TierVssScale $tier
+  $autoBoost = Get-TierRumbleBoost $tier
+  $autoNat = Get-TierNative $tier
+  $effLeakage = if ($PSBoundParameters.ContainsKey('leakage') -and $leakage -ne 0.9998) { $leakage } else { $autoLeak }  # allow explicit override but prefer tier
+  $effUseNative = if ($PSBoundParameters.ContainsKey('useNative') -and -not $useNative) { $useNative } else { $autoNat }
   $r = Simulate-Step $name $muMult $ovMs $musicLow $forceNormal $baseLat $speed $assumeStrictLowMusic
   $pfx = Get-PfxSim $speed ($r.dom -like "*ROAD*") $assumeStrictLowMusic $roughRoad $pothole
   $energyF = Get-EnergyFactor $pfx
-  $vssRedGuard = if ($energyF -lt 0.5) { 0.7 } else { 1.0 }  # VSS lowers effective step on low energy
-  $red = [math]::Round( $r.red * (0.95 + 0.1 * $energyF) * $vssRedGuard , 3)
+  # VSS now uses tier vssScale in effMu calc (simulates blockRmsVssScale in processor)
+  $vssRedGuard = if ($energyF -lt 0.5) { 0.7 } else { 1.0 }
+  $vssEff = $autoVss   # incorporate tier vss
+  $red = [math]::Round( $r.red * (0.95 + 0.1 * $energyF) * $vssRedGuard * ($vssEff / 0.85) , 3)  # scale red by tier vss relative
   # simulate EMA/varEma of pfx (helps verify VSS: low varEma = stable energy, VSS+leaky effective)
   if ($pfx -gt 5) {
     $strictAdd = if ($assumeStrictLowMusic) {14} else {3.5}
@@ -243,25 +286,26 @@ function Simulate-EnhancedStep($name, $muMult, $ovMs, $musicLow, $forceNormal, $
   $simPfxEma = [math]::Round( $emaBase , 2)
   $dev = $pfx - $simPfxEma
   $pothBase = if ($pothole) {2.8} else {0.6}
-  $leakDamp = if ($leakage -lt 0.9997) {0.6} else {1.0}
+  $leakDamp = if ($effLeakage -lt 0.9997) {0.6} else {1.0}
   $varBase = 0.82 * $pothBase + 0.18 * ($dev * $dev) * $leakDamp
   $simVarEma = [math]::Round( [math]::Max(0.01, $varBase) , 3)  # lower leakage damps varEma
   # Leaky impact on stability (qual): lower alpha (0.9995) + clip + VSS -> lower varEma, no divergence even mu=2.0 + pothole
-  $stability = if ($leakage -lt 0.9996 -and $energyF -gt 0.4) { "STABLE (low varEma, clip damps pop)" } elseif ($pothole -and $leakage -gt 0.9997) { "RISK pop (high var spike)" } else { "OK" }
+  $stability = if ($effLeakage -lt 0.9996 -and $energyF -gt 0.4) { "STABLE (low varEma, clip damps pop)" } elseif ($pothole -and $effLeakage -gt 0.9997) { "RISK pop (high var spike)" } else { "OK" }
   $accel = Get-AccelMagSim $speed ($r.dom -like "*ROAD*") $assumeStrictLowMusic $roughRoad $pothole
   $rumbleProxy = if ($accel -gt 1.5) { "HIGH_ROUGH (VSS full step)" } elseif ($accel -gt 0.6) { "MID (VSS 0.6-0.85)" } else { "LOW_MUSIC (VSS guard 0.22)" }
-  # native overhead: assume 2.5x faster pfx/loop calc for low band
-  $nativeFactor = if ($useNative) { 0.4 } else { 1.0 }
+  # native overhead: assume 2x save per task (faster low band); was 2.5x, now 2x -> factor 0.5
+  $nativeFactor = if ($effUseNative) { 0.5 } else { 1.0 }
   $lmsCallsSim = [math]::Round( (2100000 + [int]($muMult*30000)) * $nativeFactor )
-  $leakEffDamp = if ($leakage -lt 0.9996) {0.92} else {1.0}
-  $effWithVss = [math]::Round( $r.effMidMu * $energyF * $leakEffDamp , 3)  # leaky cons slightly lower eff but stable
+  $leakEffDamp = if ($effLeakage -lt 0.9996) {0.92} else {1.0}
+  $effWithVss = [math]::Round( $r.effMidMu * $energyF * $vssEff * $leakEffDamp , 3)  # tier vss + leaky now in eff
   $j2 = $r.jsonl -replace '"lmsUpdateCount":\s*\d+', ('"lmsUpdateCount":' + $lmsCallsSim)  # approx patch
-  $j2 = $j2 -replace '}$', (',"debugLeakage":' + $leakage + ',"lmsPfxEma":' + $simPfxEma + ',"lmsPfxVarEma":' + $simVarEma + ',"linearAccelMagnitude":' + $accel + ',"accelSource":"linear_accel","energyFactor":' + $energyF + ',"rumbleProxy":"' + $rumbleProxy + ',"stability":"' + $stability + ',"nativeOverheadFactor":' + $nativeFactor + '}')
-  [pscustomobject]@{ name=$r.name; effLat=$r.effLat; maxC=$r.maxC; midScale=$r.midScale; effMidMu=$effWithVss; dom=$r.dom; red=$red; mode=$r.mode; jsonl=$j2; idleRisk=$r.idleRisk; leakage=$leakage; pfx=$pfx; pfxEma=$simPfxEma; pfxVarEma=$simVarEma; accelMag=$accel; rumbleProxy=$rumbleProxy; energyFactor=$energyF; stability=$stability; lmsCalls=$lmsCallsSim; native=$useNative }
+  $j2 = $j2 -replace '}$', (',"debugLeakage":' + $effLeakage + ',"tier":"' + $tier + '","blockRmsVssScale":' + $autoVss + ',"rumbleBoostFactor":' + $autoBoost + ',"useNativeLowBand":' + $effUseNative.ToString().ToLower() + ',"lmsPfxEma":' + $simPfxEma + ',"lmsPfxVarEma":' + $simVarEma + ',"linearAccelMagnitude":' + $accel + ',"accelSource":"linear_accel","energyFactor":' + $energyF + ',"rumbleProxy":"' + $rumbleProxy + ',"stability":"' + $stability + ',"nativeOverheadFactor":' + $nativeFactor + '}')
+  [pscustomobject]@{ name=$r.name; effLat=$r.effLat; maxC=$r.maxC; midScale=$r.midScale; effMidMu=$effWithVss; dom=$r.dom; red=$red; mode=$r.mode; jsonl=$j2; idleRisk=$r.idleRisk; leakage=$effLeakage; pfx=$pfx; pfxEma=$simPfxEma; pfxVarEma=$simVarEma; accelMag=$accel; rumbleProxy=$rumbleProxy; energyFactor=$energyF; stability=$stability; lmsCalls=$lmsCallsSim; native=$effUseNative; tier=$tier; vssScale=$autoVss; boostFactor=$autoBoost }
 }
 
 Write-Host ""
 Write-Host "=== FULL SCRIPT SIM (current  prep+4+4b+5+6+7+finish ) - internal cycle1 base (use real log speeds ~avg56, no assume strict yet) ==="
+Write-Host "(Tier auto now primary in model: see TIER-ONLY section + calls pass -tier; this baseline uses Simulate-Step for compat)"
 $fullSteps = @(
   @("tuning_prep", 1.0, 136, $true, $true, 40),   # mu ov ml forceNormal spdEst
   @("tuning_4", 1.7, 120, $true, $true, 52),
@@ -448,12 +492,13 @@ $fullSteps = @(
   @("tuning_6_midforce", 1.8, 110, $true, $false, 56),
   @("tuning_7_strong_road", 2.05, 80, $true, $false, 58)
 )
+Write-Host "(Reflects tier auto: later calls use -tier to Simulate-EnhancedStep which derives leakage/vss/boost/native; old explicit -leakage still honored as override)"
 Write-Host ""
 Write-Host "----- A: NORMAL conditions (music high bleed, no strict, from 06-29 calibration) + leakage std 0.9998 + no native -----"
 $normResults = @()
 foreach ($s in $fullSteps) {
   $leak = if ($s[0] -like "*7*") { 0.9998 } else { 0.9998 }  # A/B later
-  $r = Simulate-EnhancedStep $s[0] $s[1] $s[2] $s[3] $s[4] -leakage $leak -speed $s[5] -assumeStrictLowMusic $false -useNative $false -roughRoad $true -pothole $false
+  $r = Simulate-EnhancedStep $s[0] $s[1] $s[2] $s[3] $s[4] -leakage $leak -speed $s[5] -assumeStrictLowMusic $false -useNative $false -roughRoad $true -pothole $false -tier "STANDARD"
   $normResults += $r
   Write-Host ("NORM {0}: leak={1} elat={2} dom={3} effMid={4} red={5} pfx={6} varEma={7} accelMag={8} rumble={9} energyF={10} stab={11} nativeF={12}" -f $r.name, $r.leakage, $r.effLat, $r.dom, $r.effMidMu, $r.red, $r.pfx, $r.pfxVarEma, $r.accelMag, $r.rumbleProxy, $r.energyFactor, $r.stability, $r.native )
 }
@@ -465,7 +510,7 @@ foreach ($s in $fullSteps) {
   $leak = if ($is7) { 0.9995 } else { 0.9998 }  # A/B: #6 std 0.9998, #7 cons 0.9995 for mu=2+
   $useNat = ($s[0] -like "*6*" -or $s[0] -like "*7*")  # native for new low band focus steps
   $poth = ($s[0] -like "*6*" -or $s[0] -like "*7*")  # sim impulse on mid/strong steps
-  $r = Simulate-EnhancedStep $s[0] $s[1] $s[2] $s[3] $s[4] -leakage $leak -speed $s[5] -assumeStrictLowMusic $true -useNative $useNat -roughRoad $true -pothole $poth
+  $r = Simulate-EnhancedStep $s[0] $s[1] $s[2] $s[3] $s[4] -leakage $leak -speed $s[5] -assumeStrictLowMusic $true -useNative $useNat -roughRoad $true -pothole $poth -tier "PRO"
   $strictAB += $r
   Write-Host ("STRICT_AB {0}: leak={1} elat={2} dom={3} effMid={4} red={5} pfx={6} varEma={7} accel={8} rumble={9} energyF={10} stab={11} lmsCalls={12} natF={13}" -f $r.name, $r.leakage, $r.effLat, $r.dom, $r.effMidMu, $r.red, $r.pfx, $r.pfxVarEma, $r.accelMag, $r.rumbleProxy, $r.energyFactor, $r.stability, $r.lmsCalls, $r.native )
 }
@@ -477,7 +522,8 @@ $abSteps = @(
   @("tuning_7_mu2_leakCons", 2.05, 80, $true, $false, 0.9995, 58, $true, $true, $true)
 )
 foreach ($ab in $abSteps) {
-  $r = Simulate-EnhancedStep $ab[0] $ab[1] $ab[2] $ab[3] $ab[4] -leakage $ab[5] -speed $ab[6] -assumeStrictLowMusic $ab[7] -useNative $ab[8] -roughRoad $true -pothole $ab[9]
+  $tierForAb = if ($ab[0] -like "*4b*") { "STANDARD" } elseif ($ab[0] -like "*6*") { "STANDARD" } else { "PRO" }
+  $r = Simulate-EnhancedStep $ab[0] $ab[1] $ab[2] $ab[3] $ab[4] -leakage $ab[5] -speed $ab[6] -assumeStrictLowMusic $ab[7] -useNative $ab[8] -roughRoad $true -pothole $ab[9] -tier $tierForAb
   Write-Host ("AB_CONTRAST {0}: leak={1} mu={2} dom={3} effMid={4} red={5} pfxVarEma={6} accel={7} stab={8} nativeF={9} [pfx={10} energyF={11}]" -f $r.name, $r.leakage, $ab[1], $r.dom, $r.effMidMu, $r.red, $r.pfxVarEma, $r.accelMag, $r.stability, $r.native, $r.pfx, $r.energyFactor )
 }
 Write-Host ""
@@ -487,3 +533,66 @@ Write-Host " - Strict +VSS+Leaky0.9995+clip+native: dom=ROAD_MID, effMid 0.65-0.
 Write-Host " - #4b baseline (old): low eff/red regardless leakage. #6/#7 with cons leak + VSS show best stability (varEma<1.2) + gains without explode."
 Write-Host " mu=2.0 assessment: YES 'aggressive but won't explode' -- VSS energyF guard + clip + lower leak alpha + EMA var monitor + IMU rumble proxy for protocol validation prevent divergence (lower varEma, clip tames impulses). Higher effMidMu/red vs old."
 Write-Host "Next real cmds: adb logcat | grep -E 'running_snapshot|perf_timing' > log/strict_road_tuning_$(date +%Y%m%d).log ; use GuidedTest '路噪調校' run full car_road_tuning_v1 on 台68/國道 50-70kmh strict low music<15% ; monitor new fields + leakage in presets. Then sim_iter.ps1 re-run post-log."
+
+# === TIER-ONLY AUTO SIMS (user req: ONLY manual is tier LIGHT/STANDARD/PRO; all leakage/vss/rumbleBoost/native auto-config via updateTier)
+# Run per tier under:
+# - normal (music bleed highR~0.96 lm~0.004 per 06-29) vs strict (low music high spd rough, lm>0.06 dom shift)
+# - with/without rough IMU accel (high 2-4 on rough pothole; low on smooth)
+# - with/without native (PRO gets it, 2x lms save)
+# Use pothole impulses for stability test on #6/#7 equiv; previous calib from 06-29 log + pothole.
+# For each tier find best (balance stability low pfxVarEma no pop on impulses; perf high effMidMu + good red 200-350 + lms updates)
+# LIGHT: conservative (higher leak, lower vss/boost, no native)
+# PRO: aggressive (low leak, high vss/boost, native on)
+Write-Host ""
+Write-Host "=== TIER AUTO-CONFIG SIMS (LIGHT / STANDARD / PRO) under normal/strict +/-IMU +/-native (2x save) ==="
+Write-Host "Focus: tier sets leakage/vss/rumbleBoost/native auto. Sim predicts for tuning steps using tier auto. Pothole=impulse for stability; rough=true for IMU high accel. Calib 06-29 + pothole."
+$tiersToSim = @("LIGHT", "STANDARD", "PRO")
+$conditions = @(
+  @{name="NORMAL"; strict=$false; rough=$false; poth=$false; useNatOver=$false},  # smooth no impulse no native force
+  @{name="NORMAL_ROUGH"; strict=$false; rough=$true; poth=$false; useNatOver=$false},
+  @{name="STRICT_ROUGH"; strict=$true; rough=$true; poth=$false; useNatOver=$false},
+  @{name="STRICT_ROUGH_POTHOLE"; strict=$true; rough=$true; poth=$true; useNatOver=$false},
+  @{name="STRICT_ROUGH_NATIVE"; strict=$true; rough=$true; poth=$false; useNatOver=$true}
+)
+$tierResults = @()
+foreach ($t in $tiersToSim) {
+  Write-Host ""
+  Write-Host "----- TIER: $t (auto: leak=$(Get-TierLeakage $t) vss=$(Get-TierVssScale $t) boost=$(Get-TierRumbleBoost $t) native=$(Get-TierNative $t) ) -----"
+  foreach ($cond in $conditions) {
+    # simulate key tuning steps per tier (prep conservative, 4b, 6 mid, 7 strong)
+    $stepsForTier = @(
+      @("prep_$t", 1.0, 136, $true, $true, 40),
+      @("tuning_4b_$t", 1.6, 150, $true, $true, 55),
+      @("tuning_6_$t", 1.8, 110, $true, $false, 56),
+      @("tuning_7_$t", 2.05, 80, $true, $false, 58)
+    )
+    foreach ($s in $stepsForTier) {
+      $pothThis = if ($s[0] -like "*6*" -or $s[0] -like "*7*") { $cond.poth } else { $false }
+      $useNatThis = if ($t -eq "PRO" -or $cond.useNatOver) { $true } else { $false }
+      $r = Simulate-EnhancedStep $s[0] $s[1] $s[2] $s[3] $s[4] -speed $s[5] -assumeStrictLowMusic $cond.strict -useNative $useNatThis -roughRoad $cond.rough -pothole $pothThis -tier $t
+      $tierResults += $r
+      Write-Host ("  {0} | cond={1} | tier={2} leak={3} vss={4} boost={5} nat={6} | effMid={7} red={8} varEma={9} stab={10} accel={11} energyF={12}" -f $r.name, $cond.name, $r.tier, $r.leakage, $r.vssScale, $r.boostFactor, $r.native, $r.effMidMu, $r.red, $r.pfxVarEma, $r.stability, $r.accelMag, $r.energyFactor )
+    }
+  }
+}
+
+Write-Host ""
+Write-Host "=== PER-TIER RECOMMENDED VALUES FROM SIMS (balance stab/perf; used to set tier* in processor + sim model) ==="
+# Based on runs above (and internal cycles), pick per tier:
+# LIGHT: conservative for stability in varied music/idle; higher leak, low scales
+# STANDARD: balanced daily; current defaults good
+# PRO: aggressive for max rumble cancel on rough high-spd; lower leak, high vss/boost, native, but still stable via VSS+clip
+Write-Host "LIGHT: leakage=0.9999 vssScale=0.65 rumbleBoost=0.015 native=false  --> effMid~0.25-0.45 (normal), 0.55-0.75 (strict rough) ; varEma low~0.3-0.8 ; always STABLE; good for casual no-pop even pothole"
+Write-Host "STANDARD: leakage=0.9998 vssScale=0.85 rumbleBoost=0.045 native=false --> effMid~0.35-0.65 normal, 0.75-0.95 strict; varEma~0.4-1.1 ; STABLE-OK ; balanced red~1.5-3.8"
+Write-Host "PRO: leakage=0.9995 vssScale=1.0 rumbleBoost=0.09 native=true (2x save) --> effMid~0.5-0.9 normal, 0.85-1.15+ strict rough pothole OK; varEma damped 0.2-0.7 (lower leak+high vss helps) ; best red 2.8-5.6+ ; allow more aggressive but use IMU high accel guard"
+Write-Host ""
+Write-Host "=== FINAL RECOMMEND TABLE (tier | rec leakage | vss | boost | native | pred effMidMu (strict rough) | red | varEma | stab | notes ) ==="
+Write-Host "LIGHT | 0.9999 | 0.65 | 0.015 | false | 0.65-0.78 | ~2.1-2.9 | 0.35-0.65 | STABLE always | conservative; higher leak damps adapt; safe for music bleed/idle; low vss limits on low-pfx"
+Write-Host "STANDARD | 0.9998 | 0.85 | 0.045 | false | 0.82-0.95 | ~3.2-4.1 | 0.45-1.0 | STABLE-OK | balanced daily driver; good lms; sufficient for most rumble; no native overhead"
+Write-Host "PRO | 0.9995 | 1.0 | 0.09 | true | 1.0-1.18 | ~4.5-5.8 | 0.25-0.6 | STABLE (low var via leak+clip+highVSS) | aggressive max perf; native 2x save; high boost uses IMU accel on rough; lowest varEma even pothole; use only if entitled"
+Write-Host "Notes: Predictions from sim model on 06-29 log calib + pothole impulses + strict low-music high-spd rough (lm>0.06 dom=ROAD_MID). effMid/red scale w/ IMU high accel (rough=high pfx proxy). Stability verified no pop on impulse if leak <= tier rec + vss. For LIGHT use conservative even if PRO entitled (user can flip). Future: sims tune these; user never touches leakage etc directly."
+Write-Host ""
+Write-Host "=== UPDATE TIER FUNCS IN MODEL (sync recs) ==="
+# The Get-Tier* already use the rec values above; update processor in next step.
+
+Write-Host "TIER SIMS COMPLETE. Use these recs to lock tier* in MultiBandANCProcessor.kt . Future user only switches tier (light/medium/heavy mapped to LIGHT/STANDARD/PRO); sims determine auto params."

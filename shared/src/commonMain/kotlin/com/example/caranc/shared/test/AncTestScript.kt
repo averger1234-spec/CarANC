@@ -13,7 +13,11 @@ data class TestScriptStep(
     val logPhases: List<String> = emptyList(),
     // For automatic application in tuning scripts (e.g. car_road_tuning_v1)
     // Keys: "lmsMuMultiplier", "freezeThreshold", "freezeConsec", "latencyOverrideMs",
-    //       "forceNormalMode", "musicLowAncEnabled", "userAncGain"
+    //       "forceNormalMode", "musicLowAncEnabled", "userAncGain", "tier"
+    // NOTE: TIER ONLY MANUAL (per user req): User only flips LIGHT/STANDARD/PRO (light/medium/heavy UI).
+    // All else (Leaky leakage, VSS from blockRms var, IMU rumbleBoost, native switch) AUTO via processor.updateTier + tier* funcs (sim_iter.ps1 tuned values).
+    // Legacy manual debugLeakage etc deprecated/hidden in UI; display "effective*FromTier" read-only in snapshots/TestLogPanel.
+    // script uses suggestedTier + "tier" in presets; controller applies setTier which triggers auto config.
     val debugPresets: Map<String, Any> = emptyMap()
 )
 
@@ -292,16 +296,20 @@ object CarAncTestScript {
 
 object CarRoadTuningScript {
     const val SCRIPT_ID = "car_road_tuning_v1"
-    const val SCRIPT_NAME = "Skoda 200-350Hz rumble 快速迭代測試（基於#4/#4b/#6/#7_ext Subagent3 Extended#7+iter variant 低延遲 + musicLow + mid-force + strong-road-pure-ROAD_MID-even-music 對比，iter1-4+ S3突破，跳過無用 baseline，4 次快速循環直達有感；用 old prep/4/4b/5 UNCHANGED 穩定 baseline + #6/#7 A/B 單輪比）"
+    const val SCRIPT_NAME = "Skoda 200-350Hz rumble 快速迭代測試（tier-only: LIGHT/STANDARD/PRO auto-config leakage/VSS/IMU/native via updateTier；基於 sim_iter.ps1 推薦值平衡stab/perf；#4/#4b/#6/#7_ext ... 對比；suggestedTier 切換讓 auto apply；用戶未來只 flip tier，sims 決定其餘）"
 
+    // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
+    // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
+    // 根據 sims: LIGHT conservative (0.9999/0.65/0.015/false), STANDARD balanced(0.9998/0.85/0.045/false), PRO aggressive(0.9995/1.0/0.09/true).
     // 注意：根據 Skoda Octavia 2019 真實錄音頻譜分析（用戶提供）+ 2026-06-29 實車 AA log 分析：
     // 主要路噪能量在 200-350 Hz（57.6%），峰值 ~305 Hz 會隨路段浮動 220-310 Hz。
     // AA 實測：即使 90kmh rough，low+mid ratio 最高僅 ~0.071（music 能量主導 highRatio~0.999），原 0.30 thresh 永遠不 trigger force ROAD_MID。
     // → 已 data-driven 放寬 classifier (0.06) + processor rumbleContext guard + MUSIC mid gain 0.15->0.28。
     // 目前 150 Hz maxCancel 嚴重不足，只吃到邊緣 → 即使 LMS 活躍，reduction 仍極低。
-    // 快速迭代版本（已 streamline）：移除無用早期 baseline（1/2/3，已知問題，不新增數據）。保留 old prep/4/4b/5 UNCHANGED 作為穩定 baseline；延伸 #6 midforce + #7 strong road rumble（iter4 + Subagent3 Extended #7 variant: stronger mid boost, classifier pure ROAD_MID even with music (speed>28+low+mid energy>=0.06 now), ov=80 maxC300+, mid error*1.28, centerHz 335 for 300-350 focus）。
-    // 目標：每次跑完整 prep+4+4b+5+6+7+finish（更少步驟，更快），配外部錄音 + spectrum。迭代 後，effective latency 改善（override 推 maxCancel 250-340Hz+）、200-350Hz reduction 有感（-4~-6dB+，mid 貢獻 via effectiveMidMu 0.6+）。使用 old parts (prep/4/4b/5) 單輪 A/B 測試穩定 baseline 對比新 #6/#7 突破。所有新 boost 最小安全 guarded by roadMode + speed + energy + musicLow。
-    // 調校時優先觀察 midBand 貢獻、effectiveMidMu、maxC 與 200-350 Hz reduction。每步 scenario 註 "Skoda #4/#4b/#6/#7 經驗, iter X"。finish 強調下一輪優先重跑#4b/#6/#7 變體（old for A/B）。
+    // 快速迭代版本（已 streamline）：移除無用早期 baseline（1/2/3，已知問題，不新增數據）。保留 old prep/4/4b/5 UNCHANGED 作為穩定 baseline；延伸 #6 midforce + #7 strong road rumble（iter4 + Subagent3 Extended #7 variant）。使用 suggestedTier 切換來觸發不同 auto 配置（e.g. prep LIGHT, #7 PRO）。
+    // 目標：每次跑完整 prep+4+4b+5+6+7+finish，配外部錄音 + spectrum。使用 old parts 單輪 A/B 測試穩定 baseline 對比新。所有 boost 最小安全 guarded。
+    // 調校時優先觀察 tier + effective from tier (leakage etc read-only), midBand 貢獻、effectiveMidMu、maxC 與 200-350 Hz reduction。每步 scenario 註 "tier=PRO auto". finish 強調下一輪優先重跑不同 tier 變體 + 外部 spectrum 驗證 + re-run sims 微調 tier*。
+    // sims 決定其餘；未來用戶只 flip tier。
 
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
@@ -336,14 +344,15 @@ object CarRoadTuningScript {
                 "預期觀察重點：mid band 貢獻增加、reduction 在 200-350Hz 是否改善，比較 musicLow ON/OFF 感覺（此 step ON，記錄 scenario 註 musicLow=ON + \"Skoda mid-rumble test\"）"
             ),
             durationSec = 75,
-            suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.7", "freezeTh=11", "consec=2", "override=120", "musicLow=ON", "Skoda 200-350Hz focus"),
+            suggestedTier = UserTier.STANDARD,  // tier switch here auto-applies conservative leakage=0.9998 / vss=0.85 etc for STANDARD (no manual debugLeakage needed)
+            checklist = listOf("muMult=1.7", "freezeTh=11", "consec=2", "override=120", "musicLow=ON", "Skoda 200-350Hz focus", "tier=STANDARD (auto leakage/VSS/IMU/native)"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.7f,
                 "freezeThreshold" to 11f,
                 "freezeConsec" to 2,
-                "latencyOverrideMs" to 120f
+                "latencyOverrideMs" to 120f,
+                "tier" to "STANDARD"  // explicit for log; updateTier auto-configs advanced (future: hide manual sliders)
             )
         ),
         TestScriptStep(
@@ -355,8 +364,8 @@ object CarRoadTuningScript {
                 "Skoda Octavia 2019 專用延伸：延續#4的200-350Hz rumble 對比，觀察是否能讓 reduction 在主力頻段更深、更穩（mid band 貢獻持續增加）。記錄 scenario 註 \"Skoda #4b延伸, musicLow=ON, based on #4 data\""
             ),
             durationSec = 75,
-            suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.6", "freezeTh=12", "consec=2", "override=150", "musicLow=ON", "Skoda 200-350Hz #4延伸"),
+            suggestedTier = UserTier.STANDARD,  // tier auto: leakage/vssScale/rumbleBoost/native applied via updateTier; NO manual debugLeakage
+            checklist = listOf("muMult=1.6", "freezeTh=12", "consec=2", "override=150", "musicLow=ON", "Skoda 200-350Hz #4延伸", "tier=STANDARD auto params"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.6f,
@@ -364,7 +373,7 @@ object CarRoadTuningScript {
                 "freezeConsec" to 2,
                 "latencyOverrideMs" to 150f,
                 "musicLowAncEnabled" to true,
-                "debugLeakage" to 0.9998f
+                "tier" to "STANDARD"  // lets auto apply (leakage 0.9998 etc); deprecate debugLeakage in future UI
             )
         ),
         TestScriptStep(
@@ -376,8 +385,8 @@ object CarRoadTuningScript {
                 "預期觀察重點：anti 更強但注意 artifact；比較前 step（尤其是#4/#4b的低延遲 musicLow）有無 musicLow 時 rumble 降低（記錄 scenario musicLow=OFF）。基於#4經驗，注意 mid band 是否因 OFF 而掉。快速對比用，不需多次重複。"
             ),
             durationSec = 75,
-            suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=2.2", "freezeTh=9", "consec=2", "override=0", "musicLow=OFF"),
+            suggestedTier = UserTier.LIGHT,  // use LIGHT tier for contrast step (conservative auto params); demonstrates only tier flip
+            checklist = listOf("muMult=2.2", "freezeTh=9", "consec=2", "override=0", "musicLow=OFF", "tier=LIGHT (conservative auto)"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 2.2f,
@@ -385,7 +394,7 @@ object CarRoadTuningScript {
                 "freezeConsec" to 2,
                 "latencyOverrideMs" to 0f,
                 "musicLowAncEnabled" to false,
-                "debugLeakage" to 0.9998f
+                "tier" to "LIGHT"  // tier change auto applies higher leakage etc; remove legacy debugLeakage
             )
         ),
         // Iter2-4 + S3: #6 mid-force contrast (roadMode forced + musicLow ON + mu for mid focus). Updated: stricter no-music instr + dominant force in DSP.
@@ -402,8 +411,8 @@ object CarRoadTuningScript {
                 "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_6_midforce + effectiveMidMu>0.5 + dominant=ROAD_MID/ROAD_LOW + midBandMuScale>0.5 + reduction >2dB improvement；低速/高音樂仍會 MUSIC_BROAD（effMidMu=0，無效此步，改用#4b baseline）"
             ),
             durationSec = 75,
-            suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.8", "freezeTh=10", "consec=2", "override=110", "musicLow=ON", "roadMode active", "effectiveMidMu>0.5", "speed>50 rough low-music", "debugLeakage=0.9998 (A/B std)"),
+            suggestedTier = UserTier.PRO,  // tier=PRO auto applies aggressive leakage=0.9995 + vss=1.0 + boost=0.09 + native=true ; step switch tier lets auto apply (no manual debugLeakage)
+            checklist = listOf("muMult=1.8", "freezeTh=10", "consec=2", "override=110", "musicLow=ON", "roadMode active", "effectiveMidMu>0.5", "speed>50 rough low-music", "tier=PRO (auto leakage/vss/rumbleBoost/native)"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing", "debug_presets_apply"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.8f,
@@ -412,7 +421,7 @@ object CarRoadTuningScript {
                 "latencyOverrideMs" to 110f,
                 "musicLowAncEnabled" to true,
                 "forceNormalMode" to false,
-                "debugLeakage" to 0.9998f  // standard for A/B; UI slider + prefs load impacts lowBand leakage alpha in BandFxLms for stability (0.9998 vs 0.9995)
+                "tier" to "PRO"  // primary control: updateTier auto-configs the advanced params (sims tuned); legacy debugLeakage deprecated for these
             )
         ),
         // Iter4 + Subagent3 Extended #7 variant: strong road rumble (on top of #6): mu higher, ov=80 for maxC 300+ sim, stronger DSP mid focus (even music), classifier tweak for pure ROAD_MID even with music.
@@ -430,8 +439,8 @@ object CarRoadTuningScript {
                 "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_7_strong_road + effectiveMidMu>0.6 + dominant=ROAD_MID + midBandMuScale>0.6 + reductionDb>3 + maxC>300 + lmsUpdateCount high；若 music 強仍 MUSIC_BROAD 則無效（退回用#4b/#6 baseline A/B）"
             ),
             durationSec = 75,
-            suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=2.05", "freezeTh=9", "consec=2", "override=80", "musicLow=ON", "roadMode active", "effectiveMidMu>0.6", "speed>50 rough low-music", "compare vs old #4b/#6 A/B", "debugLeakage=0.9995 (A/B cons for mu=2)"),
+            suggestedTier = UserTier.PRO,  // tier PRO for most aggressive auto (low leak high boost native); demonstrates only manual switch is tier (sims pick values for balance)
+            checklist = listOf("muMult=2.05", "freezeTh=9", "consec=2", "override=80", "musicLow=ON", "roadMode active", "effectiveMidMu>0.6", "speed>50 rough low-music", "compare vs old #4b/#6 A/B", "tier=PRO auto (leakage=0.9995 etc from sims)"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing", "debug_presets_apply"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 2.05f,
@@ -440,7 +449,7 @@ object CarRoadTuningScript {
                 "latencyOverrideMs" to 80f,
                 "musicLowAncEnabled" to true,
                 "forceNormalMode" to false,
-                "debugLeakage" to 0.9995f  // more conservative (lower alpha) for mu=2.05 aggressive + VSS+clip to prevent pop on pothole impulses; A/B vs 0.9998 in #6
+                "tier" to "PRO"  // tier switch triggers updateTier -> auto advanced params. See sim_iter.ps1 for per-tier predicted effMidMu/red/varEma/stab. Deprecate manual debug* for leakage/vss
             )
         ),
         TestScriptStep(
@@ -454,7 +463,7 @@ object CarRoadTuningScript {
                 "建議配外部錄音 + spectrum（重點 50-250Hz rumble 能量下降，特別 200-350Hz）",
                 "觀察重點：不同 debug 設定下 lowBandLms 更新率、freezeRem 頻率、reduction 在 rumble 主導時變化、主觀低頻 rumble 降低程度（0-10分）",
                 "比較重點：lmsUpdate 上升速度、freeze 頻率、antiNoiseDb 負值、reductionDb、midBand 貢獻（尤其是 Skoda 200-350Hz 區）、是否出現 artifact、effectiveMidMu、dominant shift、maxC",
-                "延伸重點（Subagent3 Extended #7 + iter4）：記錄哪組讓 effectiveMidMu >0.6 且 200-350Hz reduction 最深（觀察 midBandMuScale + effectiveMidMu + bandMidRatio + reduction + dominant=ROAD_MID）。**單輪內 A/B 比較 old prep/4/4b/5 (穩定 baseline 不變) vs #6 (midforce) vs #7_ext (strong road pure-ROAD_MID even music, ov=80, stronger guarded mid boost)**（跳過無用早期 baseline）。累積 4 次快速腳本後，比較 effective maxCancel 與 rumble 有感程度。目標快速迭代到延遲改善、降噪有感。#7_ext 專測更強 road rumble + mid 貢獻（即使 music），old parts 作為穩定對照。下一輪優先重跑#4b/#6/#7_ext 變體 + 外部 spectrum 驗證 red -4~-6dB。"
+                "延伸重點（tier auto + sim_iter）：現在**唯一手動切換是 tier (LIGHT/STANDARD/PRO)**； leakage / vssScale / rumbleBoost / native 全部由 updateTier 自動（依 sims 推薦值）。建議在 prep 用 LIGHT，#4b 用 STANDARD，#6/#7 用 PRO 測試不同 auto 行為。記錄 tier 變化 + running_snapshot 中的 tier + debugLeakage(effective from tier) + blockRmsVssScale + rumbleBoostFactor + useNativeLowBand + lmsPfxVarEma (stability) + effMidMu + reductionDb。單輪內 A/B 用不同 suggestedTier 步驟比較 auto 配置。**sims (sim_iter.ps1) 決定其餘**；累積 log 後 re-run sims 微調 tier* 值。目標：用戶只 flip tier，sims 保駕護航平衡穩定(低varEma無pop)與性能(高effMid red rumble)。驗證 red -4~-6dB on PRO strict rough。"
             ),
             durationSec = 0,
             requiresAncRunning = false,

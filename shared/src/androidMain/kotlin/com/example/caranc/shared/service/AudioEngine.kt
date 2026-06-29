@@ -543,9 +543,12 @@ class AudioEngine(
 
                     ancProcessor?.setMusicLowAncEnabled(musicLowAnc)
                     ancProcessor?.setDebugMuMultiplier(lmsMuMult)
-                    val leakage = AncTestPreferences.getDebugLeakage(appContext)
-                    ancProcessor?.setDebugLeakage(leakage)  // from prefs, allows A/B 0.9998 vs 0.9995 etc for Leaky LMS stability
-                    ancProcessor?.setUseNativeLowBand(AncTestPreferences.isDebugUseNativeLowBand(appContext))  // enable native low band switching point (stub now; real when NDK port active)
+                    // TIER AUTO PREFERRED (user: only tier manual): leakage/native/vss/rumble now auto in updateTier (called on tier change + per step in guided).
+                    // Legacy prefs override still executed for backward A/B during transition, but UI will show tier effective read-only; future remove these sets for leakage/native.
+                    val legacyLeak = AncTestPreferences.getDebugLeakage(appContext)
+                    ancProcessor?.setDebugLeakage(legacyLeak)
+                    val legacyNative = AncTestPreferences.isDebugUseNativeLowBand(appContext)
+                    ancProcessor?.setUseNativeLowBand(legacyNative)
                     ancProcessor?.setDebugFreezeConfig(freezeThresh, freezeConsec, 0.6f)
                     referencePipeline?.setContext(musicActive = isMusic, callActive = isCall)
 
@@ -1159,8 +1162,13 @@ class AudioEngine(
                         "latencyMidEnabled" to ancProcessor?.getLatencyBandLimits()?.midEnabled,
                         "latencyHighEnabled" to ancProcessor?.getLatencyBandLimits()?.highEnabled,
                         // Debug tuning params for "PID-like" LMS experiments (user requested key indicators)
+                        // TIER AUTO: effective*FromTier now primary (read-only in UI; sims determine values). debug* are legacy prefs.
                         "debugLmsMuMultiplier" to AncTestPreferences.getDebugLmsMuMultiplier(appContext),
-                        "debugLeakage" to AncTestPreferences.getDebugLeakage(appContext),  // for A/B leakage impact in logs/snapshots
+                        "debugLeakage" to AncTestPreferences.getDebugLeakage(appContext),  // legacy; prefer effectiveLeakageFromTier
+                        "effectiveLeakageFromTier" to (when (sessionContext.tierManager.currentTier.value.name) { "LIGHT" -> 0.9999f; "STANDARD" -> 0.9998f; "PRO" -> 0.9995f; else -> 0.9998f }),
+                        "effectiveVssScaleFromTier" to (when (sessionContext.tierManager.currentTier.value.name) { "LIGHT" -> 0.65f; "STANDARD" -> 0.85f; "PRO" -> 1.0f; else -> 0.85f }),
+                        "effectiveRumbleBoostFromTier" to (when (sessionContext.tierManager.currentTier.value.name) { "LIGHT" -> 0.015f; "STANDARD" -> 0.045f; "PRO" -> 0.09f; else -> 0.045f }),
+                        "effectiveUseNativeFromTier" to (sessionContext.tierManager.currentTier.value.name == "PRO"),
                         "debugFreezeThreshold" to AncTestPreferences.getDebugFreezeThreshold(appContext),
                         "debugFreezeConsec" to AncTestPreferences.getDebugFreezeConsecutive(appContext),
                         "debugLatencyOverrideMs" to AncTestPreferences.getDebugLatencyOverrideMs(appContext),

@@ -47,7 +47,7 @@ interface AncProcessorFacade : AudioProcessor {
     // Debug: LMS "PID-like" tuning for experimentation (mu = learning rate / adaptation speed)
     // High mu -> faster convergence (like higher P/I gain) but risk instability on high-latency or sudden changes; freeze protects.
     fun setDebugMuMultiplier(mult: Float)
-    fun setDebugLeakage(alpha: Float)  // Leaky LMS for stability under aggressive mu + impulses (potholes etc.). Connected to AncTestPreferences + TestLogPanel + tuning presets for A/B 0.9998 vs 0.9995.
+    fun setDebugLeakage(alpha: Float)  // Legacy for A/B (still callable); primary now tier auto (updateTier sets per LIGHT/STANDARD/PRO from sims; see effectiveLeakageFromTier in snapshots). Connected to prefs/TestLogPanel for transition.
     fun setDebugVssEnergyScale(enabled: Boolean) // future hook for full VSS using real-time block energy
     // energyRatioThreshold: higher = less sensitive to "bumps" (e.g. 12-18); consec: require N consecutive high ratio before freeze; speedFactor scales duration at >50kmh.
     fun setDebugFreezeConfig(energyRatioThreshold: Float, consecutiveCount: Int, speedFactor: Float)

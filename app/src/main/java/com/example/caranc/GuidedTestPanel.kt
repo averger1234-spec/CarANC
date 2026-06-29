@@ -80,9 +80,12 @@ fun GuidedTestPanel(
                 fields["latencyOverrideMs"]?.let { v ->
                     if (v is Number) AncTestPreferences.setDebugLatencyOverrideMs(context, v.toFloat())
                 }
+                // TIER support: if "tier" in debug_presets, record for log; actual setTier done via TestScriptStep.suggestedTier in GuidedTestController.enterCurrentStep (which calls tierManager -> updateTier auto leakage etc)
+                // No direct set here needed; "tier" field just augments log for sim validation.
                 fields["debugLeakage"]?.let { v ->
-                    if (v is Number) AncTestPreferences.setDebugLeakage(context, v.toFloat())
+                    if (v is Number) AncTestPreferences.setDebugLeakage(context, v.toFloat())  // legacy support only; tier now drives auto (processor updateTier)
                 }
+                // native etc now auto by tier; no manual set needed. "tier" in preset just for log.
             }
         }
     }

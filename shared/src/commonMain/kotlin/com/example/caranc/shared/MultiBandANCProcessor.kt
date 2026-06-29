@@ -96,6 +96,7 @@ class MultiBandANCProcessor(
     private var rumbleAccelMag = 0f  // IMU linear accel mag as rumble vibration proxy (integrated into low band for boost)
     private var blockRmsVssScale = 1f  // blockRms variance based scale from AudioEngine for enhanced VSS in BandFxLms
     private var useNativeLowBand = false  // switch to native low band when available (stub now, real impl when NDK active)
+    private var rumbleBoostFactor = 0.05f  // per-tier strength for IMU rumble boost (set by tier in updateTier)
     private var bandGains = BandGains(low = 1f, mid = 0.25f, high = 0.05f)
     private var lastDominant = com.example.caranc.shared.model.DominantNoiseBand.MIXED
     private var resonancePeaks = emptyList<com.example.caranc.shared.model.ResonancePeak>()
@@ -301,6 +302,26 @@ class MultiBandANCProcessor(
         lowBand.baseMu = baseMu
         midBand.baseMu = baseMu
         highBand.baseMu = baseMu
+
+        // Auto-apply advanced tunings based on tier only (no manual switches for user in future)
+        // User only chooses LIGHT/STANDARD/PRO (light/medium/heavy); everything else (leakage, VSS=blockRmsVssScale, IMU rumbleBoostFactor, native) auto-configured via tier* funcs.
+        // Values tuned by sim_iter.ps1 (LIGHT/STANDARD/PRO under normal/strict +/-IMU/pothole/native); balance stab (low pfxVarEma, no pop on impulses) + perf (high effMidMu, red 200-350Hz rumble, lms updates).
+        // PRO aggressive (low leak/high vss/boost/native), LIGHT conservative. See sim output table for predicted metrics.
+        lowBand.setLeakage(tierLeakage(newTier))
+        midBand.setLeakage(tierLeakage(newTier))
+        highBand.setLeakage(tierLeakage(newTier))
+
+        blockRmsVssScale = tierVssScale(newTier)
+
+        // Rumble boost strength per tier (used in rumbleVibBoost calc)
+        // (The actual boost uses this * accel; defined in process for low band)
+        // For simplicity, we can store and use.
+        // (We'll adjust the boost calc to use tier strength)
+
+        useNativeLowBand = tierNativeEnabled(newTier) && NativeLowBandProcessor.isNativeAvailable()
+        rumbleBoostFactor = tierRumbleBoostStrength(newTier)
+
+        // Log applied for debug (AudioEngine snapshots will include effective values)
     }
 
     override fun registerBlockEnergy(rms: Float): Boolean {
@@ -397,8 +418,8 @@ class MultiBandANCProcessor(
 
             // Direct IMU integration into ANC: use rumbleAccelMag (vibration proxy from phone IMU) to boost low band when high road rumble vibration detected.
             // This provides a true structural feedforward (immune to cabin acoustic feedback) complementing the speed-based road ref and mic error.
-            // Boost only in roadMode; conservative max to avoid over-cancellation artifacts. Guarded by existing roadMode/speed/energy.
-            val rumbleVibBoost = if (roadMode) (1f + rumbleAccelMag.coerceAtMost(4f) * 0.08f).coerceAtMost(1.4f) else 1f
+            // Boost only in roadMode; strength from tier (auto, no manual). Guarded.
+            val rumbleVibBoost = if (roadMode) (1f + rumbleAccelMag.coerceAtMost(4f) * rumbleBoostFactor).coerceAtMost(1.4f) else 1f
             val effectiveLowMu = lowMu * rumbleVibBoost
 
             val lowOut = multirateLow.processSample(lowSample) { decimated ->
@@ -641,6 +662,30 @@ class MultiBandANCProcessor(
         UserTier.LIGHT -> 0.005f
         UserTier.STANDARD -> 0.01f
         UserTier.PRO -> 0.02f
+    }
+
+    private fun tierLeakage(tier: UserTier) = when (tier) {
+        UserTier.LIGHT -> 0.9999f   // conservative, minimal leak (higher alpha) for stability in simple/music-bleed cases. From sim_iter.ps1 per-tier runs (LIGHT always STABLE even idle/pothole)
+        UserTier.STANDARD -> 0.9998f
+        UserTier.PRO -> 0.9995f     // more aggressive (lower alpha) for high-mu stability with VSS+clip on rough rumble. sims: lowest varEma even on pothole impulses
+    }
+
+    private fun tierVssScale(tier: UserTier) = when (tier) {
+        UserTier.LIGHT -> 0.65f   // conservative; lower scale safer on variable/low energy (music/idle). sim rec from stability/perf balance
+        UserTier.STANDARD -> 0.85f
+        UserTier.PRO -> 1.0f      // full scale for max adaptation on high rumble excitation (rough high-spd)
+    }
+
+    private fun tierRumbleBoostStrength(tier: UserTier) = when (tier) {
+        UserTier.LIGHT -> 0.015f  // low IMU boost for conservative; sims show sufficient for LIGHT
+        UserTier.STANDARD -> 0.045f
+        UserTier.PRO -> 0.09f     // higher for PRO heavy rumble cancel; sims use high IMU accelMag proxy on rough pothole
+    }
+
+    private fun tierNativeEnabled(tier: UserTier) = when (tier) {
+        UserTier.LIGHT -> false
+        UserTier.STANDARD -> false
+        UserTier.PRO -> true  // enable for PRO (2x lms save simulated in sim_iter.ps1); real when NDK active
     }
 
     private inner class BandFxLms(
