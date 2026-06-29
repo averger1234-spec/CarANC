@@ -52,6 +52,7 @@ fun TestLogPanel(
     var freezeConsec by remember { mutableStateOf(3) }
     var latencyOverrideMs by remember { mutableStateOf(0f) }
     var debugLeakage by remember { mutableStateOf(0.9998f) }  // Leaky LMS alpha for A/B stability (0.9998 vs 0.9995)
+    var useNativeLow by remember { mutableStateOf(false) }  // native low band switch (enable when port ready)
     var latestLogName by remember { mutableStateOf(TestLogExporter.latestLogFileName(context)) }
 
     // UI improvement: collapse advanced tuning by default (guided script auto-applies most of them)
@@ -87,6 +88,7 @@ fun TestLogPanel(
         freezeConsec = AncTestPreferences.getDebugFreezeConsecutive(context)
         latencyOverrideMs = AncTestPreferences.getDebugLatencyOverrideMs(context)
         debugLeakage = AncTestPreferences.getDebugLeakage(context)
+        useNativeLow = AncTestPreferences.isDebugUseNativeLowBand(context)  // for native low band switch point toggle
     }
 
     Card(modifier = modifier.fillMaxWidth()) {
@@ -328,6 +330,14 @@ fun TestLogPanel(
                     placeholder = { Text("0 或 60~120") },
                     singleLine = true
                 )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("開啟 Native Low Band (stub 切換點，正式 port 後有效)：", style = MaterialTheme.typography.bodySmall)
+                    Switch(checked = useNativeLow, onCheckedChange = {
+                        useNativeLow = it
+                        AncTestPreferences.setDebugUseNativeLowBand(context, it)
+                    })
+                }
                 Text(
                     "提示：高 mu + 低門檻 容易看到 freeze 頻繁，注意 log 裡 freezeBlocksRemaining。改參數後建議重啟 ANC 讓 LMS 重新適應。",
                     style = MaterialTheme.typography.bodySmall,
