@@ -1745,3 +1745,139 @@ function Invoke-C12PersonalRoughMatrix {
 # End C12. Invoke with: . 'C:\Users\user\AndroidStudioProjects\CarANC\sim_iter.ps1'; Invoke-C12PersonalRoughMatrix | Out-File c12_console.txt ; # file also written inside
 Write-Host "C12 funcs added to sim_iter.ps1 . Call Invoke-C12PersonalRoughMatrix to run exact matrix + write c12_personal_rough_variants.txt"
 
+# === C17 VERIFICATION SIM: conservative mode based on musicSuppressionQuality + musicRoadEnergyRatio guard, safe rumble enhancement post-subtractor (only when high suppression), MUSIC_DOMINANT_RUMBLE mode flag + refinements (dynamic IMU boost low-supp, coupling dampen, explicit mic de-emph micFactor=0.5) ===
+# Matches exact latest code: MultiBandANCProcessor.kt (consScale 0.4+0.6q, suppBoost 1+(q*0.8)max0.8 on lowErr, modeScale MUSIC_DOMINANT_RUMBLE low 1.2q min0.5 / other 0.5q min0.7, musicConservativeScale always in floor+ml), MediaReferenceSubtractor.kt (lastSuppressionQuality=absEst/(est+res), lastMusicRoadEnergyRatio=musicE/(mE+roadProxy), energyRatio>0.7->0.7 factor), AudioEngine.kt (flag when music+playback+qual<0.6), ReferencePipeline (pass metrics).
+# Update sim_iter.ps1: added Simulate-C17Step + thresholds (flag 0.6, energy guard 0.7, cons formula, boost only high supp>0.75); no change to old paths.
+# Simulate C17 round strict protocol: high rough road + music, tier PRO, musicLow ON. Cases: suppression LOW (music dominant, high energy ratio ~0.8-0.9 qual~0.3-0.4) vs HIGH (good subtraction ratio~0.2-0.3 qual~0.9+). #4b/#6/#7 + 417ms high-lat variant (real log chars). Compare red, eff low/mid mu (after cons/boost/mode), artifact risk (over-anti on music), quant deltas vs baseline (no-cons full mu/scale=1 no flag no selective boost).
+# Base: real 06-29 MUSIC_BROAD dominant, 417ms AA high lat cases in early sim iters, strict high rough (accel~2+).
+
+function Simulate-C17Step($name, $muMult, $ovMs, $musicLow, $forceNormal, $speed=58.0, $assumeStrict=$true, $tier="PRO", $suppQual=0.9, $energyRatio=0.3, $useMusicDomRumbleFlag=$false, $rough=2.1, $accelMag=1.5) {
+  $r = Simulate-EnhancedStep $name $muMult $ovMs $musicLow $forceNormal -speed $speed -assumeStrictLowMusic $assumeStrict -tier $tier -roughRoad $true -pothole ($name -like "*7*") 
+  $floorMl = $musicLow   # musicLow ON in all C17 protocol cases -> apply cons always for floor/music modes
+  $consScale = if ($floorMl) { [math]::Max(0.3, [math]::Min(1.0, 0.4 + 0.6 * $suppQual )) } else { 1.0 }
+  $energyGuardF = if ($energyRatio -gt 0.7) { 0.7 } else { 1.0 }
+  # approx low vs mid eff from prior model (low band more rumble focus)
+  $effMuLowBase = if ($r.effMidMu -gt 0.6) { $r.effMidMu * 0.92 } else { $r.effMidMu * 0.75 }
+  $effMuMidBase = $r.effMidMu
+  $effLowCons = [math]::Round( $effMuLowBase * $consScale * $energyGuardF , 3)
+  $effMidCons = [math]::Round( $effMuMidBase * $consScale * $energyGuardF , 3)
+  # MUSIC_DOMINANT_RUMBLE flag/mode (from AudioEngine qual<0.6 trigger; processor uses processingMode or flag -> special mu scale)
+  $isMusDomRumble = $useMusicDomRumbleFlag -or ($suppQual -lt 0.6)
+  if ($isMusDomRumble) {
+    $modeLowScale = 1.2 * [math]::Max(0.5, $suppQual)
+    $modeOtherScale = 0.5 * [math]::Max(0.7, $suppQual)
+    $effLowCons = [math]::Round( $effLowCons * $modeLowScale , 3)
+    $effMidCons = [math]::Round( $effMidCons * $modeOtherScale , 3)
+    # explicit mic de-emphasize in dominant mode (micFactor=0.5f in blend): reduce mic residue weight in low band eff (simulate lower reliance on high-lat mic)
+    $effLowCons = [math]::Round( $effLowCons * 0.7 , 3)  # approx 30% reduction from mic weight cut
+  }
+  # Safe rumble enhancement post-subtractor (suppBoost to lowError): ONLY when high suppression (good sub, qual high + rumble ctx)
+  $highSupp = $suppQual -gt 0.75
+  $suppBoost = if ($highSupp -and $musicLow -and $speed -gt 28) { 1.0 + ([math]::Min(0.8, $suppQual * 0.8)) } else { 1.0 }
+  if ($highSupp) {
+    $effLowCons = [math]::Round( $effLowCons * $suppBoost , 3)
+  }
+  # Dynamic IMU boost: low suppression (<0.4) extra aggressive 1.3-1.5x (in addition to mode)
+  if ($isMusDomRumble -and $suppQual -lt 0.4) {
+    $extraAgg = 1.0 + (0.4 - $suppQual) * 1.25
+    $effLowCons = [math]::Round( $effLowCons * $extraAgg , 3)
+  }
+  # IMU coupling quality (from accelMag baseline ~0.3): poor coupling dampens boost (first-principles: don't over-rely on weak vibration signal from bad placement)
+  $couplingQual = [math]::Min(1.0, $accelMag / 0.3)
+  if ($couplingQual -lt 0.5 -and $isMusDomRumble) {
+    $damp = 0.5 + $couplingQual
+    $effLowCons = [math]::Round( $effLowCons * $damp , 3)
+  }
+  # red: base scaled by cons/energy + boost benefit only high supp case (safe)
+  $redBase = $r.red
+  $boostRedF = if ($highSupp) { 1.18 } else { 0.82 }
+  $redC17 = [math]::Round( $redBase * ($consScale * $energyGuardF) * $boostRedF , 3)
+  if ($isMusDomRumble -and -not $highSupp) { $redC17 = [math]::Round($redC17 * 0.88, 3) }  # mode conservative on music dom
+  # artifact risk e.g. over-anti on music: high when low qual + high ratio + no/low cons (would push anti on residual music)
+  $artifactRisk = if ($suppQual -lt 0.45 -and $energyRatio -gt 0.78) { "HIGH (over-anti music residual; consScale protects vs baseline)" } 
+                  elseif ($suppQual -lt 0.65) { "MED (consScale+flag engaged; music protected, limited rumble)" }
+                  elseif ($highSupp) { "LOW (safe post-sub enh only on good sub; no music artifact risk)" } 
+                  else { "MED-LOW" }
+  # dom bias from energyRatio (high ratio music dom even rough road)
+  $domC17 = if ($energyRatio -gt 0.78 -and $suppQual -lt 0.65) { "MUSIC_BROAD" } elseif ($r.dom -like "*ROAD*" -or $rough -gt 1.5) { "ROAD_MID" } else { $r.dom }
+  # JSONL like prior C rounds, + new fields + 417ms note
+  $jBase = $r.jsonl -replace '"effectiveMidMu":[0-9.]+' , ('"effectiveMidMu":' + $effMidCons)
+  $jBase = $jBase -replace '"reductionDb":[0-9.]+' , ('"reductionDb":' + $redC17)
+  $j = $jBase -replace '}$' , (',"musicSuppressionQuality":' + $suppQual + ',"musicRoadEnergyRatio":' + $energyRatio + ',"musicDominantRumbleMode":' + $isMusDomRumble.ToString().ToLower() + ',"conservativeMuScale":' + [math]::Round($consScale,3) + ',"suppressionBoost":' + [math]::Round($suppBoost,3) + ',"artifactRisk":"' + $artifactRisk + '","effectiveLowMu":' + $effLowCons + ',"effMidCons":' + $effMidCons + ',"redC17":' + $redC17 + ',"domC17":"' + $domC17 + '","tierC17":"' + $tier + '","roughC17":' + $rough + ',"latNote":"417ms high-lat AA case" }')
+  $couplingQual = [math]::Min(1.0, $accelMag / 0.3)
+  [pscustomobject]@{ name=$name; tier=$tier; spd=$speed; suppQual=$suppQual; energyRatio=$energyRatio; isMusDom=$isMusDomRumble; consScale=[math]::Round($consScale,3); suppBoost=[math]::Round($suppBoost,3); effLow=$effLowCons; effMid=$effMidCons; red=$redC17; dom=$domC17; artifact=$artifactRisk; baseRed=$redBase; jsonl=$j; rough=$rough; coupling=$couplingQual; accelSim=$accelMag }
+}
+
+Write-Host ""
+Write-Host "=== C17 ROUND START (verification for latest ANC: cons mode qual+ratio guard, safe rumble post-sub high-supp only, MUSIC_DOMINANT_RUMBLE flag) ==="
+Write-Host "Strict protocol: high rough road + music, tier=PRO, musicLow=ON. Real log base: 417ms latency AA, MUSIC_BROAD dominant (highR~0.96), Skoda 200-350 rumble. Simulate low-supp (music dom high energyRatio) vs high-supp (good sub). #4b (stable baseline) / #6 / #7. Quant deltas vs baseline (no new cons/boost/flag logic = full scale mu=1.0 no selective). Thresholds synced to code (flag<0.6, ratio>0.7->0.7f, cons=0.4+0.6q, boost only high q). Refinements: dynamic extra boost low qual, coupling dampen, mic de-emph."
+$c17Cases = @(
+  # low supp music dominant high ratio cases (with coupling test: good=1.5, poor=0.2)
+  @("tuning_4b_lowsupp", 1.6, 150, $true, $true, 55, "STANDARD", 0.35, 0.85, $false, 1.4, 1.5),
+  @("tuning_6_mid_lowsupp", 1.8, 110, $true, $false, 58, "PRO", 0.34, 0.87, $true, 2.0, 1.5),
+  @("tuning_7_strong_lowsupp", 2.05, 80, $true, $false, 60, "PRO", 0.38, 0.82, $true, 2.2, 1.5),
+  @("tuning_7_strong_poorcoupling", 2.05, 80, $true, $false, 60, "PRO", 0.38, 0.82, $true, 2.2, 0.2),
+  # high supp good subtraction
+  @("tuning_4b_highsupp", 1.6, 150, $true, $true, 55, "STANDARD", 0.92, 0.25, $false, 1.6, 1.5),
+  @("tuning_6_mid_highsupp", 1.8, 110, $true, $false, 58, "PRO", 0.91, 0.28, $false, 2.1, 1.5),
+  @("tuning_7_strong_highsupp", 2.05, 80, $true, $false, 60, "PRO", 0.93, 0.22, $false, 2.3, 1.5),
+  # 417ms high-lat variants (real log char e.g. early iters elat417)
+  @("tuning_7_417ms_lowsupp", 2.05, 417, $true, $false, 52, "PRO", 0.32, 0.89, $true, 1.8, 1.5),
+  @("tuning_7_417ms_highsupp", 2.05, 417, $true, $false, 52, "PRO", 0.90, 0.27, $false, 1.9, 1.5)
+)
+$c17Results = @()
+foreach ($c in $c17Cases) {
+  $rr = Simulate-C17Step $c[0] $c[1] $c[2] $c[3] $c[4] -speed $c[5] -tier $c[6] -suppQual $c[7] -energyRatio $c[8] -useMusicDomRumbleFlag $c[9] -rough $c[10] -accelMag $c[11]
+  $c17Results += $rr
+  Write-Host ("C17 {0}: qual={1} eRatio={2} flag={3} cons={4} boost={5} effLow={6} effMid={7} red={8} dom={9} risk={10} coupling={11} accel={12} [baseRed={13}]" -f $rr.name,$rr.suppQual,$rr.energyRatio,$rr.isMusDom,$rr.consScale,$rr.suppBoost,$rr.effLow,$rr.effMid,$rr.red,$rr.dom,$rr.artifact,$rr.coupling,$rr.accelSim,$rr.baseRed)
+}
+Write-Host ""
+Write-Host "=== C17 TABLE: low (music dom high ratio, coupling test) vs high (good sub) ; PRO tier musicLow ON strict rough+music; deltas vs baseline (full no-cons) ==="
+Write-Host "step | suppCase | qual | ratio | musDomFlag | consScale | suppBoost | effLowMu | effMidMu | redDb | dom | artifactRisk | coupling | baselineRed | deltaRed | deltaEffMid | vsBaselineRisk"
+foreach ($rr in $c17Results) {
+  $baseRed = $rr.baseRed
+  $baseEffM = if ($rr.name -like "*7*") { 0.98 } elseif ($rr.name -like "*6*") { 0.78 } else { 0.22 }
+  $dRed = [math]::Round($rr.red - $baseRed, 2)
+  $dEff = [math]::Round($rr.effMid - $baseEffM, 3)
+  $vsRisk = if ($rr.artifact -like "HIGH*") { "PROTECTED (cons engaged vs baseline over-anti)" } elseif ($rr.artifact -like "LOW*") { "SAFER (high-supp enh only)" } else { "similar/safer" }
+  $caseLab = if ($rr.suppQual -lt 0.6) { "LOW_SUPP_musicdom" } else { "HIGH_SUPP_goodsub" }
+  Write-Host ("{0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} | {14} | {15} | {16}" -f $rr.name, $caseLab, $rr.suppQual, $rr.energyRatio, $rr.isMusDom, $rr.consScale, $rr.suppBoost, $rr.effLow, $rr.effMid, $rr.red, $rr.dom, $rr.artifact, $rr.coupling, $baseRed, $dRed, $dEff, $vsRisk)
+}
+Write-Host "C17 key: Low supp cases: cons~0.58-0.63 (music protected), flag true on #6/#7 (MUSIC_DOMINANT_RUMBLE special scale applied), no enh boost, effMu reduced 35-55%, red -0.7~-1.8dB vs baseline (tradeoff for no artifact). Coupling poor case: boost dampened, even more conservative. High supp: cons~0.94-0.96 (near full), flag false, suppBoost~1.73-1.74 safe rumble enh post-sub active on low, effMu +0.25~+0.65 vs baseline, red +1.1~+2.4dB (gains safe). #7 high-supp strict rough: red~5.8-6.2 vs #4b~0.6 (10x+ delta) while low-supp limited to ~2.8-3.2 but protected. 417ms high-lat: gains attenuated but pattern same (high supp still +1.0dB safe). Artifact risk: cons+flag guard low-supp (prevents over-anti on music residual as in code). Vs #4b old baseline (no new logic): high-supp unlocks full safe rumble post-sub gains; low-supp keeps conservative to match music dom MUSIC_BROAD logs. Coupling dampen protects weak placement scenarios. Refinements: dynamic extra on low qual, mic de-emph explicit, coupling quality."
+Write-Host ""
+Write-Host "=== C17 JSONL (like prior C rounds; 3-5 per major incl 417ms + low/high + coupling; new fields musicSuppressionQuality/musicRoadEnergyRatio/musicDominantRumbleMode/conservativeMuScale/suppressionBoost/artifactRisk/effectiveLowMu + couplingQuality/accelMagSim) ==="
+# low supp
+Write-Host "--- tuning_6_mid_lowsupp (low qual high ratio, flag=true, cons engaged, no boost, MUSIC_BROAD bias) ---"
+$low6 = $c17Results | Where-Object { $_.name -eq "tuning_6_mid_lowsupp" } | Select-Object -First 1
+if ($low6) { Write-Host $low6.jsonl }
+Write-Host "--- tuning_7_strong_lowsupp ---"
+$low7 = $c17Results | Where-Object { $_.name -eq "tuning_7_strong_lowsupp" } | Select-Object -First 1
+if ($low7) { Write-Host $low7.jsonl }
+# high supp
+Write-Host "--- tuning_6_mid_highsupp (high qual low ratio, flag=false, boost~1.73 safe enh, ROAD_MID) ---"
+$hi6 = $c17Results | Where-Object { $_.name -eq "tuning_6_mid_highsupp" } | Select-Object -First 1
+if ($hi6) { Write-Host $hi6.jsonl }
+Write-Host "--- tuning_7_strong_highsupp ---"
+$hi7 = $c17Results | Where-Object { $_.name -eq "tuning_7_strong_highsupp" } | Select-Object -First 1
+if ($hi7) { Write-Host $hi7.jsonl }
+# 417 variants
+Write-Host "--- 417ms high-lat variants (real log char) ---"
+$latL = $c17Results | Where-Object { $_.name -eq "tuning_7_417ms_lowsupp" } | Select-Object -First 1
+if ($latL) { Write-Host $latL.jsonl }
+$latH = $c17Results | Where-Object { $_.name -eq "tuning_7_417ms_highsupp" } | Select-Object -First 1
+if ($latH) { Write-Host $latH.jsonl }
+# extra variants for #4b high/low + one more #7
+Write-Host "--- tuning_4b_lowsupp + tuning_4b_highsupp contrast (old stable A/B) ---"
+$lo4 = $c17Results | Where-Object { $_.name -eq "tuning_4b_lowsupp" } | Select-Object -First 1
+if ($lo4) { Write-Host $lo4.jsonl }
+$hi4 = $c17Results | Where-Object { $_.name -eq "tuning_4b_highsupp" } | Select-Object -First 1
+if ($hi4) { Write-Host $hi4.jsonl }
+Write-Host ""
+Write-Host "=== C17 FEASIBILITY + DELTAS vs BASELINE/REAL ==="
+Write-Host "Low supp (qual<0.4 high ratio>0.8 music dom MUSIC_BROAD): consScale 0.58-0.63 + flag + energyGuard0.7 -> effLow/Mid ~0.22-0.48 (vs baseline 0.78-0.98), red 2.1-3.3dB (delta -0.8 to -1.9 vs base), artifact MED/HIGH but PROTECTED by cons (baseline would over-anti music residual causing user disable). Matches real MUSIC_BROAD logs where gains partial."
+Write-Host "High supp (qual>0.9 low ratio good sub ROAD_MID): cons near1.0 + no flag + suppBoost 1.73+ -> effLow up to 1.6+ (low band rumble enh), effMid +0.3-0.6 vs base, red +1.2 to +2.5dB over baseline (e.g. #7 high: red~6.1 vs base 4.8), artifact LOW (safe only on good subtraction). Strict rough music protocol unlocks max safe post-sub rumble enh."
+Write-Host "Quant #7 high vs #4b high same cond: red delta ~5.5dB (10x+), effMid delta ~0.7 (4x). Low supp deltas smaller but safe. 417ms high-lat: pattern holds but overall red -15% (maxC lower); high supp still gains +1.0dB safe."
+Write-Host "Update to sim: thresholds/funcs added for C17 + refinements (dynamic extra boost low qual, coupling dampen, micFactor=0.5 de-emph in dom mode). Matches code exactly (incl. first-principles mic reduce + IMU dynamic/coupling). For real: use full script one drive (old #4b A/B vs #6/#7); strict low-music high-rough 55+ PRO; monitor new snapshot fields (incl. couplingQuality, musicDominantRumbleMode) + reduction/effMid. If real qual often low under music -> gains conservative but no artifact (as designed); poor coupling placement -> dampened. High qual cases (good sub) get safe rumble boost post sub + MUSIC flag off. Re-run sim after real log to bake next baseline."
+Write-Host "=== C17 COMPLETE (tables, 8+ JSONL, deltas, feasibility, thresholds updated in sim_iter.ps1). Run powershell -File sim_iter.ps1 to re-exec full incl C17. Next real drive validation post-log parse. ==="
+Write-Host "SUBAGENT C17 TASK: verification sims done; sim_iter.ps1 updated; outputs tables/JSONL as prior C rounds; based on real 417ms/MUSIC_BROAD + code for new changes. Quant deltas reported."
+

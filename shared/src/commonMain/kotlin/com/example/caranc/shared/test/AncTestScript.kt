@@ -268,6 +268,11 @@ object CarAncTestScript {
         "mediaMuStep",
         "mediaAdaptationActive",
         "musicSuppressionQuality",  // P1: track when conservative mode kicks in during music dominant tests
+        "musicRoadEnergyRatio",  // music vs road energy ratio guard
+        "musicDominantRumbleMode",  // direction C: explicit mode for IMU-dominant rumble when music dominates
+        "rumbleVibBoostApplied",  // now dynamic: extra on low suppression, dampened on poor coupling
+        "couplingQuality",  // IMU coupling (accelMag baseline / 0.3); <0.5 dampens boost in dominant mode
+
         "sirenOverride",
         // 新增：LMS 調校實驗關鍵欄位（mu/freeze/latency override + band muScale + dominant）
         "dominantNoiseBand",
@@ -322,6 +327,12 @@ object CarRoadTuningScript {
     // 目標：每次跑完整 prep+4+4b+5+6+7+finish，配外部錄音 + spectrum。使用 old parts 單輪 A/B 測試穩定 baseline 對比新。所有 boost 最小安全 guarded。
     // 調校時優先觀察 tier + effective from tier (leakage etc read-only), midBand 貢獻、effectiveMidMu、maxC 與 200-350 Hz reduction。每步 scenario 註 "tier=PRO auto". finish 強調下一輪優先重跑不同 tier 變體 + 外部 spectrum 驗證 + re-run sims 微調 tier*。
     // sims 決定其餘；未來用戶只 flip tier。
+//
+// First-principles update (2026-06-30): 在音樂主導時，優先用 IMU 作為 rumble 主 ref（震動前兆不受音樂/延遲影響），減少 mic residue 依賴。
+// 測試重點：觸發 MUSIC_DOMINANT_RUMBLE（高音樂 vol + rough 路，suppressionQuality 低 <0.4 時 IMU 額外 boost 1.3-1.5x）。
+// 記錄 phone placement 測試 couplingQuality（accelMag baseline，<0.3/poor 時 dampen boost）。
+// 觀察 rumbleVibBoostApplied（動態）、musicRoadEnergyRatio guard、micFactor 降低後的 low band 行為（blended more to road/IMU）。
+// scenario 註 "placement=中控下方, suppression=低, coupling=好/差"。finish 匯出 clusters 給 NVH map + re-sim。
     //
     // === 完全由 log 驅動的迭代（你不要手動，我根據你給的 log 自動更新基準）===
     // 流程（零手動調參數）：
