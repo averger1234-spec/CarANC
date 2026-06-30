@@ -583,6 +583,12 @@ class AudioEngine(
                             rumbleAccel = speedSnap.linearAccelMagnitude
                         ) ?: input.copyOf(read)
 
+                        // P1: pass suppression quality to processor for conservative mode (protect music when subtractor poor)
+                        // Allows dynamic conservative scaling in music modes without always aggressive processing that creates artifacts.
+                        referencePipeline?.snapshotMetrics()?.let { m ->
+                            ancProcessor?.setMusicSuppressionQuality(m.musicSuppressionQuality)
+                        }
+
                         val detector = sirenDetector
                         if (detector != null) {
                             var sirenHit = false
@@ -1174,6 +1180,7 @@ class AudioEngine(
                         "mediaAdaptationActive" to (referencePipeline?.snapshotMetrics()?.mediaAdaptationActive ?: false),
                         "playbackRefActive" to (referencePipeline?.snapshotMetrics()?.playbackActive == true),
                         "mediaRefActive" to ((mediaPlaybackCapture?.isAvailable == true) && (referencePipeline?.snapshotMetrics()?.playbackActive == true)),
+                        "musicSuppressionQuality" to (referencePipeline?.snapshotMetrics()?.musicSuppressionQuality ?: 0f),  // P1: for monitoring conservative mode effectiveness in logs
                         "maxCancelFrequencyHz" to ancProcessor?.getLatencyBandLimits()?.maxCancelFrequencyHz,
                         "latencyLowGain" to ancProcessor?.getLatencyBandLimits()?.lowGain,
                         "latencyMidGain" to ancProcessor?.getLatencyBandLimits()?.midGain,

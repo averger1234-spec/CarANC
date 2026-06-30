@@ -69,6 +69,10 @@ interface AncProcessorFacade : AudioProcessor {
     // Applied in processor rumbleVibBoost path (on top of tier auto + sim-driven).
     fun setPersonalRumbleBias(bias: Float) {}
 
+    // P1: from ReferencePipeline after subtractor. Low quality means music not well suppressed -> conservative mode to protect music.
+    // Processor can use it to temporarily scale down low/mid gains or mu in music modes.
+    fun setMusicSuppressionQuality(quality: Float) {}
+
     // Iter2+: expose effective mid band mu (after road/musicLow boosts + bandMuScale) for logging mid contrib to 200-350Hz rumble.
     // 0 means no mid adaptation (pre-iter1 case for 136ms AA).
     fun getLastEffectiveMidMu(): Float = 0f

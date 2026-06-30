@@ -267,6 +267,7 @@ object CarAncTestScript {
         "mediaActiveFilterLen",
         "mediaMuStep",
         "mediaAdaptationActive",
+        "musicSuppressionQuality",  // P1: track when conservative mode kicks in during music dominant tests
         "sirenOverride",
         // 新增：LMS 調校實驗關鍵欄位（mu/freeze/latency override + band muScale + dominant）
         "dominantNoiseBand",

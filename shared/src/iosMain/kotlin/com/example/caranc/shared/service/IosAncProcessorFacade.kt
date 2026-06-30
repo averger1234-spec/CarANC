@@ -159,4 +159,8 @@ class IosAncProcessorFacade(
     override fun setPersonalRumbleBias(bias: Float) {
         // iOS stub (personal acoustic identity follows phone; future full support)
     }
+
+    override fun setMusicSuppressionQuality(quality: Float) {
+        // iOS stub (music suppression quality for conservative mode; future)
+    }
 }

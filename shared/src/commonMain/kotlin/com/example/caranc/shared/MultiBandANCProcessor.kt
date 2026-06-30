@@ -98,6 +98,7 @@ class MultiBandANCProcessor(
     private var useNativeLowBand = false  // switch to native low band when available (stub now, real impl when NDK active)
     private var rumbleBoostFactor = 0.05f  // per-tier strength for IMU rumble boost (set by tier in updateTier)
     private var personalRumbleBias = 1.0f  // personal acoustic identity bias (follows user/phone, not car). Applied to rumbleVibBoost.
+    private var musicSuppressionQuality = 1f  // P1: from pipeline. Low = music dominant & poorly subtracted -> conservative to avoid ruining music.
     private var bandGains = BandGains(low = 1f, mid = 0.25f, high = 0.05f)
     private var lastDominant = com.example.caranc.shared.model.DominantNoiseBand.MIXED
     private var resonancePeaks = emptyList<com.example.caranc.shared.model.ResonancePeak>()
@@ -238,6 +239,10 @@ class MultiBandANCProcessor(
 
     override fun setPersonalRumbleBias(bias: Float) {
         personalRumbleBias = bias.coerceIn(0.7f, 1.3f)
+    }
+
+    override fun setMusicSuppressionQuality(quality: Float) {
+        musicSuppressionQuality = quality.coerceIn(0f, 1f)
     }
 
     override fun setBlockRmsVssScale(scale: Float) {
@@ -446,7 +451,10 @@ class MultiBandANCProcessor(
                 // IDLE ARTIFACT FIX (minimal, speed guard only): skip lowErr boost at very low speed (<12kmh) to suppress telegraph on low-rms residuals/bleed without rumble excitation.
                 // At drive speed 50+ (for #6/#7) fully active. Preserves effMidMu 0.6+ goal.
                 val useLowErrBoost = musicLowAncEnabled && vehicleSpeedKmh > 12f
-                val lowError = if (useLowErrBoost) virtualBands.low * 1.3f else virtualBands.low
+                // Safe "amplify road noise" (post-subtractor): only boost error (for stronger rumble LMS) when suppression good.
+                // Implements user's idea with guard: high suppression + rumble context -> more aggressive low band learning without amplifying music artifact.
+                val suppressionBoost = 1.0f + (musicSuppressionQuality * 0.8f).coerceAtMost(0.8f)  // up to ~1.8x when perfect suppression
+                val lowError = if (useLowErrBoost) virtualBands.low * suppressionBoost else virtualBands.low
                 lowBand.processSample(
                     sample = decimated,
                     muScale = effectiveLowMu,
@@ -552,7 +560,10 @@ class MultiBandANCProcessor(
                     val speedBoost = (vehicleSpeedKmh / 100f).coerceIn(0f, 0.6f)
                     // IDLE ARTIFACT FIX: at low speed no dynamic boost (prevents over-anti on quiet residuals); full at rumble speeds for #7 goal.
                     val dynamicLowBoost = if (vehicleSpeedKmh < 12f) 1.0f else 1.6f + (lowRumbleEnergy * 0.7f).coerceAtMost(1.0f) + speedBoost  // even more aggressive for perceived rumble reduction (user: still insensitive)
-                    val lowAnti = (lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f) * dynamicLowBoost
+                    // Conservative anti output scale: when suppression poor (music not well removed), reduce lowAnti to avoid pushing anti that cancels music residual (artifacts).
+                    // Complements the mu conservative scale. High suppression -> full anti strength.
+                    val conservativeAntiScale = if (musicLowAncEnabled) musicSuppressionQuality.coerceAtLeast(0.5f) else 1f
+                    val lowAnti = (lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f) * dynamicLowBoost * conservativeAntiScale
                     val higherAnti = midOut + highOut
                     // Even higher road_wiener in musicLow for tire/wind (aggressive feedforward)
                     val roadMusicWeight = if (roadMode) roadWiener.blendGain() * 2.0f else 0f
@@ -642,11 +653,18 @@ class MultiBandANCProcessor(
             AncProcessingMode.ROAD_NOISE_GPS -> 0.75f
             AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD -> if (band.label == "low" && musicLowAncEnabled) 1f else if (roadMode) 0.75f else 0.55f
         }
+        // P1 conservative mode: when music dominates and suppressionQuality low (subtractor not removing music well),
+        // scale down low/mid mu to avoid treating music residual as noise -> artifacts that make users disable ANC.
+        // High suppression + rumble context allows normal (or enhanced) processing.
+        val musicConservativeScale = if (floorMode && musicLowAncEnabled) {
+            // when suppression poor, be conservative (protect music); when good, full strength
+            (0.4f + 0.6f * musicSuppressionQuality).coerceIn(0.3f, 1f)
+        } else 1f
         val resonanceScale = CabinResonanceDetector.resonanceMuScale(band.centerHz, resonancePeaks)
         // IDLE ARTIFACT FIX (minimal, speed<8 only; #7 at 50-70 untouched): lower muScale at pure idle to reduce over-adapt on low-energy residuals while musicLow/debug high mu active.
         // roadMode at low spd rare (thresholds); rumble drive unaffected. Helps telegraph w/o touching effMidMu 0.6+ at speed.
         val idleMuScale = if (vehicleSpeedKmh < 8f && !roadMode) 0.32f else 1f
-        return band.baseMuScale * modeScale * speedMuScale() * resonanceScale * debugMuMultiplier * idleMuScale
+        return band.baseMuScale * modeScale * speedMuScale() * resonanceScale * debugMuMultiplier * idleMuScale * musicConservativeScale
     }
 
     private fun speedMuScale(): Float =

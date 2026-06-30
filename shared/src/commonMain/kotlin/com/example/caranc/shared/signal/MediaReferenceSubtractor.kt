@@ -27,6 +27,10 @@ class MediaReferenceSubtractor(
         private set
     var adaptationActive = false
         private set
+    // P1 follow-up: measure how effective the music subtraction is (0= no suppression, 1= perfect music removed, residue is pure noise)
+    // Used to decide conservative mode or safe rumble enhancement post-subtractor.
+    var lastSuppressionQuality = 0f
+        private set
 
     @Keep
     fun processSample(micSample: Float, playbackSample: Float, musicActive: Boolean): Float {
@@ -50,6 +54,11 @@ class MediaReferenceSubtractor(
         val residual = micSample - estimate
         val refEnergy = playbackSample * playbackSample + 1e-5f
         lastCorrelation = (estimate * micSample) / (refEnergy + kotlin.math.abs(micSample) + 1e-5f)
+
+        // Compute suppression quality for conservative mode / safe enhancement decisions
+        val absEstimate = kotlin.math.abs(estimate)
+        val absResidual = kotlin.math.abs(residual)
+        lastSuppressionQuality = if (absEstimate + absResidual > 1e-6f) absEstimate / (absEstimate + absResidual) else 0f
 
         // Correlation-driven 動態 mu (按 user 分析建議強化)
         // 音樂 + 高相關 → 大幅加快學習扣除；音樂但低相關 → 保守或保護 rumble；無音樂 → 大幅降低

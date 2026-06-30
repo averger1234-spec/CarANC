@@ -17,7 +17,10 @@ data class ReferencePipelineMetrics(
     // IMU aux feedforward (Road Preview) metrics for NVH map / predictive.
     // rumbleAuxEma: smoothed vibration proxy; rumbleAuxScale: adaptive mix strength used this block.
     val rumbleAuxEma: Float = 0f,
-    val rumbleAuxScale: Float = 0f
+    val rumbleAuxScale: Float = 0f,
+    // P1: how well music was suppressed (0-1). Low value -> trigger conservative mode to protect music.
+    // High value + rumble context -> safe to do selective rumble enhancement (amplify road noise residue).
+    val musicSuppressionQuality: Float = 0f
 )
 
 @Keep
@@ -124,7 +127,8 @@ class ReferenceSignalPipeline(
             engineFundamentalHz = engineHarmonic.fundamentalHz,
             playbackActive = playbackEnergyEma > 0.001f,
             rumbleAuxEma = rumbleAccelEma,
-            rumbleAuxScale = lastRumbleScale
+            rumbleAuxScale = lastRumbleScale,
+            musicSuppressionQuality = mediaSubtractor.lastSuppressionQuality
         )
         return output
     }
