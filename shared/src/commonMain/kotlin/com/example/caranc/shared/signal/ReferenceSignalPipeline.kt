@@ -112,8 +112,10 @@ class ReferenceSignalPipeline(
             // First-principles: in MUSIC_DOMINANT_RUMBLE, boost IMU rumble ref even more (immune to music/latency issues), de-emphasize afterMedia (mic-based which has music bleed).
             // Dynamic: when suppressionQuality low (<0.4), extra aggressive boost (1.3-1.5x more) so IMU becomes even more dominant.
             if (musicDominantRumble) {
-                var boost = 2.5f  // per 06-30 log feedback: higher base IMU rumble ref mix in music dom to compensate for quality=0 (make IMU even cleaner dominant ref)
-                if (suppressionQuality < 0.4f) {
+                // 06-30 feedback: avoid over-conserv. Strong IMU rumble ref boost only when clear rumble energy (accelEma proxy) vs possible residual music.
+                val hasClearRumble = rumbleAccelEma > 0.35f
+                var boost = if (hasClearRumble) 2.5f else 1.1f
+                if (suppressionQuality < 0.4f && hasClearRumble) {
                     boost *= (1.0f + (0.4f - suppressionQuality) * 1.25f).coerceIn(1.0f, 1.5f)
                 }
                 rumbleScale *= boost

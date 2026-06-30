@@ -460,8 +460,10 @@ class MultiBandANCProcessor(
             // First-principles: in MUSIC_DOMINANT_RUMBLE, make IMU rumble boost even stronger (vibration precursor is the cleanest rumble ref, unaffected by music/latency)
             // Dynamic: low suppressionQuality (<0.4) -> extra aggressive (1.3-1.5x more)
             if (musicDominantRumbleMode) {
-                var extra = 2.0f  // per 06-30 log feedback: raise base extra boost in music dom so IMU becomes even more dominant ref (vibration precursor immune to music/latency)
-                if (musicSuppressionQuality < 0.4f) {
+                // 06-30 feedback: avoid over-conservative. Only give strong IMU extra boost if rumble energy (accel proxy) clearly present ( > music residual bleed case); else milder to protect.
+                val hasClearRumble = rumbleAccelMag > 0.35f   // proxy for structural rumble energy high enough vs possible music bleed
+                var extra = if (hasClearRumble) 2.0f else 1.15f
+                if (musicSuppressionQuality < 0.4f && hasClearRumble) {
                     extra *= (1.0f + (0.4f - musicSuppressionQuality) * 1.25f).coerceIn(1.0f, 1.5f)
                 }
                 rumbleVibBoost *= extra
@@ -660,8 +662,9 @@ class MultiBandANCProcessor(
         // First-principles: in MUSIC_DOMINANT_RUMBLE, boost road/IMU ref weight (cleaner than mic which has music mix), reduce mic reliance for low rumble.
         // Dynamic with suppression and coupling.
         if (musicDominantRumbleMode) {
-            var extra = 1.5f
-            if (musicSuppressionQuality < 0.4f) {
+            val hasClearRumble = rumbleAccelMag > 0.35f
+            var extra = if (hasClearRumble) 1.5f else 1.05f
+            if (musicSuppressionQuality < 0.4f && hasClearRumble) {
                 extra *= (1.0f + (0.4f - musicSuppressionQuality) * 1.25f).coerceIn(1.0f, 1.5f)
             }
             roadWeight = (roadWeight * extra).coerceAtMost(1f)
