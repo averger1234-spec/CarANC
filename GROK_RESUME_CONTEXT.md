@@ -343,6 +343,11 @@
 
 **後續:** 繼續用 IMU 作為 rumble 主 ref (immune to music/latency)，在 MUSIC_DOMINANT_RUMBLE 用更高 IMU 權重 + 保守音樂保護。接受寬頻限制，鎖定 rumble。
 
+**本次細化 (user feedback):**
+- IMU 權重動態激進：suppressionQuality <0.4 時額外 * (1.0 + (0.4-sup)*1.25) ~1.3-1.5x，讓 IMU 更徹底主力。
+- IMU 耦合品質：若 rumbleAccelMag <0.3 baseline (poor placement)，couplingQuality = accel/0.3，<0.5 時 dampen boost (避免弱訊號過權重)。
+- MUSIC_DOMINANT_RUMBLE 明確行為：除了 boost IMU，在 buildReference 將 micFactor =0.5f (explicit de-emphasize mic residue in low band)，符合減少高延遲 mic 依賴的第一性原理。
+
 （已同步 append 到三個 .md）
 
 （已同步 append 到三個 .md）
