@@ -123,6 +123,7 @@ class AudioEngine(
     private var lastSessionLogUpdate = 0L
     private var lastBlockRms = 0f  // for idle telegraph diagnostic in running_snapshot (protocol)
     private var lastBlockRmsVssScale = 1f  // VSS scale passed to processor based on blockRms + pfx variance for dynamic mu
+    private var lastDominant = com.example.caranc.shared.model.DominantNoiseBand.MIXED  // for MUSIC_BROAD force to MUSIC_DOMINANT_RUMBLE even if quality calc stuck (06-30)
 
     fun start() {
         if (processingJob?.isActive == true) return
@@ -1130,6 +1131,7 @@ class AudioEngine(
         )
         ancProcessor?.applyClassifierResult(classification)
         sessionContext.stateManager.updateDominantNoiseBand(classification.dominantBand.name)
+        lastDominant = classification.dominantBand  // persist for force MUSIC_DOMINANT_RUMBLE bypass in hot read loop (when MUSIC_BROAD)
 
         val limits = ancProcessor?.getLatencyBandLimits()
         val latencySnapshot = currentLatency
@@ -1196,7 +1198,7 @@ class AudioEngine(
                         // 06-30 user feedback verification points: confirm force-entry sets flag true even at quality=0; IMU boost actually applies (rumbleVibBoost>2, effectiveLowMu rises); artifact down.
                         "musicDominantRumbleMode" to (ancProcessor?.isMusicDominantRumbleMode() ?: false),
                         "rumbleVibBoost" to (ancProcessor?.getLastRumbleVibBoost() ?: 1f),
-                        "effectiveLowMu" to (ancProcessor?.getLastEffectiveLowMu() ?: 0f)
+                        "effectiveLowMu" to (ancProcessor?.getLastEffectiveLowMu() ?: 0f),
 
                         "maxCancelFrequencyHz" to ancProcessor?.getLatencyBandLimits()?.maxCancelFrequencyHz,
                         "latencyLowGain" to ancProcessor?.getLatencyBandLimits()?.lowGain,
