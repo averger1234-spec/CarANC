@@ -112,9 +112,9 @@ class ReferenceSignalPipeline(
             // First-principles: in MUSIC_DOMINANT_RUMBLE, boost IMU rumble ref even more (immune to music/latency issues), de-emphasize afterMedia (mic-based which has music bleed).
             // Dynamic: when suppressionQuality low (<0.4), extra aggressive boost (1.3-1.5x more) so IMU becomes even more dominant.
             if (musicDominantRumble) {
-                var boost = 2.0f
+                var boost = 2.5f  // per 06-30 log feedback: higher base IMU rumble ref mix in music dom to compensate for quality=0 (make IMU even cleaner dominant ref)
                 if (suppressionQuality < 0.4f) {
-                    boost *= (1.0f + (0.4f - suppressionQuality) * 1.25f).coerceIn(1.0f, 1.5f)  // extra 1.0 to 1.5x when very low suppression
+                    boost *= (1.0f + (0.4f - suppressionQuality) * 1.25f).coerceIn(1.0f, 1.5f)
                 }
                 rumbleScale *= boost
             }

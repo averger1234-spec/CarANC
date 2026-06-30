@@ -597,6 +597,7 @@ class AudioEngine(
                                 musicDominant = true
                             }
                             ancProcessor?.setMusicDominantRumbleMode(musicDominant)
+                            // 即使 quality=0 也強制進入模式後，進一步降低 micFactor，讓 IMU rumble ref 更主導（減少高延遲 music residue 影響）。
                         }
 
                         val detector = sirenDetector

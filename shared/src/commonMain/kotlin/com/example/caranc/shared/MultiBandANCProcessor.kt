@@ -458,12 +458,12 @@ class MultiBandANCProcessor(
             // First-principles: in MUSIC_DOMINANT_RUMBLE, make IMU rumble boost even stronger (vibration precursor is the cleanest rumble ref, unaffected by music/latency)
             // Dynamic: low suppressionQuality (<0.4) -> extra aggressive (1.3-1.5x more)
             if (musicDominantRumbleMode) {
-                var extra = 1.5f
+                var extra = 2.0f  // per 06-30 log feedback: raise base extra boost in music dom so IMU becomes even more dominant ref (vibration precursor immune to music/latency)
                 if (musicSuppressionQuality < 0.4f) {
                     extra *= (1.0f + (0.4f - musicSuppressionQuality) * 1.25f).coerceIn(1.0f, 1.5f)
                 }
                 rumbleVibBoost *= extra
-                rumbleVibBoost = rumbleVibBoost.coerceAtMost(2.5f)
+                rumbleVibBoost = rumbleVibBoost.coerceAtMost(3.0f)
             }
             // IMU coupling quality: if accelMag too low (poor phone placement/coupling), dampen boost to avoid over-relying on weak signal.
             val couplingQuality = (rumbleAccelMag / 0.3f).coerceIn(0f, 1f)  // baseline ~0.1-0.3 from logs; adjust if needed
@@ -677,7 +677,7 @@ class MultiBandANCProcessor(
         val scaledRoad = roadComponent * (0.55f + 0.45f * energyScale)
         val micLow = if (floorMode) lowPassInput(xRaw) else lowSample
         // First-principles explicit: in MUSIC_DOMINANT_RUMBLE, further lower mic residue weight in low band (reduce reliance on high-latency mic signal which carries music bleed).
-        val micFactor = if (musicDominantRumbleMode) 0.5f else 1f
+        val micFactor = if (musicDominantRumbleMode) 0.3f else 1f  // per 06-30 log feedback: even lower mic weight in music dom to rely more on IMU (vibration immune to music bleed)
         val blendedLow = (1f - roadWeight) * micLow * micFactor + roadWeight * scaledRoad
         return BandSamples(blendedLow, 0f, 0f)
     }
