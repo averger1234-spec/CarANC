@@ -308,6 +308,43 @@
 
 總結：這些強化讓音樂主導時更智能保守 + 安全增強，配合 direction C flag 朝 music-aware rumble processor 前進。後續可 re-test 驗證新 log fields 與效果。
 
+## 2026-06-30 First-Principles Breakdown & Breakthrough Reframing (基於使用者分析)
+
+**核心事實 (First Principles):**
+- A: 聲音線性疊加，麥克風聽到「音樂 + 路噪」總和，無法天生區分。
+- B: ANC 本質是耳邊反相聲波精準相位抵消。
+- C: AA remote-submix 延遲高且不穩 (130~417ms)，破壞低頻 rumble 相位對齊。
+- D: 路噪 (結構 rumble) 有震動前兆 (路面震動→車體→艙)，比空氣聲早，且完全不受車內音樂影響。
+- E: 手機 IMU 是目前最強感測器，直接抓震動 (不受音樂影響)，但目前只輔助。
+- F: 最弱環節是依賴 mic + MediaReferenceSubtractor 分離音樂/路噪，高延遲下極困難。
+
+**最核心矛盾：** 把「分離音樂與路噪」當前提，卻在延遲高到破壞相位的系統上做，物理上不匹配。
+
+**突破方向 (依第一性原理，潛力排序):**
+1. 把 IMU 當主要 rumble 參考 (最高潛力)：路噪有震動前兆，不受音樂影響。在 MUSIC_DOMINANT_RUMBLE 模式下大幅提高 IMU 權重 (已在 pipeline 2x boost + processor 1.5x effective boost)。
+2. 接受無法完美扣音樂，改用模式保護 (高潛力)：延遲高是現實，繼續強化 conservative (suppressionQuality scale) + guarded boost。
+3. 減少對 MediaReferenceSubtractor 依賴 (高)：麥克風本質混合，把 subtractor 從主要降為輔助 (已在 dominant mode 增加 IMU rumble ref權重，de-emphasize afterMedia)。
+4. 鎖定低頻 rumble 而非寬頻 ANC (中高)：高延遲限制可抵消頻寬，繼續聚焦 80-300Hz (已在 rumbleVibBoost + low band focus)。
+
+**重新定義問題 (關鍵)：**
+「如何在音樂存在的情況下，仍然能有效利用 IMU 震動訊號來抵消路噪，同時保護音樂不被破壞？」
+
+這把方向從「強化 subtractor」轉向「強化 IMU 主導的 rumble 處理 + 音樂保護模式」。
+
+**已實作對應 (本次更新):**
+- Pipeline: musicDominantRumble param → 在 dominant 時 rumbleScale *2.0f (IMU ref 更強)。
+- Processor: 在 MUSIC_DOMINANT_RUMBLE 時 rumbleVibBoost *1.5f, roadWeight *1.5f (IMU/road 主導，降低 mic 依賴)。
+- AudioEngine: 自動設 flag 基於 music + low suppression。
+- 保留先前 P1 conservative scales (mu/anti 依 quality/ratio 降低，避免 artifact)。
+- 新 guard: musicRoadEnergyRatio >0.7 → extra 0.7 factor 保守。
+- suppressionQuality 已影響 mid (effectiveMuScale) 及 output (higherAnti scale)。
+
+**sub-agent 驗證:** C17 sim 顯示 high-supp 安全增強 (effMid/red 提升，artifact LOW)；low-supp 保守保護 (protected vs baseline over-anti)。
+
+**後續:** 繼續用 IMU 作為 rumble 主 ref (immune to music/latency)，在 MUSIC_DOMINANT_RUMBLE 用更高 IMU 權重 + 保守音樂保護。接受寬頻限制，鎖定 rumble。
+
+（已同步 append 到三個 .md）
+
 （已同步 append 到三個 .md）
 - 這些讓 mu=2.0 + freeze=10 在 pothole/伸縮縫衝擊下更穩定（VSS + clip + cons leak 壓制 varEma；IMU boost 在高振動時自動加強 rumble 取消）。
 - 測試腳本更新：sim_iter.ps1 model 擴充支援 leakage/VSS/accel/native 模擬 + 完整 A/B 表格（strict 條件下 #7 cons leak + VSS + native = STABLE、高 effMidMu/red）；AncTestScript / GuidedTestPanel / TestLogPanel 加入新 presets / fields / UI。
