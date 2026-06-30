@@ -76,6 +76,11 @@ interface AncProcessorFacade : AudioProcessor {
     // direction C: flag to enter MUSIC_DOMINANT_RUMBLE mode (conservative music protect + aggressive rumble via IMU/selective)
     fun setMusicDominantRumbleMode(enabled: Boolean) {}
 
+    // For log verification of 06-30 feedback: confirm force entry on MUSIC_BROAD, and IMU boost actually raised (rumbleVibBoost >~2x, effectiveLowMu higher).
+    fun isMusicDominantRumbleMode(): Boolean = false
+    fun getLastRumbleVibBoost(): Float = 1f
+    fun getLastEffectiveLowMu(): Float = 0f
+
     // Iter2+: expose effective mid band mu (after road/musicLow boosts + bandMuScale) for logging mid contrib to 200-350Hz rumble.
     // 0 means no mid adaptation (pre-iter1 case for 136ms AA).
     fun getLastEffectiveMidMu(): Float = 0f

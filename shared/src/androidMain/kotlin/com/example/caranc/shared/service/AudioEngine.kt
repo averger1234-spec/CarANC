@@ -1193,6 +1193,10 @@ class AudioEngine(
                         "mediaRefActive" to ((mediaPlaybackCapture?.isAvailable == true) && (referencePipeline?.snapshotMetrics()?.playbackActive == true)),
                         "musicSuppressionQuality" to (referencePipeline?.snapshotMetrics()?.musicSuppressionQuality ?: 0f),  // P1: for monitoring conservative mode effectiveness in logs
                         "musicRoadEnergyRatio" to (referencePipeline?.snapshotMetrics()?.musicRoadEnergyRatio ?: 0f),  // music vs road energy ratio guard
+                        // 06-30 user feedback verification points: confirm force-entry sets flag true even at quality=0; IMU boost actually applies (rumbleVibBoost>2, effectiveLowMu rises); artifact down.
+                        "musicDominantRumbleMode" to (ancProcessor?.isMusicDominantRumbleMode() ?: false),
+                        "rumbleVibBoost" to (ancProcessor?.getLastRumbleVibBoost() ?: 1f),
+                        "effectiveLowMu" to (ancProcessor?.getLastEffectiveLowMu() ?: 0f)
 
                         "maxCancelFrequencyHz" to ancProcessor?.getLatencyBandLimits()?.maxCancelFrequencyHz,
                         "latencyLowGain" to ancProcessor?.getLatencyBandLimits()?.lowGain,

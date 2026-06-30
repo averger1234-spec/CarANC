@@ -100,6 +100,8 @@ class MultiBandANCProcessor(
     private var personalRumbleBias = 1.0f  // personal acoustic identity bias (follows user/phone, not car). Applied to rumbleVibBoost.
     private var musicSuppressionQuality = 1f  // P1: from pipeline. Low = music dominant & poorly subtracted -> conservative to avoid ruining music.
     private var musicDominantRumbleMode = false  // direction C flag for MUSIC_DOMINANT_RUMBLE mode
+    private var lastRumbleVibBoost = 1f
+    private var lastEffectiveLowMu = 0f
     private var bandGains = BandGains(low = 1f, mid = 0.25f, high = 0.05f)
     private var lastDominant = com.example.caranc.shared.model.DominantNoiseBand.MIXED
     private var resonancePeaks = emptyList<com.example.caranc.shared.model.ResonancePeak>()
@@ -471,6 +473,8 @@ class MultiBandANCProcessor(
                 rumbleVibBoost *= (0.5f + couplingQuality)  // reduce if poor coupling
             }
             val effectiveLowMu = lowMu * rumbleVibBoost
+            lastRumbleVibBoost = rumbleVibBoost
+            lastEffectiveLowMu = effectiveLowMu
 
             val lowOut = multirateLow.processSample(lowSample) { decimated ->
                 // Aggressive per-"quiet zone" rumble focus: in musicLow, amplify low errorSample to drive stronger LMS adaptation for tire/wind (simulate seat-specific quiet zones)
@@ -951,4 +955,10 @@ class MultiBandANCProcessor(
 
     // Iter2: effective mid mu (post boost/relax) for AudioEngine logging of mid band rumble contrib
     override fun getLastEffectiveMidMu(): Float = midBand.lastMuScale
+
+    // 06-30 verification: expose internal flag (set by force on MUSIC_BROAD even if quality=0) and IMU rumble boost values.
+    // Allows confirming in logs: flag true in #7 MUSIC_BROAD, rumbleVibBoost raised (2+), effectiveLowMu higher than base.
+    override fun isMusicDominantRumbleMode(): Boolean = musicDominantRumbleMode
+    override fun getLastRumbleVibBoost(): Float = lastRumbleVibBoost
+    override fun getLastEffectiveLowMu(): Float = lastEffectiveLowMu
 }

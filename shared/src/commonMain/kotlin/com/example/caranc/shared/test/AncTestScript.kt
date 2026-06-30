@@ -269,8 +269,9 @@ object CarAncTestScript {
         "mediaAdaptationActive",
         "musicSuppressionQuality",  // P1: track when conservative mode kicks in during music dominant tests
         "musicRoadEnergyRatio",  // music vs road energy ratio guard
-        "musicDominantRumbleMode",  // direction C: explicit mode for IMU-dominant rumble when music dominates
-        "rumbleVibBoostApplied",  // now dynamic: extra on low suppression, dampened on poor coupling
+        "musicDominantRumbleMode",  // direction C: explicit mode for IMU-dominant rumble when music dominates (now logged; force true on MUSIC_BROAD)
+        "rumbleVibBoost",  // actual applied (2.5+ base in mode, +dynamic if qual<0.4, dampened on coupling)
+        "effectiveLowMu"  // = baseLowMu * rumbleVibBoost (key to verify IMU boost took effect)
         "couplingQuality",  // IMU coupling (accelMag baseline / 0.3); <0.5 dampens boost in dominant mode
 
         "sirenOverride",
@@ -483,6 +484,7 @@ object CarRoadTuningScript {
                 "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_7_strong_road + effectiveMidMu>0.6 + dominant=ROAD_MID + midBandMuScale>0.6 + reductionDb>3 + maxC>300 + lmsUpdateCount high；若 music 強仍 MUSIC_BROAD 則無效（退回用#4b/#6 baseline A/B）",
                 "C8: 嚴格維持 speed 55+ rough (sustained) 觸發 full crowd vision 1.5x preloadBoost (agg from prior #7 coarse/rough clusters) + new fields: crowdsourcedPreloadBoost/rumbleAuxFactor/crowdsourcedNVHPreload/rumbleAuxPreviewFactor/imuHybridImprove 高值。記錄 scenario 含 'C8 crowdPre=1.5 rough=XX coarse=XX'。",
                 "C15/C11 延伸（更多 cycle 模擬）：STRICT: 維持 sustained spd>55kmh (enforce via vehicleSpeedProvider; if <50 during step WARN + partial data) rough (國道/台68 bumps) low-music<15% pers=1.28 tier=PRO. #7 rumble 200-350Hz focus. LOG clusters (coarse~0.001 + rough>1.1 + rumbleEma>2.5 + red>4) for NVH preload. Monitor running_snapshot: rumbleAuxPreviewFactor crowdsourcedPreloadBoost imuHybridMidErrImprove roughness personalRumbleBias rumbleAccelEma coarse* energyFactor speedKmh dominant effectiveMidMu reductionDb. If spd<55 -> repeat for full C15 data. Compare vs same-run #4b A/B (old unchanged). C15 master: high spd rough pers1.28 + IMU hybrid + crowd 1.5-1.8 unlocks 8-10.5dB / 1.65 effMid vs real partial logs (0.147/3.95, newfields=0, low spd~10); 11-18x delta vs #4b baseline. Use c15_full_cycle11_report.txt + c11_cycle_output.txt for planning."
+                "06-30 log 驗證重點（從這次 artifact 分析）：進入 #7 後，特別注意 musicDominantRumbleMode flag 是否 true（即使 quality=0 也應強制，現已 logging）；rumbleVibBoost / effectiveLowMu 是否有明顯提高（IMU 更主導，>2.0 即明顯）；artifactRisk 是否降低（telegraph/white noise 減少）；musicSuppressionQuality / musicRoadEnergyRatio / mediaSubtracted / mediaCorrelation 數值（為什麼常 0？）。如果 spd 掉或 music dominant，記錄實際表現，之後給 log 讓我繼續迭代微調 guard/boost。強制模式 + 更高 IMU boost + micFactor=0.3 + freeze*1.5 已 bake；仍需追 quality 機制在 AA 真實音樂下的觸發 + 避免過保守（rumble 能量門檻）。"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,  // tier PRO for most aggressive auto (low leak high boost native); demonstrates only manual switch is tier (sims pick values for balance)
