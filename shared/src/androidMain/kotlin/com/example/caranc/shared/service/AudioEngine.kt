@@ -173,6 +173,17 @@ class AudioEngine(
 
                 recordBufferBytes = computeRecordBufferBytes(minBuffer, bufferSize, sampleRate)
                 trackBufferBytes = computeTrackBufferBytes(minTrackBuffer, framesPerBuffer, sampleRate)
+
+                // P0 fix for AA/remote_submix high latency (seen 417ms in 20260630 log with trackBuffer 32708, trackLat 340ms)
+                // remote_submix getMinBufferSize often returns huge value forcing high latency.
+                // Force conservative cap + warn. This helps keep estimatedLatency <200ms where possible.
+                // (route info at this point may not have full routed* fields yet; use buffer size + aa flag as proxy)
+                val isHighLatencyRoute = isAAConnected() || trackBufferBytes > 20000 || minTrackBuffer > 16384
+                if (isHighLatencyRoute) {
+                    val forced = 16384
+                    Log.w("ANCService", "HIGH_LATENCY_AA_DETECTED: trackBuffer was $trackBufferBytes (minTrack=$minTrackBuffer), forcing $forced to reduce latency. aa=${isAAConnected()}")
+                    trackBufferBytes = forced
+                }
                 recordHalSamples = recordBufferBytes / 2
                 trackHalSamples = trackBufferBytes / 2
 

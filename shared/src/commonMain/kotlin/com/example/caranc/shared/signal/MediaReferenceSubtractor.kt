@@ -7,9 +7,9 @@ import androidx.annotation.Keep
  */
 @Keep
 class MediaReferenceSubtractor(
-    private val filterLength: Int = 128  // 強化：從 64 增加到 128，提供更強的音樂估計能力（尤其 AA 音樂路徑較長）
+    private val filterLength: Int = 256  // P1: default 256 (support up to 512) for stronger music path estimation in AA/remote long-delay scenarios. Analysis of 20260630 log showed mediaSubtracted always ~0 with prior 128.
 ) {
-    private val maxLength = 256
+    private val maxLength = 512  // raised to allow longer adaptive filters when musicActive
     private val bufferMask = 511
     private val w = FloatArray(maxLength) { 0f }
     private val refBuf = FloatArray(512) { 0f }
@@ -33,13 +33,12 @@ class MediaReferenceSubtractor(
         refBuf[bufferIndex] = playbackSample
 
         var estimate = 0f
-        // 更好的 musicActive 行為：
-        // - musicActive 時用完整長 filter（更強扣除）
-        // - !musicActive 時用極短（幾乎不扣，保留環境聲給 ANC）
-        // - 同時考慮 refEnergy，低能量時保守不更新（避免在音樂很小或無效 ref 時亂調）
+        // 強化 musicActive 行為：
+        // - musicActive 時用完整長 filter（更強扣除 AA 長路徑音樂）
+        // - !musicActive 時用極短（保留環境 rumble 給 ANC）
         val activeLength = when {
             musicActive -> filterLength.coerceAtMost(maxLength)
-            else -> (filterLength / 8).coerceAtLeast(4)  // 幾乎關閉扣除，但保留少量穩定性
+            else -> (filterLength / 8).coerceAtLeast(4)
         }
         for (j in 0 until activeLength) {
             val idx = (bufferIndex - j) and bufferMask
@@ -52,16 +51,26 @@ class MediaReferenceSubtractor(
         val refEnergy = playbackSample * playbackSample + 1e-5f
         lastCorrelation = (estimate * micSample) / (refEnergy + kotlin.math.abs(micSample) + 1e-5f)
 
-        // 強化 musicActive 行為：只有在音樂活躍 + 有足夠 ref 能量 + 相關性合理時才強力更新
-        val shouldAdapt = musicActive && refEnergy > 1e-4f && kotlin.math.abs(lastCorrelation) < 2.0f
-        adaptationActive = shouldAdapt
+        // Correlation-driven 動態 mu (按 user 分析建議強化)
+        // 音樂 + 高相關 → 大幅加快學習扣除；音樂但低相關 → 保守或保護 rumble；無音樂 → 大幅降低
+        val absCorr = kotlin.math.abs(lastCorrelation)
+        val shouldAdapt = refEnergy > 1e-4f && absCorr < 3.0f
+        adaptationActive = shouldAdapt && (musicActive || absCorr > 0.15f)  // 即使無音樂，若有明顯相關也允許少量
+
         if (shouldAdapt) {
-            val adaptiveMu = baseMu * (1.0f + (kotlin.math.abs(lastCorrelation) * 0.5f)).coerceIn(0.8f, 1.5f)  // 依相關性微調步長
+            val corrBoost = if (musicActive && absCorr > 0.3f) {
+                1.0f + 3.0f * absCorr.coerceAtMost(0.9f)   // 高相關時強力扣除音樂
+            } else if (musicActive) {
+                0.6f   // 音樂存在但相關低，保守保護低頻 rumble
+            } else {
+                0.15f
+            }
+            val adaptiveMu = baseMu * corrBoost.coerceIn(0.1f, 4.0f)
             val step = adaptiveMu / refEnergy
             lastMuStep = step
             for (j in 0 until activeLength) {
                 val idx = (bufferIndex - j) and bufferMask
-                w[j] = (w[j] * leakage + step * residual * refBuf[idx]).coerceIn(-1.5f, 1.5f)
+                w[j] = (w[j] * leakage + step * residual * refBuf[idx]).coerceIn(-2.0f, 2.0f)
             }
         } else {
             lastMuStep = 0f

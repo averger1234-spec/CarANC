@@ -346,9 +346,13 @@ class MultiBandANCProcessor(
         if (ratio > threshold && rms > minRms) {
             consecutiveHighEnergyRatio++
             if (consecutiveHighEnergyRatio >= debugFreezeConsec) {  // require consecutive high ratios to reduce single-spike freezes
-                // Shorter freeze at high speed (steady rumble should not pause LMS as much)
-                val baseFreeze = (sampleRate / bufferSize.coerceAtLeast(256)).coerceIn(3, 10)
-                val freezeDur = if (speed > 50f) (baseFreeze * debugSpeedFreezeFactor).toInt().coerceAtLeast(2) else baseFreeze
+                // P2 improvement (per 20260630 log analysis): dynamic freeze duration based on spike severity (ratio as varEma proxy)
+                // very high ratio (strong bump/impulse) -> longer freeze; high speed steady rumble -> shorter to allow adaptation.
+                // Avoids over-freeze (log showed 41035 bumps but freeze often 0 in snapshots, yet adaptation hurt).
+                val baseFreeze = (sampleRate / bufferSize.coerceAtLeast(256)).coerceIn(2, 12)
+                val severity = (ratio / threshold).coerceAtMost(3f)
+                var freezeDur = (baseFreeze * severity).toInt().coerceIn(2, 12)
+                if (speed > 50f) freezeDur = (freezeDur * debugSpeedFreezeFactor).toInt().coerceAtLeast(2)  // steady rumble allow more LMS
                 freezeWeightUpdates = freezeDur
                 bumpDetectedFlag = true
                 consecutiveHighEnergyRatio = 0

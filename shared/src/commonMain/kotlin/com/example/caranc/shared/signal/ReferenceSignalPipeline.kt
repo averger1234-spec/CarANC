@@ -25,7 +25,7 @@ class ReferenceSignalPipeline(
     private val sampleRate: Int
 ) {
     private val aec = AcousticEchoCanceller(filterLength = 96)
-    private val mediaSubtractor = MediaReferenceSubtractor(filterLength = 128)  // 強化：使用更長 filter 提升音樂扣除能力
+    private val mediaSubtractor = MediaReferenceSubtractor(filterLength = 256)  // P1: raised to 256 (was 128) per log analysis for longer AA music path; class max now supports 512
     private val engineHarmonic = EngineHarmonicGenerator(sampleRate)
 
     private var musicActive = false
