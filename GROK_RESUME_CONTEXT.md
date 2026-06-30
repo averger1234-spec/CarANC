@@ -287,6 +287,28 @@
 這些強化讓系統更 robust，特別針對 AA+音樂+rough 實測常見痛點。compile 通過，已 push。
 
 （已同步 append 到 README.md 與 MULTI_MACHINE_SYNC.md）
+
+## 2026-06-30 follow-up: 「音樂能量 vs 路噪能量比」guard + suppressionQuality 影響 mid/output + MUSIC_DOMINANT_RUMBLE flag + C17 sim verification
+
+使用者進一步討論：
+
+- 需要「音樂能量 vs 路噪能量比」guard：高音樂/路噪比時更保守 mu/guard 保護音樂品質。
+- suppressionQuality 影響 mid band 或 output gain：除了 low mu/anti，也應 scale mid。
+- 為什麼保守模式：aggressive 降噪在音樂主導時會破壞音樂（artifact），導致使用者關掉 ANC。不是衝突降噪，而是為了可持續使用。不是直接放棄，而是暫時降強度讓 subtractor 學習，等 suppression 好再恢復。
+- Direction C：降低對扣音樂依賴、改用音樂存在時 rumble 專用處理器；把 IMU 當主要 rumble 來源；接受音樂開時效果打折（音樂開小時 aggressively，開大時維持 rumble 基礎）。
+
+已實作：
+
+- 在 MediaReferenceSubtractor 新增 lastMusicRoadEnergyRatio 計算與 guard：在 musicDominantFactor 再乘 energyRatioFactor（ratio >0.7 時 0.7 保守）。
+- 更新 metrics 與 log（musicRoadEnergyRatio）。
+- suppressionQuality 影響 mid：effectiveMuScale 已涵蓋所有 band（music mode scale 對 mid 生效）；在 midError / higherAnti 部分擴展 scale。
+- 影響 output gain：已在 lowAnti 乘 conservativeAntiScale；擴展到 higherAnti 也乘類似 scale（0.7 min）。
+- MUSIC_DOMINANT_RUMBLE 模式 flag：新增到 AncProcessingMode enum；在 processor 設 flag + modeScale 特殊處理（low 1.2*qual，other 0.5*qual 當 flag/qual low）；在 AudioEngine 依 musicActive + suppression <0.6 自動設；processor 內 floorMode/roadMode 涵蓋；combined when 也更新。
+- Spawn sub-agent 跑 C17 驗證：已執行，更新 sim_iter.ps1 加 Simulate-C17Step + immediate run。結果：low supp (qual~0.3-0.4, ratio~0.8+, flag=true) consScale ~0.6, 保護 artifact (HIGH 但 protected vs baseline)，red/eff 保守 trade-off；high supp (qual~0.9, ratio~0.2, flag=false, boost~1.7) safe enh, higher effMid/red (e.g. #7 red +1.2 vs base), artifact LOW, dom ROAD_MID。vs real log (MUSIC_BROAD, 417ms) 匹配；high-supp 解鎖 rumble 貢獻，low-supp 保護音樂。輸出 c17_clean.txt / c17_verification_sim.txt，JSONL 有新 fields + artifactRisk + redC17 等。feasibility HIGH for strict + rough。
+
+總結：這些強化讓音樂主導時更智能保守 + 安全增強，配合 direction C flag 朝 music-aware rumble processor 前進。後續可 re-test 驗證新 log fields 與效果。
+
+（已同步 append 到三個 .md）
 - 這些讓 mu=2.0 + freeze=10 在 pothole/伸縮縫衝擊下更穩定（VSS + clip + cons leak 壓制 varEma；IMU boost 在高振動時自動加強 rumble 取消）。
 - 測試腳本更新：sim_iter.ps1 model 擴充支援 leakage/VSS/accel/native 模擬 + 完整 A/B 表格（strict 條件下 #7 cons leak + VSS + native = STABLE、高 effMidMu/red）；AncTestScript / GuidedTestPanel / TestLogPanel 加入新 presets / fields / UI。
 - 已 git push（commit e8bd471） + install-debug 成功部署最新 debug APK。
