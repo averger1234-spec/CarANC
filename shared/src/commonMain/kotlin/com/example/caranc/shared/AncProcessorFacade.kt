@@ -73,6 +73,9 @@ interface AncProcessorFacade : AudioProcessor {
     // Processor can use it to temporarily scale down low/mid gains or mu in music modes.
     fun setMusicSuppressionQuality(quality: Float) {}
 
+    // direction C: flag to enter MUSIC_DOMINANT_RUMBLE mode (conservative music protect + aggressive rumble via IMU/selective)
+    fun setMusicDominantRumbleMode(enabled: Boolean) {}
+
     // Iter2+: expose effective mid band mu (after road/musicLow boosts + bandMuScale) for logging mid contrib to 200-350Hz rumble.
     // 0 means no mid adaptation (pre-iter1 case for 136ms AA).
     fun getLastEffectiveMidMu(): Float = 0f

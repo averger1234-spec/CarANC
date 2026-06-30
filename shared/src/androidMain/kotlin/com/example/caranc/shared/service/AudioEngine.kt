@@ -580,13 +580,18 @@ class AudioEngine(
                             playbackRef = if (playbackRead > 0) playbackRefBuffer else null,
                             playbackSize = playbackRead,
                             lastAntiNoise = lastAntiNoise,
-                            rumbleAccel = speedSnap.linearAccelMagnitude
+                            rumbleAccel = speedSnap.linearAccelMagnitude,
+                            musicDominantRumble = ancProcessor?.getProcessingMode() == AncProcessingMode.MUSIC_DOMINANT_RUMBLE || (audioManager.isMusicActive && (referencePipeline?.snapshotMetrics()?.musicSuppressionQuality ?: 1f) < 0.6f),
+                            suppressionQuality = referencePipeline?.snapshotMetrics()?.musicSuppressionQuality ?: 1f
                         ) ?: input.copyOf(read)
 
                         // P1: pass suppression quality to processor for conservative mode (protect music when subtractor poor)
                         // Allows dynamic conservative scaling in music modes without always aggressive processing that creates artifacts.
+                        // direction C: also set MUSIC_DOMINANT_RUMBLE flag when music + low suppression (for special rumble focus mode)
                         referencePipeline?.snapshotMetrics()?.let { m ->
                             ancProcessor?.setMusicSuppressionQuality(m.musicSuppressionQuality)
+                            val musicDominant = audioManager.isMusicActive && m.playbackActive && m.musicSuppressionQuality < 0.6f
+                            ancProcessor?.setMusicDominantRumbleMode(musicDominant)
                         }
 
                         val detector = sirenDetector
@@ -1181,6 +1186,8 @@ class AudioEngine(
                         "playbackRefActive" to (referencePipeline?.snapshotMetrics()?.playbackActive == true),
                         "mediaRefActive" to ((mediaPlaybackCapture?.isAvailable == true) && (referencePipeline?.snapshotMetrics()?.playbackActive == true)),
                         "musicSuppressionQuality" to (referencePipeline?.snapshotMetrics()?.musicSuppressionQuality ?: 0f),  // P1: for monitoring conservative mode effectiveness in logs
+                        "musicRoadEnergyRatio" to (referencePipeline?.snapshotMetrics()?.musicRoadEnergyRatio ?: 0f),  // music vs road energy ratio guard
+
                         "maxCancelFrequencyHz" to ancProcessor?.getLatencyBandLimits()?.maxCancelFrequencyHz,
                         "latencyLowGain" to ancProcessor?.getLatencyBandLimits()?.lowGain,
                         "latencyMidGain" to ancProcessor?.getLatencyBandLimits()?.midGain,

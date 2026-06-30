@@ -99,6 +99,7 @@ class MultiBandANCProcessor(
     private var rumbleBoostFactor = 0.05f  // per-tier strength for IMU rumble boost (set by tier in updateTier)
     private var personalRumbleBias = 1.0f  // personal acoustic identity bias (follows user/phone, not car). Applied to rumbleVibBoost.
     private var musicSuppressionQuality = 1f  // P1: from pipeline. Low = music dominant & poorly subtracted -> conservative to avoid ruining music.
+    private var musicDominantRumbleMode = false  // direction C flag for MUSIC_DOMINANT_RUMBLE mode
     private var bandGains = BandGains(low = 1f, mid = 0.25f, high = 0.05f)
     private var lastDominant = com.example.caranc.shared.model.DominantNoiseBand.MIXED
     private var resonancePeaks = emptyList<com.example.caranc.shared.model.ResonancePeak>()
@@ -243,6 +244,10 @@ class MultiBandANCProcessor(
 
     override fun setMusicSuppressionQuality(quality: Float) {
         musicSuppressionQuality = quality.coerceIn(0f, 1f)
+    }
+
+    override fun setMusicDominantRumbleMode(enabled: Boolean) {
+        musicDominantRumbleMode = enabled
     }
 
     override fun setBlockRmsVssScale(scale: Float) {
@@ -413,10 +418,12 @@ class MultiBandANCProcessor(
         val output = ShortArray(input.size)
         val floorMode = processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC ||
             processingMode == AncProcessingMode.FLOOR_NOISE_CALL ||
-            processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD
+            processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD ||
+            processingMode == AncProcessingMode.MUSIC_DOMINANT_RUMBLE
         val roadMode = processingMode == AncProcessingMode.ROAD_NOISE_GPS ||
             processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD
         val callFloorMode = processingMode == AncProcessingMode.FLOOR_NOISE_CALL
+        val musicDominantRumbleMode = processingMode == AncProcessingMode.MUSIC_DOMINANT_RUMBLE
         val sirenScale = if (sirenOverride) sirenGainScale else 1f
 
         val latencyLimits = latencyBandLimits
@@ -443,7 +450,22 @@ class MultiBandANCProcessor(
             // + personalRumbleBias (acoustic identity follows *user* via phone prefs; >1.0 for rumble-sensitive users). Tier auto + sim-driven.
             // Boost only in roadMode; for "personal mobile quiet cabin" across any car (AA).
             val baseRumbleBoost = if (roadMode) (1f + rumbleAccelMag.coerceAtMost(5f) * rumbleBoostFactor).coerceAtMost(1.8f) else 1f
-            val rumbleVibBoost = (baseRumbleBoost * personalRumbleBias).coerceIn(0.8f, 2.0f)
+            var rumbleVibBoost = (baseRumbleBoost * personalRumbleBias).coerceIn(0.8f, 2.0f)
+            // First-principles: in MUSIC_DOMINANT_RUMBLE, make IMU rumble boost even stronger (vibration precursor is the cleanest rumble ref, unaffected by music/latency)
+            // Dynamic: low suppressionQuality (<0.4) -> extra aggressive (1.3-1.5x more)
+            if (musicDominantRumbleMode) {
+                var extra = 1.5f
+                if (musicSuppressionQuality < 0.4f) {
+                    extra *= (1.0f + (0.4f - musicSuppressionQuality) * 1.25f).coerceIn(1.0f, 1.5f)
+                }
+                rumbleVibBoost *= extra
+                rumbleVibBoost = rumbleVibBoost.coerceAtMost(2.5f)
+            }
+            // IMU coupling quality: if accelMag too low (poor phone placement/coupling), dampen boost to avoid over-relying on weak signal.
+            val couplingQuality = (rumbleAccelMag / 0.3f).coerceIn(0f, 1f)  // baseline ~0.1-0.3 from logs; adjust if needed
+            if (couplingQuality < 0.5f && musicDominantRumbleMode) {
+                rumbleVibBoost *= (0.5f + couplingQuality)  // reduce if poor coupling
+            }
             val effectiveLowMu = lowMu * rumbleVibBoost
 
             val lowOut = multirateLow.processSample(lowSample) { decimated ->
@@ -552,7 +574,7 @@ class MultiBandANCProcessor(
                 midOut + highOut + fdafOut * 0.45f
 
             val combined = when {
-                floorMode && (processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC || processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD) && musicLowAncEnabled -> {
+                floorMode && (processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC || processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || processingMode == AncProcessingMode.MUSIC_DOMINANT_RUMBLE) && musicLowAncEnabled -> {
                     // low freq full ANC + mid/high protected (lowpassed)
                     // extra boost to low band anti for stronger tire/wind rumble cancellation even in music (user request for more noticeable low-freq effect)
                     // More aggressive dynamic boost for low band in musicLowAnc (user: perceived reduction still insensitive, make rumble cancellation stronger)
@@ -615,7 +637,7 @@ class MultiBandANCProcessor(
     ): BandSamples {
         if (!floorMode && !roadMode) return splitter.split(xRaw)
 
-        val roadWeight = when (processingMode) {
+        var roadWeight = when (processingMode) {
             AncProcessingMode.ROAD_NOISE_GPS,
             AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD -> sessionContext.roadNoiseReferenceModel.roadBlendWeight(
                 vehicleSpeedKmh,
@@ -627,6 +649,19 @@ class MultiBandANCProcessor(
             ) * 0.5f
             else -> 0f
         }
+        // First-principles: in MUSIC_DOMINANT_RUMBLE, boost road/IMU ref weight (cleaner than mic which has music mix), reduce mic reliance for low rumble.
+        // Dynamic with suppression and coupling.
+        if (musicDominantRumbleMode) {
+            var extra = 1.5f
+            if (musicSuppressionQuality < 0.4f) {
+                extra *= (1.0f + (0.4f - musicSuppressionQuality) * 1.25f).coerceIn(1.0f, 1.5f)
+            }
+            roadWeight = (roadWeight * extra).coerceAtMost(1f)
+            val couplingQuality = (rumbleAccelMag / 0.3f).coerceIn(0f, 1f)
+            if (couplingQuality < 0.5f) {
+                roadWeight *= (0.5f + couplingQuality)
+            }
+        }
         if (roadWeight <= 0f) {
             val micLow = if (floorMode) lowPassInput(xRaw) else lowSample
             return BandSamples(micLow, 0f, 0f)
@@ -637,7 +672,9 @@ class MultiBandANCProcessor(
         val energyScale = sessionContext.roadNoiseReferenceModel.roadEnergyScale(vehicleSpeedKmh)
         val scaledRoad = roadComponent * (0.55f + 0.45f * energyScale)
         val micLow = if (floorMode) lowPassInput(xRaw) else lowSample
-        val blendedLow = (1f - roadWeight) * micLow + roadWeight * scaledRoad
+        // First-principles explicit: in MUSIC_DOMINANT_RUMBLE, further lower mic residue weight in low band (reduce reliance on high-latency mic signal which carries music bleed).
+        val micFactor = if (musicDominantRumbleMode) 0.5f else 1f
+        val blendedLow = (1f - roadWeight) * micLow * micFactor + roadWeight * scaledRoad
         return BandSamples(blendedLow, 0f, 0f)
     }
 
@@ -652,6 +689,7 @@ class MultiBandANCProcessor(
             AncProcessingMode.FLOOR_NOISE_CALL -> 0.08f
             AncProcessingMode.ROAD_NOISE_GPS -> 0.75f
             AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD -> if (band.label == "low" && musicLowAncEnabled) 1f else if (roadMode) 0.75f else 0.55f
+            AncProcessingMode.MUSIC_DOMINANT_RUMBLE -> if (band.label == "low") 1.2f * musicSuppressionQuality.coerceAtLeast(0.5f) else 0.5f * musicSuppressionQuality.coerceAtLeast(0.7f)  // direction C: rumble focus, conservative on music
         }
         // P1 conservative mode: when music dominates and suppressionQuality low (subtractor not removing music well),
         // scale down low/mid mu to avoid treating music residual as noise -> artifacts that make users disable ANC.

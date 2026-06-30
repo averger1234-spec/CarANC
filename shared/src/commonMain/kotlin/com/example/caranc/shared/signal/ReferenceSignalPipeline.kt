@@ -20,7 +20,9 @@ data class ReferencePipelineMetrics(
     val rumbleAuxScale: Float = 0f,
     // P1: how well music was suppressed (0-1). Low value -> trigger conservative mode to protect music.
     // High value + rumble context -> safe to do selective rumble enhancement (amplify road noise residue).
-    val musicSuppressionQuality: Float = 0f
+    val musicSuppressionQuality: Float = 0f,
+    // "音樂能量 vs 路噪能量比" guard from subtractor (high = music dominates energy, more conservative)
+    val musicRoadEnergyRatio: Float = 0f
 )
 
 @Keep
@@ -67,7 +69,9 @@ class ReferenceSignalPipeline(
         playbackRef: ShortArray?,
         playbackSize: Int,
         lastAntiNoise: ShortArray?,
-        rumbleAccel: Float = 0f  // simple IMU aux ref for rumble feedforward (vibration proxy mixed into low freq residue)
+        rumbleAccel: Float = 0f,  // simple IMU aux ref for rumble feedforward (vibration proxy mixed into low freq residue)
+        musicDominantRumble: Boolean = false,  // first-principles: when music dominant, boost IMU rumble ref weight (immune to music), reduce reliance on mic-based afterMedia for low rumble
+        suppressionQuality: Float = 1f  // for dynamic IMU boost: lower suppression -> more aggressive IMU ref to compensate
     ): ShortArray {
         // Use reuse buffer when size matches (common case 64); fallback new only for unusual sizes. Reduces alloc in hot preprocess path.
         val output = if (size == preprocessedReuse.size) preprocessedReuse else ShortArray(size)
@@ -104,7 +108,16 @@ class ReferenceSignalPipeline(
             val baseScale = 0.0015f  // P3: increased from 0.0008 for more aggressive IMU aux ref mix into reference (structural rumble feedforward stronger for low band prediction)
             // Adaptive: higher mix when vibration strong (preview rough road) or high speed context (caller speed not passed, infer via accel).
             val adapt = (1f + (rumbleAccelEma * 0.6f).coerceAtMost(1.2f))
-            val rumbleScale = (baseScale * adapt).coerceIn(0.0005f, 0.005f)
+            var rumbleScale = (baseScale * adapt).coerceIn(0.0005f, 0.005f)
+            // First-principles: in MUSIC_DOMINANT_RUMBLE, boost IMU rumble ref even more (immune to music/latency issues), de-emphasize afterMedia (mic-based which has music bleed).
+            // Dynamic: when suppressionQuality low (<0.4), extra aggressive boost (1.3-1.5x more) so IMU becomes even more dominant.
+            if (musicDominantRumble) {
+                var boost = 2.0f
+                if (suppressionQuality < 0.4f) {
+                    boost *= (1.0f + (0.4f - suppressionQuality) * 1.25f).coerceIn(1.0f, 1.5f)  // extra 1.0 to 1.5x when very low suppression
+                }
+                rumbleScale *= boost
+            }
             lastRumbleScale = rumbleScale
             val rumbleRef = rumbleAccelEma * rumbleScale
             val afterRumble = afterMedia - rumbleRef   // aux ref subtraction (feedforward style, hybrid with mic error)
@@ -128,7 +141,8 @@ class ReferenceSignalPipeline(
             playbackActive = playbackEnergyEma > 0.001f,
             rumbleAuxEma = rumbleAccelEma,
             rumbleAuxScale = lastRumbleScale,
-            musicSuppressionQuality = mediaSubtractor.lastSuppressionQuality
+            musicSuppressionQuality = mediaSubtractor.lastSuppressionQuality,
+            musicRoadEnergyRatio = mediaSubtractor.lastMusicRoadEnergyRatio
         )
         return output
     }

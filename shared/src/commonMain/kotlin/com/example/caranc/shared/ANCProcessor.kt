@@ -17,7 +17,9 @@ enum class AncProcessingMode {
     FLOOR_NOISE_CALL,
     ROAD_NOISE_GPS,
     /** 音樂播放 + GPS 行車：底噪 bypass 與路噪 Wiener 並行 */
-    FLOOR_NOISE_MUSIC_ROAD
+    FLOOR_NOISE_MUSIC_ROAD,
+    /** 音樂主導 + rumble 重點處理 (direction C from review): 保守保護音樂 + 更積極 rumble (IMU + selective) */
+    MUSIC_DOMINANT_RUMBLE
 }
 
 class ANCProcessor(
@@ -167,6 +169,7 @@ class ANCProcessor(
         AncProcessingMode.FLOOR_NOISE_CALL -> 0.08f
         AncProcessingMode.ROAD_NOISE_GPS -> 0.75f
         AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD -> 0.55f
+        AncProcessingMode.MUSIC_DOMINANT_RUMBLE -> 0.6f  // conservative for music dominant rumble focus
     }
 
     private fun speedMuScale(): Float {

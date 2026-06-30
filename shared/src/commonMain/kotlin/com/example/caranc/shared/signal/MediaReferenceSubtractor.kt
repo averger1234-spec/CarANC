@@ -31,6 +31,9 @@ class MediaReferenceSubtractor(
     // Used to decide conservative mode or safe rumble enhancement post-subtractor.
     var lastSuppressionQuality = 0f
         private set
+    // "音樂能量 vs 路噪能量比" guard: high ratio means music dominates -> more conservative mu/guard to protect music quality.
+    var lastMusicRoadEnergyRatio = 0f
+        private set
 
     @Keep
     fun processSample(micSample: Float, playbackSample: Float, musicActive: Boolean): Float {
@@ -60,6 +63,11 @@ class MediaReferenceSubtractor(
         val absResidual = kotlin.math.abs(residual)
         lastSuppressionQuality = if (absEstimate + absResidual > 1e-6f) absEstimate / (absEstimate + absResidual) else 0f
 
+        // 音樂能量 vs 路噪能量比 guard
+        val musicEnergy = playbackSample * playbackSample
+        val roadEnergyProxy = absResidual * absResidual
+        lastMusicRoadEnergyRatio = musicEnergy / (musicEnergy + roadEnergyProxy + 1e-6f)
+
         // Correlation-driven 動態 mu (按 user 分析建議強化)
         // 音樂 + 高相關 → 大幅加快學習扣除；音樂但低相關 → 保守或保護 rumble；無音樂 → 大幅降低
         val absCorr = kotlin.math.abs(lastCorrelation)
@@ -76,7 +84,9 @@ class MediaReferenceSubtractor(
             }
             // P1 review enhancement: music energy dominant guard (estimate high vs mic) -> further reduce to protect rumble
             val musicDominantFactor = if (musicActive && estimate > kotlin.math.abs(micSample) * 0.4f) 0.5f else 1f
-            val adaptiveMu = baseMu * corrBoost.coerceIn(0.1f, 4.0f) * musicDominantFactor
+            // 音樂能量 vs 路噪能量比 guard: if high music/road ratio, extra conservative (even if corr ok)
+            val energyRatioFactor = if (musicActive && lastMusicRoadEnergyRatio > 0.7f) 0.7f else 1f
+            val adaptiveMu = baseMu * corrBoost.coerceIn(0.1f, 4.0f) * musicDominantFactor * energyRatioFactor
             val step = adaptiveMu / refEnergy
             lastMuStep = step
             for (j in 0 until activeLength) {

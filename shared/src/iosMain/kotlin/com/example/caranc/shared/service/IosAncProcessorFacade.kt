@@ -163,4 +163,8 @@ class IosAncProcessorFacade(
     override fun setMusicSuppressionQuality(quality: Float) {
         // iOS stub (music suppression quality for conservative mode; future)
     }
+
+    override fun setMusicDominantRumbleMode(enabled: Boolean) {
+        // iOS stub (MUSIC_DOMINANT_RUMBLE flag; future)
+    }
 }
