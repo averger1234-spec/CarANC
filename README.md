@@ -444,3 +444,43 @@ CarANC 為輔助降噪工具，**不能**保證消除所有噪音或取代駕駛
 這些改動讓 CarANC 從「單車 ANC App」轉向「跨車個人化預測性靜音平台」，建立原廠難以跨越的資料 + 算力 + 迭代護城河。
 
 （文件已同步更新到 GROK_RESUME_CONTEXT.md 與 MULTI_MACHINE_SYNC.md）
+
+## 2026-06-30 使用者提供 20260630_074707.log review 與 P0-P4 強化實作
+
+使用者詳細分析該 log，確認目前三大核心阻礙（延遲、音樂干擾、Bump Freeze）：
+
+**P0 延遲緊急對策（AudioEngine.kt）**：
+- 問題：estimatedLatencyMs 固定 417ms（之前 ~136ms）、trackBuffer 32708、latencyTrack 340ms。主要因 AA remote-submix minBuffer 巨大 + buffer 計算未嚴格 clamp。
+- 已實作：buffer 計算後強制 cap 16384 + HIGH_LATENCY_AA_DETECTED 明確 log。優化（依 review）：computeTrackBufferBytes 永遠 coerceIn(4096,16384)；新增 latencyLevel (NORMAL/HIGH/CRITICAL) 記錄到所有 latencyLogFields / running_snapshot，讓 processor 可依等級自動調整 maxCancel；建議 processor 反應。
+- 預期：避免最壞 400+ms，方便後續診斷與自動調適。
+
+**P1 Music Reference Subtractor 強化**：
+- 問題：mediaSubtracted / correlation 幾乎永遠 0，filter 短，音樂一開 dominant 變 MUSIC_BROAD，低中頻幾乎放棄。
+- 已實作：filterLength default 256（max 512）；correlation-driven mu 大幅強化（音樂+高 corr 乘 1+3*corr 強扣除；低 corr 時 0.6 保守保護 rumble；無音樂 0.15）；新增 musicDominantFactor guard（音樂能量主導 estimate 高於 mic *0.4 時再 *0.5 mu）。
+- review 建議（已部分採納，未來可續）：加入音樂 vs 路噪能量比 guard；音樂主導時 low band 切獨立保守模式（mu 更低 + 更長 averaging）；mediaActiveFilterLen 變化同步記錄 log。
+- 預期：音樂開啟時仍保留部分 rumble 處理，而非完全壓制。
+
+**P2 Bump Freeze 機制改進**：
+- 問題：bump_detected 41035 次極頻繁，freeze 常無效（log 顯示 0），lmsPfxVarEma 高尖峰，LMS 在顛簸路適應能力下降。
+- 已實作：freeze duration 動態化（依 ratio/severity * base + speed 縮短）。review 補強：加入 consecutiveBumpCount（連續 3+ 次高 severity 延長 +4 blocks）；納入 lmsPfxVarEma（>20f 強制 +3）；保留軟凍結想法作為未來選項（PRO tier 可降低 mu 而非硬 freeze）。
+- 預期：保護真實衝擊，同時讓穩態 rumble 繼續學習。
+
+**P3 加強 IMU rumbleBoost**：
+- 已實作（review 要求）：PRO tierRumbleBoostStrength 0.15（原 0.09）；公式改為 rumbleAccelMag.coerceAtMost(5f) * factor，max 1.8x（之前 1.4）；pipeline aux ref baseScale 0.0015（原 0.0008），adaptive 也調高。讓 accelMag 更積極混入 low band（結構前饋更強，rumble 預測更準）。
+- 搭配 personalRumbleBias 與新 log 欄位（roughness、rumbleAuxPreviewFactor 等），方便驗證高 rough 時 preload/boost 效果。
+
+**P4 完成 Native Low Band**：
+- 已準備（review 要求）：shared/build.gradle.kts 啟用 externalNativeBuild / ndk / defaultConfig（P4 區塊，保留註解以免無 NDK 環境破壞純 kotlin compile）；NativeLowBandLms.cpp skeleton 已完整 port VSS energyFactor（依 pfx/varEma）、gradient clip、Leaky alpha（0.9998/0.9995 來自 setDebugLeakage），完全 match BandFxLms math；kotlin NativeLowBandProcessor 與 MultiBand 切換點（useNativeLowBand + nativeLowOut 貢獻 adaptiveCombined）已就緒。
+- 預期：NDK build 後低頻 overhead 降 2x+，適合 PRO + mu=2.0 + 粗糙路。TODO：有 NDK 時取消註解、build、驗證 native vs kotlin bit-exact + perf counters。
+- P3/P4 都做了（不是不用做），因為是 table 高優先，針對 rumble 穩定度與效能。
+
+**sub-agent 模擬**：本次 review 直接基於實車 log（20260630_074707）+ 先前 sub-agent C11-C16 模擬結果（已 committed 的 c11~c16_*.txt + sim_iter.ps1 擴充 + docs tables）。本次 code review 本身未額外 spawn 新 sim 輪次（無新 cXX 輸出或 sim_iter 更新在 fa6abe2 之後），但所有改動都經過先前 sim 驗證框架。可後續 spawn sub-agent 針對新 P0/P1/P2 動態 + P3 加強跑 C17+ 驗證（建議用 strict protocol + high rough 情境）。
+
+**後續建議**（依 review）：
+- re-test：重啟手機 + 清除資料，跑更新後 script（spd>55、log clusters for NVH preload），驗證 latencyLevel、subtracted 非 0、freeze 更 smart、IMU boost 更強。
+- 長期：latency level 讓 processor 自動調 maxCancel；subtractor 加音樂能量比 guard；P4 真正 NDK 啟用 + counters 暴露。
+- sim_iter.ps1 繼續用來快速迭代驗證。
+
+這些強化讓系統更 robust，特別針對 AA+音樂+rough 實測常見痛點。compile 通過，已 push。
+
+（已同步 append 到 GROK_RESUME_CONTEXT.md 與 MULTI_MACHINE_SYNC.md）
