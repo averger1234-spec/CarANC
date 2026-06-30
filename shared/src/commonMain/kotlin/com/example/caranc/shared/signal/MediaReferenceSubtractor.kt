@@ -65,7 +65,9 @@ class MediaReferenceSubtractor(
             } else {
                 0.15f
             }
-            val adaptiveMu = baseMu * corrBoost.coerceIn(0.1f, 4.0f)
+            // P1 review enhancement: music energy dominant guard (estimate high vs mic) -> further reduce to protect rumble
+            val musicDominantFactor = if (musicActive && estimate > kotlin.math.abs(micSample) * 0.4f) 0.5f else 1f
+            val adaptiveMu = baseMu * corrBoost.coerceIn(0.1f, 4.0f) * musicDominantFactor
             val step = adaptiveMu / refEnergy
             lastMuStep = step
             for (j in 0 until activeLength) {

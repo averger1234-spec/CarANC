@@ -160,6 +160,7 @@ class MultiBandANCProcessor(
     private var freezeWeightUpdates = 0
     private var bumpDetectedFlag = false
     private var consecutiveHighEnergyRatio = 0  // for consecutive high-ratio requirement (less sensitive to single spikes)
+    private var consecutiveBumpCount = 0  // P2 enhancement: track consecutive bumps to extend freeze if clustered impulses (from 20260630 log 41k bumps)
 
     init {
         updateTier(initialTier)
@@ -346,20 +347,26 @@ class MultiBandANCProcessor(
         if (ratio > threshold && rms > minRms) {
             consecutiveHighEnergyRatio++
             if (consecutiveHighEnergyRatio >= debugFreezeConsec) {  // require consecutive high ratios to reduce single-spike freezes
-                // P2 improvement (per 20260630 log analysis): dynamic freeze duration based on spike severity (ratio as varEma proxy)
-                // very high ratio (strong bump/impulse) -> longer freeze; high speed steady rumble -> shorter to allow adaptation.
-                // Avoids over-freeze (log showed 41035 bumps but freeze often 0 in snapshots, yet adaptation hurt).
+                // P2 enhancement (20260630 log analysis + review): 
+                // - dynamic based on severity
+                // - consecutiveBumpCount: if clustered bumps, extend freeze to protect LMS
+                // - incorporate lastLmsPfxVarEma if high (high variance = higher risk, longer freeze)
                 val baseFreeze = (sampleRate / bufferSize.coerceAtLeast(256)).coerceIn(2, 12)
                 val severity = (ratio / threshold).coerceAtMost(3f)
                 var freezeDur = (baseFreeze * severity).toInt().coerceIn(2, 12)
+                consecutiveBumpCount++
+                if (consecutiveBumpCount >= 3) freezeDur += 4  // clustered bumps -> extra protection
+                val varEma = sessionContext.perfMetrics.lastLmsPfxVarEma
+                if (varEma > 20f) freezeDur += 3  // high varEma (from log) -> conservative
                 if (speed > 50f) freezeDur = (freezeDur * debugSpeedFreezeFactor).toInt().coerceAtLeast(2)  // steady rumble allow more LMS
-                freezeWeightUpdates = freezeDur
+                freezeWeightUpdates = freezeDur.coerceAtMost(15)
                 bumpDetectedFlag = true
                 consecutiveHighEnergyRatio = 0
                 return true
             }
         } else {
             consecutiveHighEnergyRatio = 0
+            consecutiveBumpCount = 0  // reset on no bump
         }
         // IDLE TELEGRAPH SUPPRESS (minimal safe, <10kmh only; drive rumble unaffected for #6/#7 eff 0.6+ goal):
         // At low speed + low/steady rms (no strong rumble excitation, ratio near 1 < high thresh), short-freeze LMS to halt over-adaptation on residuals/bleed/elec.
@@ -425,12 +432,13 @@ class MultiBandANCProcessor(
                 latencyLimits.lowGain *
                 LatencyAwareBandLimiter.bandMuScale(lowBand.centerHz, estimatedLatencyMs, roadRumble = roadMode)
 
-            // Direct IMU integration into ANC: use rumbleAccelMag (vibration proxy from phone IMU) to boost low band when high road rumble vibration detected.
+            // P3: Direct IMU integration into ANC: use rumbleAccelMag (vibration proxy from phone IMU) to boost low band when high road rumble vibration detected.
+            // Strengthened per review (0.09 insufficient; now PRO 0.15, max boost ~1.8x before bias, allow higher accel input) for better rumble prediction/mix into low band.
             // This provides a true structural feedforward (immune to cabin acoustic feedback) complementing the speed-based road ref and mic error.
             // + personalRumbleBias (acoustic identity follows *user* via phone prefs; >1.0 for rumble-sensitive users). Tier auto + sim-driven.
             // Boost only in roadMode; for "personal mobile quiet cabin" across any car (AA).
-            val baseRumbleBoost = if (roadMode) (1f + rumbleAccelMag.coerceAtMost(4f) * rumbleBoostFactor).coerceAtMost(1.4f) else 1f
-            val rumbleVibBoost = (baseRumbleBoost * personalRumbleBias).coerceIn(0.8f, 1.6f)
+            val baseRumbleBoost = if (roadMode) (1f + rumbleAccelMag.coerceAtMost(5f) * rumbleBoostFactor).coerceAtMost(1.8f) else 1f
+            val rumbleVibBoost = (baseRumbleBoost * personalRumbleBias).coerceIn(0.8f, 2.0f)
             val effectiveLowMu = lowMu * rumbleVibBoost
 
             val lowOut = multirateLow.processSample(lowSample) { decimated ->
@@ -692,7 +700,7 @@ class MultiBandANCProcessor(
     private fun tierRumbleBoostStrength(tier: UserTier) = when (tier) {
         UserTier.LIGHT -> 0.015f  // low IMU boost for conservative; sims show sufficient for LIGHT
         UserTier.STANDARD -> 0.045f
-        UserTier.PRO -> 0.09f     // higher for PRO heavy rumble cancel; sims use high IMU accelMag proxy on rough pothole
+        UserTier.PRO -> 0.15f     // P3: increased from 0.09 per review (log showed insufficient rumble boost in rough); allows stronger 1+4*0.15~1.6x for better low band rumble prediction/mix
     }
 
     private fun tierNativeEnabled(tier: UserTier) = when (tier) {

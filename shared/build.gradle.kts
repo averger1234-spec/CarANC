@@ -116,6 +116,10 @@ android {
     // - Safety: native is opt-in in code (isNativeAvailable() false until lib present + explicit switch in MultiBandANCProcessor).
     // - TODO follow-up: add to shared/consumer-rules.pro explicit native method keep if needed beyond broad rule.
     // This keeps kotlin compile (compileDebugKotlinAndroid) unaffected until explicitly wired.
+
+    // P4: Prepared for native low band build (CYCLE3_EXTRA). 
+    // Uncomment the block below when NDK available to build the .so (see comments for details).
+    // externalNativeBuild { ... } etc. (kept commented to not break pure-kotlin builds in this env).
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {

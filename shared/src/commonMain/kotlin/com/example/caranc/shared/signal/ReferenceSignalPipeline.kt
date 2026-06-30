@@ -98,10 +98,10 @@ class ReferenceSignalPipeline(
             // This is the core for crowdsourced dynamic road noise map + predictive preload of S(z)/VSS.
             // Future: use rumbleEma / variance to key local "segment profile" or request cloud S(z) preload.
             rumbleAccelEma = 0.85f * rumbleAccelEma + 0.15f * rumbleAccel.coerceAtLeast(0f)
-            val baseScale = 0.0008f
+            val baseScale = 0.0015f  // P3: increased from 0.0008 for more aggressive IMU aux ref mix into reference (structural rumble feedforward stronger for low band prediction)
             // Adaptive: higher mix when vibration strong (preview rough road) or high speed context (caller speed not passed, infer via accel).
             val adapt = (1f + (rumbleAccelEma * 0.6f).coerceAtMost(1.2f))
-            val rumbleScale = (baseScale * adapt).coerceIn(0.0002f, 0.0025f)
+            val rumbleScale = (baseScale * adapt).coerceIn(0.0005f, 0.005f)
             lastRumbleScale = rumbleScale
             val rumbleRef = rumbleAccelEma * rumbleScale
             val afterRumble = afterMedia - rumbleRef   // aux ref subtraction (feedforward style, hybrid with mic error)

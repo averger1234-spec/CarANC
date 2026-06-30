@@ -1358,9 +1358,12 @@ class AudioEngine(
         sampleRate: Int
     ): Int {
         val lowLatencyTarget = framesPerBuffer * 4
+        // Long-term clamp: always keep track buffer reasonable to avoid 400+ms latency from AA submix minBuffer.
+        // Coerce between 4k~16k to balance stability and low latency.
         return minTrackBuffer
             .coerceAtLeast(lowLatencyTarget)
             .coerceAtMost(MAX_TRACK_BUFFER_BYTES.coerceAtLeast(minTrackBuffer))
+            .coerceIn(4096, 16384)
     }
 
     private fun estimateCurrentLatency(sampleRate: Int, acousticDelaySamples: Int): LatencyBreakdown {
@@ -1473,13 +1476,19 @@ class AudioEngine(
         latency: LatencyBreakdown?
     ): Map<String, Any?> {
         if (latency == null) return base
+        val level = when {
+            latency.totalMs > 300f -> "CRITICAL"
+            latency.totalMs > 200f -> "HIGH"
+            else -> "NORMAL"
+        }
         return base + mapOf(
             "estimatedLatencyMs" to latency.totalMs,
             "latencyRecordMs" to latency.recordBufferMs,
             "latencyTrackMs" to latency.trackBufferMs,
             "latencyBlockMs" to latency.processingBlockMs,
             "latencyAcousticMs" to latency.acousticDelayMs,
-            "latencyFrameworkMs" to latency.frameworkMarginMs
+            "latencyFrameworkMs" to latency.frameworkMarginMs,
+            "latencyLevel" to level  // P0 enhancement: log level for processor to potentially react (e.g. tighter maxCancel in HIGH/CRITICAL)
         )
     }
 
