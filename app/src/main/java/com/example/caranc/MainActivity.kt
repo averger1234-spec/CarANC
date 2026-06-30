@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -183,6 +184,13 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
     val tabTitles = listOf("狀態", "方案", "測試腳本", "測試平台")
     val tabIcons = listOf(Icons.Filled.Home, Icons.Filled.ShoppingCart, Icons.Filled.List, Icons.Filled.Settings)
 
+    // P0: toggle for advanced engineering info (hidden by default for consumer)
+    var showAdvancedInfo by remember { mutableStateOf(false) }
+
+    // P1: 開發者模式（連點版本號 7 次解鎖，只給自己/核心測試者；一般測試者看不到 debug 參數）
+    var devTapCount by remember { mutableStateOf(0) }
+    val isDevMode = devTapCount >= 7
+
     if (showSafetyConsent) {
         SafetyConsentDialog(
             onAccepted = {
@@ -323,9 +331,29 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
         ) {
             when (selectedTab) {
                 0 -> {
-                    // 狀態 tab：等級、狀態卡片、頻譜、開始/停止
-                    Text(text = "CarANC 控制中心", style = MaterialTheme.typography.headlineMedium)
-                    Spacer(modifier = Modifier.height(16.dp))
+                    // P0 消費者體驗核心：狀態感知而非數據監控
+                    // 轉型為「讓一般車主感受到『我現在變安靜了』」
+                    Text(text = "車內主動降噪", style = MaterialTheme.typography.headlineMedium)
+                    Text(
+                        text = "感受安靜的駕駛體驗",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    // P1 dev mode unlock: tap version 7x (hidden to normal users)
+                    Text(
+                        text = "v0.9 • ${if (isDevMode) "開發者模式已解鎖" else "點此 7 次啟用開發者模式"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isDevMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .clickable {
+                                devTapCount++
+                                if (devTapCount == 7) {
+                                    Toast.makeText(context, "開發者模式已解鎖（僅供內部測試）", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .padding(top = 2.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         TierButton("輕度", UserTier.LIGHT, currentTier == UserTier.LIGHT) { tier ->
@@ -348,68 +376,163 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // P0: 狀態感知卡片 + 環形 Gauge + 放大動態 dB + 使用者價值語言
+                    // 工程術語（延遲/頻帶/模式）預設隱藏在進階
+                    val contextualTitle = when {
+                        uiState is AncState.MusicMode || (uiState is AncState.Running && dominantNoiseBand.contains("MUSIC", ignoreCase = true)) -> "音樂模式：保護音質 + rumble 基礎抵消"
+                        uiState is AncState.DrivingMode || (uiState is AncState.Running && (dominantNoiseBand.contains("ROAD", ignoreCase = true) || dominantNoiseBand.contains("TIRE", ignoreCase = true) || vehicleSpeedKmh > 15f)) -> "低頻路噪抑制中"
+                        uiState is AncState.Running && vehicleSpeedKmh < 8f -> "怠速環境最佳化"
+                        uiState is AncState.Running -> "主動降噪運作中"
+                        uiState is AncState.Learning -> "車廂聲學學習中"
+                        uiState is AncState.Calibrating -> "初始化中"
+                        else -> statusText
+                    }
+
+                    val targetReduction = (rawDb - cancelledDb).coerceAtLeast(0f)
+                    // Note: animate*AsState removed temporarily for compile (BOM/animation module resolution in current env);
+                    // visuals remain dynamic on next state update. Re-add with proper dep for production polish.
+                    val animatedReduction = targetReduction
+                    val reductionColor = when {
+                        targetReduction >= 6f -> Color(0xFF1B5E20)
+                        targetReduction >= 3f -> Color(0xFF2E7D32)
+                        targetReduction >= 1.5f -> Color(0xFF43A047)
+                        targetReduction > 0.5f -> Color(0xFFFFB74D)
+                        else -> Color(0xFF90A4AE)
+                    }
+
+                    val isRunning = uiState !is AncState.Stopped && uiState !is AncState.Error
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp)
+                        shape = RoundedCornerShape(20.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                     ) {
-                        Column(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(text = statusText, color = MaterialTheme.colorScheme.primary, fontSize = 20.sp)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(text = speedText, style = MaterialTheme.typography.bodySmall)
-                            Text(text = bandText, style = MaterialTheme.typography.bodySmall)
-                            Text(text = latencyText, style = MaterialTheme.typography.bodySmall)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("原始噪音", style = MaterialTheme.typography.bodySmall)
-                                    Text("${"%.1f".format(rawDb)} dB", fontSize = 20.sp)
-                                }
+                        Column(
+                            modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = contextualTitle,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 18.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                maxLines = 1
+                            )
 
-                                Column(modifier = Modifier.padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("降噪效果", style = MaterialTheme.typography.bodySmall, color = Color(0xFF4CAF50))
-                                    Text("-${"%.1f".format((rawDb - cancelledDb).coerceAtLeast(0f))} dB", fontSize = 28.sp, color = Color(0xFF4CAF50), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                                }
+                            Spacer(modifier = Modifier.height(10.dp))
 
+                            // P0: 環形進度條 + 中央英雄數字（降噪效果最凸顯）
+                            Box(
+                                modifier = Modifier.size(148.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularArcGauge(
+                                    progress = (animatedReduction / 12f).coerceIn(0f, 1f),
+                                    color = reductionColor,
+                                    modifier = Modifier.size(148.dp)
+                                )
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("處理後", style = MaterialTheme.typography.bodySmall)
-                                    Text("${"%.1f".format(cancelledDb)} dB", fontSize = 20.sp)
+                                    Text(
+                                        text = "-${"%.1f".format(animatedReduction)}",
+                                        fontSize = 46.sp,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                                        color = reductionColor,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        "dB",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
+                            }
+
+                            // 價值回饋：只有降噪明顯時顯示
+                            if (isRunning && animatedReduction > 1.2f) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "✓ 你現在的車廂更安靜了",
+                                    color = Color(0xFF2E7D32),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Smaller raw / processed
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("原始噪音", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${"%.1f".format(rawDb)} dB", fontSize = 15.sp, maxLines = 1)
+                                }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("處理後", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${"%.1f".format(cancelledDb)} dB", fontSize = 15.sp, maxLines = 1)
+                                }
+                            }
+
+                            // P0: 進階資訊收納（Toggle / BottomSheet 建議，現用簡單 toggle）
+                            Spacer(modifier = Modifier.height(6.dp))
+                            TextButton(onClick = { showAdvancedInfo = !showAdvancedInfo }) {
+                                Text(if (showAdvancedInfo) "隱藏進階資訊" else "顯示進階資訊（延遲 / 頻帶）")
+                            }
+
+                            if (showAdvancedInfo) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(text = speedText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                Text(text = bandText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                Text(text = latencyText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    Text("即時頻譜分析", style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.Start))
+                    // P0: 升級為聲學視覺化（貝茲平滑 + 漸層）
+                    Text("聲學視覺化", style = MaterialTheme.typography.titleSmall, modifier = Modifier.align(Alignment.Start))
                     Box(
-                        modifier = Modifier.fillMaxWidth().height(180.dp).background(Color.Black, RoundedCornerShape(8.dp)).padding(8.dp)
+                        modifier = Modifier.fillMaxWidth().height(160.dp).background(Color(0xFF111111), RoundedCornerShape(12.dp)).padding(6.dp)
                     ) {
                         SpectrumCanvas(noiseSpectrum, cancelledSpectrum)
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        Button(
-                            onClick = {
-                                if (sessionContext.entitlementManager.requiresSafetyConsent()) {
-                                    pendingStartAfterConsent = true
-                                    showSafetyConsent = true
-                                } else {
-                                    onStartClick()
-                                }
-                            },
-                            enabled = uiState is AncState.Stopped,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("開始降噪")
+                    // P0: 單一大型置中主控按鈕（狀態切換即時反映；完整 AnimatedContent 動畫待 dep 穩定後恢復）
+                    val onToggleClick = {
+                        if (isRunning) {
+                            onStopClick()
+                        } else {
+                            if (sessionContext.entitlementManager.requiresSafetyConsent()) {
+                                pendingStartAfterConsent = true
+                                showSafetyConsent = true
+                            } else {
+                                onStartClick()
+                            }
                         }
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Button(onClick = onStopClick, enabled = uiState !is AncState.Stopped, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                            Text("停止")
-                        }
+                    }
+
+                    Button(
+                        onClick = onToggleClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(68.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                        ),
+                        shape = RoundedCornerShape(34.dp)
+                    ) {
+                        Text(
+                            text = if (isRunning) "停止降噪" else "開始降噪",
+                            fontSize = 20.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
                     }
                 }
 
@@ -460,7 +583,7 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
 
                 3 -> {
                     // 測試平台 tab
-                    TestLogPanel(currentTier = currentTier)
+                    TestLogPanel(currentTier = currentTier, isDevMode = isDevMode)
                 }
             }
         }
@@ -479,23 +602,114 @@ fun TierButton(label: String, tier: UserTier, isSelected: Boolean, onSelect: (Us
 
 @Composable
 fun SpectrumCanvas(noise: FloatArray, cancelled: FloatArray) {
+    // P0: 升級為平滑貝茲曲線 + 漸層填充的聲學視覺化（降噪好時線條趨平緩柔和）
+    // 使用 cubicTo 模擬平滑貝茲，避免折線生硬。
     Canvas(modifier = Modifier.fillMaxSize()) {
-        if (noise.isEmpty()) return@Canvas
-        val barWidth = size.width / noise.size
-        for (i in noise.indices) {
-            val noiseHeight = (noise[i] * size.height * 12).coerceAtMost(size.height)
-            val cancelledHeight = (cancelled[i] * size.height * 12).coerceAtMost(size.height)
+        if (noise.isEmpty() || cancelled.isEmpty()) return@Canvas
+        val n = noise.size.coerceAtMost(cancelled.size)
+        if (n < 2) return@Canvas
 
-            drawRect(
-                color = Color.Red.copy(alpha = 0.4f),
-                topLeft = Offset(i * barWidth, size.height - noiseHeight),
-                size = Size(barWidth - 2f, noiseHeight)
-            )
-            drawRect(
-                color = Color.Green,
-                topLeft = Offset(i * barWidth, size.height - cancelledHeight),
-                size = Size(barWidth - 2f, cancelledHeight)
-            )
+        val stepX = size.width / (n - 1)
+        val scaleY = size.height * 0.88f
+
+        fun buildSmoothPath(values: FloatArray): androidx.compose.ui.graphics.Path {
+            val p = androidx.compose.ui.graphics.Path()
+            var prevX = 0f
+            var prevY = (size.height - (values[0] * scaleY).coerceIn(0f, size.height))
+            p.moveTo(prevX, prevY)
+            for (i in 1 until n) {
+                val x = i * stepX
+                val y = size.height - (values[i] * scaleY).coerceIn(0f, size.height)
+                // cubicTo 控制點：取段落 1/3 與 2/3 位置，產生平滑貝茲效果
+                val c1x = prevX + (x - prevX) * 0.33f
+                val c1y = prevY
+                val c2x = prevX + (x - prevX) * 0.67f
+                val c2y = y
+                p.cubicTo(c1x, c1y, c2x, c2y, x, y)
+                prevX = x
+                prevY = y
+            }
+            return p
         }
+
+        // 噪音（較淡紅，細線）
+        val noisePath = buildSmoothPath(noise)
+        drawPath(
+            path = noisePath,
+            color = Color(0xFFE57373),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5f)
+        )
+
+        // 處理後（綠色主線 + 較粗）
+        val cancelPath = buildSmoothPath(cancelled)
+        drawPath(
+            path = cancelPath,
+            color = Color(0xFF66BB6A),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4.5f)
+        )
+
+        // 漸層填充（acoustic 柔和感），降噪佳時更明顯平穩
+        val fillPath = androidx.compose.ui.graphics.Path()
+        fillPath.addPath(cancelPath)
+        fillPath.lineTo(size.width, size.height)
+        fillPath.lineTo(0f, size.height)
+        fillPath.close()
+        drawPath(
+            path = fillPath,
+            color = Color(0xFF66BB6A).copy(alpha = 0.12f)
+        )
+    }
+}
+
+/**
+ * P0 環形進度條（Circular Gauge）：直觀顯示降噪效果，讓用戶「看到」安靜程度。
+ * 270° 弧形，中心疊加大數字。進度/顏色動態變化（>6dB 深綠）。
+ */
+@Composable
+fun CircularArcGauge(
+    progress: Float,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    // Simplified (no internal animateFloatAsState) to ensure compile without animation module friction in env;
+    // update is still snappy on recomposition from state flows. Reintroduce anim + dep for release.
+    val p = progress.coerceIn(0f, 1f)
+    Canvas(modifier = modifier) {
+        val strokeWidth = 13.dp.toPx()
+        val radius = (size.minDimension / 2f) - strokeWidth / 2f - 2.dp.toPx()
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val arcSize = Size(radius * 2, radius * 2)
+        val topLeft = Offset(center.x - radius, center.y - radius)
+
+        // 背景弧（淺灰）
+        drawArc(
+            color = Color(0xFFE0E0E0),
+            startAngle = 135f,
+            sweepAngle = 270f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        )
+        // 進度弧（動態顏色）
+        drawArc(
+            color = color,
+            startAngle = 135f,
+            sweepAngle = 270f * p,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        )
+        // 微弱內圈裝飾
+        drawArc(
+            color = color.copy(alpha = 0.12f),
+            startAngle = 135f,
+            sweepAngle = 270f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        )
     }
 }

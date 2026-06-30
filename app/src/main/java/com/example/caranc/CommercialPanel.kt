@@ -60,19 +60,24 @@ fun CommercialPanel(modifier: Modifier = Modifier) {
             Text("方案與功能", style = MaterialTheme.typography.labelLarge)
             ProductCatalog.planOrder.forEach { plan ->
                 val active = plan == currentPlan
+                val isRecommended = plan == com.example.caranc.shared.commercial.SubscriptionPlan.STANDARD_MONTHLY
                 val featureCount = ProductCatalog.featuresForPlan(plan).size
+                val label = buildString {
+                    append(if (isRecommended) "★ " else "")
+                    append(plan.displayName)
+                    append(" · ")
+                    append(ProductCatalog.suggestedPriceHint(plan))
+                    append(" · ")
+                    append(featureCount)
+                    append(" 項功能")
+                    if (active) append("  ← 你目前方案")
+                    if (isRecommended && !active) append(" （推薦）")
+                }
                 Text(
-                    text = buildString {
-                        append(plan.displayName)
-                        append(" · ")
-                        append(ProductCatalog.suggestedPriceHint(plan))
-                        append(" · ")
-                        append(featureCount)
-                        append(" 項功能")
-                        if (active) append(" ✓")
-                    },
+                    text = label,
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onTertiaryContainer
+                    color = if (active) MaterialTheme.colorScheme.primary else if (isRecommended) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onTertiaryContainer,
+                    fontWeight = if (isRecommended) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal
                 )
             }
 

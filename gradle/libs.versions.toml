@@ -7,7 +7,7 @@ junitVersion = "1.1.5"
 espressoCore = "3.5.1"
 lifecycleRuntimeKtx = "2.8.6"
 activityCompose = "1.7.0"
-composeBom = "2023.08.00"
+composeBom = "2024.05.00"
 kmm-viewmodel = "1.0.0-beta.6"
 # Added for @Keep protection on DSP core (P0 ProGuard hardening)
 androidxAnnotation = "1.10.0"
@@ -34,6 +34,7 @@ androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-compose-animation = { group = "androidx.compose.animation", name = "animation" }
 kmm-viewmodel-core = { module = "com.rickclephas.kmm:kmm-viewmodel-core", version.ref = "kmm-viewmodel" }
 # androidx.annotation for @Keep on critical shared DSP classes (MultiBandANCProcessor etc.) to survive R8 shrink even without proguard
 androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidxAnnotation" }

@@ -34,7 +34,8 @@ import com.example.caranc.shared.UserTier
 fun TestLogPanel(
     modifier: Modifier = Modifier,
     onEnvironmentChanged: (AncTestEnvironment) -> Unit = {},
-    currentTier: UserTier = UserTier.PRO  // Pass from MainActivity to show correct effective from tier (no more hardcoded)
+    currentTier: UserTier = UserTier.PRO,  // Pass from MainActivity to show correct effective from tier (no more hardcoded)
+    isDevMode: Boolean = false  // P1: 開發者模式解鎖才顯示 debug 參數滑桿等；一般測試者只看到車型/位置/連線/情境 + 大匯出按鈕
 ) {
     val context = LocalContext.current
     var loggingEnabled by remember {
@@ -222,29 +223,30 @@ fun TestLogPanel(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Advanced tuning collapsed by default - makes the panel much shorter and less overwhelming by default
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("進階 LMS 調校（預設收合）", style = MaterialTheme.typography.titleSmall)
-                Switch(
-                    checked = showAdvancedTuning,
-                    onCheckedChange = { showAdvancedTuning = it }
+            if (isDevMode) {
+                // P1: 只有開發者模式顯示進階 LMS 調校（debugLmsMuMultiplier、freezeThreshold 等完全移除一般主介面）
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("進階 LMS 調校（開發者專用）", style = MaterialTheme.typography.titleSmall)
+                    Switch(
+                        checked = showAdvancedTuning,
+                        onCheckedChange = { showAdvancedTuning = it }
+                    )
+                }
+                Text(
+                    "注意：使用「路噪調校測試」引導腳本時，這些參數會由腳本自動套用。你只需要按「完成這步」和最後匯出 log。手動調整僅用於自訂實驗。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
                 )
-            }
-            Text(
-                "注意：使用「路噪調校測試」引導腳本時，這些參數會由腳本自動套用。你只需要按「完成這步」和最後匯出 log。手動調整僅用於自訂實驗。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary
-            )
 
-            if (showAdvancedTuning) {
-                // Legacy fields moved here (OBD is removed, only for manual RPM experiments)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = manualRpm,
+                if (showAdvancedTuning) {
+                    // Legacy fields moved here (OBD is removed, only for manual RPM experiments)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = manualRpm,
                     onValueChange = {
                         manualRpm = it.filter { ch -> ch.isDigit() }
                         val rpm = manualRpm.toFloatOrNull() ?: 0f
@@ -358,6 +360,15 @@ fun TestLogPanel(
                 // (duplicate block cleaned; effective native shown in main tier effective text above)
                 Text(
                     "提示：高 mu + 低門檻 容易看到 freeze 頻繁，注意 log 裡 freezeBlocksRemaining。改參數後建議重啟 ANC 讓 LMS 重新適應。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                }
+            }
+            // 開發者模式關閉時：隱藏所有 debug 參數，只留基本 + 大匯出按鈕（符合 P1 簡化）
+            else {
+                Text(
+                    "進階 LMS 調校參數（debugLmsMuMultiplier、freezeThreshold 等）已隱藏。一般測試僅需填寫上方情境並使用下方匯出按鈕。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

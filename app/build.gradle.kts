@@ -72,6 +72,9 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    // P0: animation for AnimatedContent / animate*AsState in consumer gauge, button, dB transitions
+    // Use direct coord (bom provides version) to avoid catalog key issues
+    implementation("androidx.compose.animation:animation")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
