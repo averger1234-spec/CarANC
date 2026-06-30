@@ -455,3 +455,17 @@
 - Next test verify: 1. in #7 + MUSIC_BROAD: musicDominantRumbleMode==true ; 2. rumbleVibBoost ~2.0-3.0 or effectiveLowMu明显 rise (vs base); 3. artifactRisk down (less telegraph); 4. still log mediaSubtracted/corr/ratio for quality=0 root cause; 5. note if guard triggers (low accel no full boost).
 - No new baseline param change (logs confirm spd+music conditions not met for high gains; sim C17 already aligned conservative music case). Keep #7 mu=2.05 freeze=9 etc; use new logs for next iter.
 - Sub-agent sim: no new spawn this round (C17 covered); logic in sim_iter.ps1 on github from prior. Re-run locally with new log parse if want C18+.
+
+## 2026-06-30 Additional: Sonification/Notification Protection (direct response to reported choppy + echo bug)
+- Implemented full event protection path:
+  - New SonificationDetector.kt (common): fast/slow envelope detector for short transients (tuned for USAGE_ASSISTANCE_SONIFICATION / notifications). Runs on both playbackRef (leveraging existing MediaPlaybackCapture that includes SONIFICATION) and mic signal.
+  - Added setSonificationOverride / isSonificationOverrideActive / getSonificationGainScale to AncProcessorFacade + MultiBandANCProcessor + iOS stub.
+  - In processor: eventScale (min of siren + sonif) applied to all band muScales + final anti-noise output + contributes to freeze logic.
+  - In AudioEngine hot loop: detection + set override (ducks to ~0.06-0.18 gain during event) + "sonification_detected" log phase with confidence/burstRatio.
+  - Added to running_snapshot: sonificationOverride + sonificationGainScale.
+  - Updated AncTestScript monitored fields + #7 instructions with verification steps.
+- This directly addresses: notifications entering ANC path (now ducked at output), routing conflicts (less aggressive processing during event reduces underruns), no prior protection for transients.
+- Git push + phone install -r done.
+- Complements prior 06-30 log-driven changes (force MUSIC_DOMINANT_RUMBLE, freeze*1.5, mic=0.3, IMU extra boost + hasClearRumble guard).
+- BUILD SUCCESSFUL after changes.
+
