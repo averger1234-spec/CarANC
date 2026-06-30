@@ -112,6 +112,8 @@ class MultiBandANCProcessor(
     private var callActive = false
     private var sirenOverride = false
     private var sirenGainScale = 1f
+    private var sonificationOverride = false
+    private var sonificationGainScale = 1f
     private val engineComb = EngineCombCanceller(sampleRate)
     // CYCLE3: use road ref from sessionContext so scoped RoadNoiseReferenceModel (e.g. test thresholds) is honored.
     private val roadWiener = RoadNoiseWienerBank(sampleRate, sessionContext.roadNoiseReferenceModel)
@@ -206,6 +208,11 @@ class MultiBandANCProcessor(
         sirenGainScale = gainScale.coerceIn(0.02f, 1f)
     }
 
+    override fun setSonificationOverride(active: Boolean, gainScale: Float) {
+        sonificationOverride = active
+        sonificationGainScale = gainScale.coerceIn(0.02f, 1f)
+    }
+
     override fun setEngineRpm(rpm: Float, valid: Boolean) {
         engineComb.setRpm(rpm, valid)
     }
@@ -261,6 +268,9 @@ class MultiBandANCProcessor(
     }
 
     override fun isSirenOverrideActive(): Boolean = sirenOverride
+
+    override fun isSonificationOverrideActive(): Boolean = sonificationOverride
+    override fun getSonificationGainScale(): Float = if (sonificationOverride) sonificationGainScale else 1f
 
     override fun getMimoZoneCount(): Int = mimoZoneCount
 
@@ -431,9 +441,11 @@ class MultiBandANCProcessor(
         val callFloorMode = processingMode == AncProcessingMode.FLOOR_NOISE_CALL
         val musicDominantRumbleMode = processingMode == AncProcessingMode.MUSIC_DOMINANT_RUMBLE
         val sirenScale = if (sirenOverride) sirenGainScale else 1f
+        val sonifScale = if (sonificationOverride) sonificationGainScale else 1f
+        val eventScale = minOf(sirenScale, sonifScale)  // any important transient ducks ANC output + adaptation
 
         val latencyLimits = latencyBandLimits
-        val freeze = freezeWeightUpdates > 0 || sirenOverride
+        val freeze = freezeWeightUpdates > 0 || sirenOverride || sonificationOverride
 
         for (i in input.indices) {
             val xRaw = input[i] / 32768.0f
@@ -446,7 +458,7 @@ class MultiBandANCProcessor(
             val idleMode = !floorMode && !roadMode && !callActive
 
             val lowMu = effectiveMuScale(lowBand, floorMode, roadMode) *
-                sirenScale *
+                eventScale *
                 latencyLimits.lowGain *
                 LatencyAwareBandLimiter.bandMuScale(lowBand.centerHz, estimatedLatencyMs, roadRumble = roadMode)
 
@@ -519,7 +531,7 @@ class MultiBandANCProcessor(
                 effectiveMuScale(midBand, floorMode, roadMode) *
                     bandGains.mid *
                     voiceProtector.midBandMuScale(callFloorMode || callActive) *
-                    sirenScale *
+                    eventScale *
                     latencyLimits.midGain *
                     LatencyAwareBandLimiter.bandMuScale(midBand.centerHz, estimatedLatencyMs, roadRumble = (roadMode && musicLowAncEnabled))
             } else {
@@ -556,7 +568,7 @@ class MultiBandANCProcessor(
                 effectiveMuScale(highBand, floorMode, roadMode) *
                     bandGains.high *
                     voiceProtector.highBandMuScale(callFloorMode || callActive) *
-                    sirenScale *
+                    eventScale *
                     latencyLimits.highGain *
                     LatencyAwareBandLimiter.bandMuScale(highBand.centerHz, estimatedLatencyMs, roadRumble = roadMode)
             } else {
@@ -613,7 +625,7 @@ class MultiBandANCProcessor(
                 else -> -adaptiveCombined + engineFf
             }
 
-            output[i] = (combined * sirenScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
+            output[i] = (combined * eventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
 
             if (freezeWeightUpdates > 0) {
                 freezeWeightUpdates--

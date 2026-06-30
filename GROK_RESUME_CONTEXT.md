@@ -443,3 +443,15 @@
 
 --- 
 更新：已過濾先前 PowerShell 錯誤編碼導致的 mojibake，確保 GitHub 顯示正常中文。
+## 2026-06-30 Update (post user 06-30 afternoon logs feedback + verification)
+- Confirmed analysis: quality always 0 (mediaSubtracted=0, mediaCorrelation=0, musicRoadEnergyRatio=0) in real AA (247ms remote-submix high-lat music bleed); MUSIC_BROAD dominant always in #7; spd not sustained >55 (max~49 in 174404 full, ~2- in 182441 partial); red low 0-1dB; many freezes/bumps; artifactRisk sometimes HIGH.
+- 174404: full car_road_tuning_v1 incl #7 (179 tuning_7 mentions), but conditions poor -> no strong rumble excitation; effectiveMidMu sometimes 1.015 but actual reduction tiny due music+lowspd; crowd 1.5 active; artifact "normal" in #7 samples.
+- 182441: partial (only tuning_4, mu=2.05 later), aa disconnect, high freeze spam, artifact HIGH.
+- Changes: A) force musicDominantRumbleMode=true on lastDominant==MUSIC_BROAD (bypass quality calc fail) in AudioEngine; B) freezeThreshold *=1.5 in mode (MultiBandANCProcessor). Per feedback refinements: micFactor=0.3f in music dom (more IMU), rumbleScale base 2.5f + extra*1.25 if qual<0.4 (pipeline+processor), extra IMU 2.0f base.
+- Added hasClearRumble guard (rumbleAccelMag>0.35 proxy) so strong extra IMU/road boost only if rumble energy clear (avoid over-conserv on good rumble segments even in forced mode).
+- Logging added for verification: musicDominantRumbleMode, rumbleVibBoost, effectiveLowMu now in every running_snapshot. Update #7 instructions + monitored list.
+- Git: pushed (selective logic only; 08b4133 + cc1feb0); ahead resolved. sim txts not committed.
+- Phone: device detected (57191FDCG002KH); github main latest. Recommend: open in AS, Terminal run .\scripts\install-debug.ps1 (auto JAVA/ adb + readkey interactive). New fields + behaviors will be on phone for next strict #7 test.
+- Next test verify: 1. in #7 + MUSIC_BROAD: musicDominantRumbleMode==true ; 2. rumbleVibBoost ~2.0-3.0 or effectiveLowMu明显 rise (vs base); 3. artifactRisk down (less telegraph); 4. still log mediaSubtracted/corr/ratio for quality=0 root cause; 5. note if guard triggers (low accel no full boost).
+- No new baseline param change (logs confirm spd+music conditions not met for high gains; sim C17 already aligned conservative music case). Keep #7 mu=2.05 freeze=9 etc; use new logs for next iter.
+- Sub-agent sim: no new spawn this round (C17 covered); logic in sim_iter.ps1 on github from prior. Re-run locally with new log parse if want C18+.

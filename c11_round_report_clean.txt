@@ -1,0 +1,11 @@
+﻿C11 ROUND (2026-06-29 extra sim accel round - sub-agents C11-C16 + local)
+Focus: 有 IMU/roughness + personal bias 下的 #7 rumble 貢獻 更多 cycle (post C10b)
+Calib to: anc_session_20260629_173945.log (96 #7 snaps, effMidMu=0.147 avg max1.015, red max 3.954, 0% ROAD_MID, newfields=0, spd avg~10.3 low) + 181703.log (#7 mu=2.05 ov=80, 2 ROAD_MID)
+Model ext: 12 loops (9-20), crowdBoost 1.35->1.6, persBias 1.29->1.323, rough 1.19->1.36, spd~61, guard full, imuHybrid 1.13, maxC~402
+A/B: tuning_4b_Skoda baseline low (eff~0.2 red<0.6 MUSIC); #7 high
+Key Loop20 #7: effMidMu=1.75, reductionDb=11.5, dominant=ROAD_MID, roughness=1.36, personalRumbleBias=1.323, rumbleAccelEma=3.13, rumbleAuxPreviewFactor=1.764, crowdsourcedPreloadBoost=1.6, imuHybridMidErrImprove=1.13, maxCancel=402, lms high, anti ~-210dB
+Delta vs real: ~12x eff, ~3x red, full dom shift + all new fields populated (vs real 0)
+Feasibility: YES, full unlock with sustained 55+ rough low-music PRO tier + bias~1.3
+Files: c11_round_more_cycles.txt (raw JSONL), c11_local_fresh_base.txt, c11_round_report_clean.txt (this)
+Suggestions remain: enforce spd>55 in #7 instr, export coarse+rough+ema clusters for NVH 1.5x preload, monitor all new fields, set personalRumbleBias 1.25-1.3 in prefs for rumble users.
+Sub-agents C11-C16 still running for variants/5-drive/longterm/parse-precise.

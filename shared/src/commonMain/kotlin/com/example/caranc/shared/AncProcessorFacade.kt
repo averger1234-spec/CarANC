@@ -25,6 +25,14 @@ interface AncProcessorFacade : AudioProcessor {
     fun setSirenOverride(active: Boolean, gainScale: Float = 0.05f)
     fun setEngineRpm(rpm: Float, valid: Boolean)
     fun isSirenOverrideActive(): Boolean
+
+    // For short transient events like system notifications, ringtones, sonification beeps (USAGE_ASSISTANCE_SONIFICATION etc).
+    // When active, heavily duck ANC anti-noise output gain (to prevent echo on the important short sound) and freeze adaptation (prevent LMS learning artifact on transient).
+    // This is the highest priority fix for choppy AA audio + notification echo under high-latency AA remote_submix.
+    // Separate from siren (narrowband sweeps) but shares similar gain+freeze effect.
+    fun setSonificationOverride(active: Boolean, gainScale: Float = 0.08f)
+    fun isSonificationOverrideActive(): Boolean
+    fun getSonificationGainScale(): Float = 1f
     fun getMimoZoneCount(): Int
     fun setEstimatedLatencyMs(latencyMs: Float)
     fun getLatencyBandLimits(): LatencyBandLimits

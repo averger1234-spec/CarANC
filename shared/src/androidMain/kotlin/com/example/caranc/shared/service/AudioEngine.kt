@@ -19,6 +19,7 @@ import com.example.caranc.shared.model.ProfileAgingMonitor
 import com.example.caranc.shared.signal.MediaPlaybackCapture
 import com.example.caranc.shared.signal.ReferenceSignalPipeline
 import com.example.caranc.shared.signal.SirenDetector
+import com.example.caranc.shared.signal.SonificationDetector
 import com.example.caranc.shared.commercial.CommercialFeature
 import com.example.caranc.shared.test.GuidedTestController
 import com.example.caranc.shared.latency.NativeLowBandProcessor
@@ -78,6 +79,7 @@ class AudioEngine(
     private var referencePipeline: ReferenceSignalPipeline? = null
     private var mediaPlaybackCapture: MediaPlaybackCapture? = null
     private var sirenDetector: SirenDetector? = null
+    private var sonificationDetector: SonificationDetector? = null
     private var lastAntiNoise = ShortArray(PROCESSING_READ_SIZE)
     private var playbackRefBuffer = ShortArray(PROCESSING_READ_SIZE)
     // Perf: reuse buffers for visualization slices (avoid copyOf + residual ShortArray alloc in hot path every 200ms)
@@ -102,6 +104,8 @@ class AudioEngine(
     private var processingStartedAtMs = 0L
     private var lastSirenLogMs = 0L
     private var lastSirenLogged = false
+    private var lastSonifLogMs = 0L
+    private var lastSonifLogged = false  // for notification/sonification event protection logging (throttle)
     private var mimoTrialEnabled = true
 
     // P1 #6+7: runtime real latency measurement - reuse buffers (no alloc in ANC hot loop) for occasional
@@ -228,6 +232,7 @@ class AudioEngine(
                     sessionContext.entitlementManager.canUseFeature(CommercialFeature.MIMO_TRIAL)
                 referencePipeline = ReferenceSignalPipeline(sampleRate)
                 sirenDetector = SirenDetector(sampleRate)
+                sonificationDetector = SonificationDetector(sampleRate)
 
                 mediaPlaybackCapture = MediaPlaybackCapture(sampleRate, recordBufferBytes)
                 val mediaCaptureStarted = mediaPlaybackCapture?.start() == true
@@ -623,6 +628,58 @@ class AudioEngine(
                                 )
                             } else if (!sirenHit) {
                                 lastSirenLogged = false
+                            }
+                        }
+
+                        // === 最高優先修復：Notification / Sonification 短事件保護 ===
+                        // 當 AA remote_submix 播放 notification (beep/ringtone) 時：
+                        //   - playbackRef (capture 包含 USAGE_ASSISTANCE_SONIFICATION) 會有短 burst
+                        //   - mic 會錄到洩漏 → ANC 誤處理 → 高延遲 echo + 干擾 routing 造成 choppy
+                        // 策略：偵測到短促 sonification 事件時，大幅 duck ANC 輸出 gain（接近 bypass），
+                        //       並觸發 freeze 避免 LMS 學習 transient 產生 artifact。
+                        //       這不會長期關閉降噪，只在事件期間（~100-200ms）保護重要聲音與主音訊穩定。
+                        val sonifDet = sonificationDetector
+                        if (sonifDet != null) {
+                            var sonifHit = false
+
+                            // 優先從 playbackRef 偵測（最能提前知道 "通知正在播放"）
+                            if (playbackRead > 0) {
+                                for (i in 0 until playbackRead) {
+                                    if (sonifDet.processSample(playbackRefBuffer[i] / 32768.0f)) {
+                                        sonifHit = true
+                                    }
+                                }
+                            }
+                            // 再從 mic preprocessed 補捉洩漏的版本（echo 來源）
+                            if (!sonifHit) {
+                                for (i in 0 until read) {
+                                    if (sonifDet.processSample(preprocessed[i] / 32768.0f)) {
+                                        sonifHit = true
+                                    }
+                                }
+                            }
+
+                            if (sonifHit) {
+                                val scale = sonifDet.ancGainScale()
+                                ancProcessor?.setSonificationOverride(true, scale)
+
+                                val nowMs = System.currentTimeMillis()
+                                if (!lastSonifLogged || nowMs - lastSonifLogMs > 3000L) {
+                                    lastSonifLogged = true
+                                    lastSonifLogMs = nowMs
+                                    AncSessionLogger.log(
+                                        phase = "sonification_detected",
+                                        fields = mapOf(
+                                            "confidence" to sonifDet.sonificationConfidence,
+                                            "burstRatio" to sonifDet.burstRatio,
+                                            "gainScaleApplied" to scale,
+                                            "fromPlaybackRef" to (playbackRead > 0)
+                                        )
+                                    )
+                                }
+                            } else {
+                                ancProcessor?.setSonificationOverride(false, 1f)
+                                lastSonifLogged = false
                             }
                         }
 
@@ -1181,6 +1238,8 @@ class AudioEngine(
                         "mimoZoneCount" to (ancProcessor?.getMimoZoneCount() ?: 1),
                         "mimoTrialEnabled" to mimoTrialEnabled,
                         "sirenOverride" to (ancProcessor?.isSirenOverrideActive() == true),
+                        "sonificationOverride" to (ancProcessor?.isSonificationOverrideActive() == true),
+                        "sonificationGainScale" to (ancProcessor?.getSonificationGainScale() ?: 1f),
                         "engineRpm" to manualRpm,
                         "engineRpmValid" to (manualRpm > 0f),
                         "engineRpmSource" to if (manualRpm > 0f) "manual_test" else "none",

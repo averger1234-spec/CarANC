@@ -93,6 +93,12 @@ class IosAncProcessorFacade(
         // stub
     }
 
+    override fun setSonificationOverride(active: Boolean, gainScale: Float) {
+        // stub
+    }
+    override fun isSonificationOverrideActive(): Boolean = false
+    override fun getSonificationGainScale(): Float = 1f
+
     override fun setEngineRpm(rpm: Float, valid: Boolean) {
         // stub
     }

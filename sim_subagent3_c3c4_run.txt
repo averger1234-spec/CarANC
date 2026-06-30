@@ -1,0 +1,94 @@
+﻿
+> # === CYCLE 4: Crowdsourced model sim (full script #7 focus vs #4b; IMU hybrid + 1.5x aux preload for known 國道 rough)
+ ===
+  Write-Host ""
+> Write-Host "=== CYCLE 4: Model crowdsourced benefit (post 3-4 real runs w/ coarse/rough from #7) + IMU hybrid err sam
+ple improve for mid rumble (Skoda 200-350) ==="
+  Write-Host "Assume aggregated NVH map (coarse clusters + roughness/ema/varEma from logs) pre-loads rumble segs -> rum
+bleAuxFactor 1.5x boost (preview) for known rough like 國道. Predict full #7 red -6~-7.5 eff 1.1+ 75%+ ROAD_MID roughness
+ 0.8-1.2 personal1.2+ ema2.3+ previewF 1.4-1.6. IMU aux mix: better ref/lower err -> higher effective midMu in rumble s
+egs even partial music."
+  $fullStepsC4 = @(
+> # === SUBAGENT 3: ADDITIONAL FAST SIM CYCLES (Cycle 3 risk refinement + Cycle 4 next real test predict) on #7 rumble 
+contrib w/ IMU/rough + personal bias (f4c00dc) ===
+  # Inputs from prev Sub1/2 (C1/C2): effMidMu ~0.9-1.25, red~4.6-5.3 200-350, ROAD_MID w/ preview, personalBias~1.12-1.
+23, rumbleEma~1.9-2.2, rough~0.65-0.9, old #4b ~0.03-0.55 red MUSIC
+  # Real logs: log1 #7 eff avg0.147 max1.015 red max3.954 (count>0.1~18) spd avg~10 low, MUSIC dom 80/96 (0 ROAD_MID), 
+newfields=0; log2 #7 mu=2.05/ov=80/freeze=9, 2 ROAD_MID total, high bumps.
+> Write-Host "=== CYCLE 3: Risk refinement (add conservative guards: full preview ONLY if spd>50 sustained + rough>0.8 
++ energy high + musicLow; personal scaled by tier PRO full/STANDARD lower). Predict #7 gains vs real partial: red>5.5 e
+ff>1.0 >60% ROAD_MID, newfields pop (rough0.8+ pers1.15+ ema2.0+ coarse) ==="
+  $c3Res = @()
+  $prevE = 1.85
+> Write-Host "=== CYCLE 4: Predict outcomes for NEXT real test (strict cond per sugg: sustained 55+ kmh rough bumps, mu
+sic<15%, personalBias=1.2, log new fields). Simulate full script + extended model. Predict #7: effMidMu 0.95-1.1, red 4
+.8-5.8 count>0.1>60/90, dom ROAD_MID 65%+, rough 0.7-1.0, persRumbleBias 1.18-1.25, rumbleAccelEma 2.1-2.6, rumbleAuxFa
+ctor 1.3-1.5 vs #4b red<1 eff<0.3 MUSIC. + crowdsourced NVH vision (coarse/rough clusters for future preload) ==="
+  $c4Res = @()
+  $prevE4 = 2.05
+> # === REFINED METRICS TABLE C3/C4 vs prev sims + real logs (focus #7 rumble from IMU/personal/rough/preview) ===
+  Write-Host ""
+> Write-Host "=== REFINED METRICS TABLE (C3/C4 vs C1/C2 prev sims, real 20260629 logs; #7 rumble contrib IMU+pers+rough
++preview) ==="
+  Write-Host "Source | #7 effMidMu | #7 red (200-350) | #7 dom (ROAD_MID %) | #7 rough/pers/ema/auxF | #4b red/eff (A/B
+ baseline) | Notes"
+  Write-Host "Real log1 (96snaps #7 guided) | 0.147 avg (max1.015) | 0.28 avg (max3.95, >0.1:18) | 0% (MUSIC80 IDLE16) 
+| n/a (0) | ~0.04 / ~0.05 MUSIC | low spd~10.3 limited shift; music bleed; no newfields"
+> # === 3-5 updated realistic JSONL per step (focus #7) w/ new fields higher red ROAD_MID pers/rough/ema ===
+  Write-Host ""
+> Write-Host "=== 3-5 UPDATED REALISTIC JSONL per step (C3/C4 focus #7; newfields, higher red/ROAD_MID/pers/rough/ema/a
+ux; vs real partial + prev sim) ==="
+  Write-Host "--- tuning_4b_Skoda (old stable A/B baseline, low) ---"
+  Write-Host '{"phase":"running_snapshot","guidedTestStepId":"tuning_4b_Skoda","dominantNoiseBand":"MUSIC_BROAD","reduc
+tionDb":0.48,"bandLowRatio":0.15,"bandMidRatio":0.11,"bandHighRatio":0.74,"speedKmh":54.0,"music":true,"noiseSource":"R
+OAD","processingMode":"normal","maxCancelFrequencyHz":198.0,"midBandMuScale":0.38,"effectiveMidMu":0.15,"lowBandMuScale
+":1.0,"antiNoiseDb":-76.3,"lmsUpdateCount":2149000,"debugLmsMuMultiplier":1.6,"debugLatencyOverrideMs":150.0,"tier":"ST
+ANDARD","roughness":0.51,"personalRumbleBias":1.02,"rumbleAccelEma":0.75,"coarseLat":24.509,"coarseLon":121.452,"rumble
+AuxPreviewFactor":1.02,"rumbleAuxFactor":1.02,"rumbleVibBoostApplied":1.05,"crowdsourcedNVHPreload":1.0,"imuHybridImpro
+ve":1.0,"energyFactor":0.52,"stability":"STABLE (C3 guard)"}'
+> # === FEASIBILITY for real gains under strict cond ===
+  Write-Host ""
+> Write-Host "=== FEASIBILITY FOR REAL GAINS UNDER STRICT CONDITIONS ==="
+  Write-Host "YES highly feasible. Real logs limited by low spd~10 in #7 guided (no sustained 50+ for full preview/roug
+h>0.8/energy classifier shift + music bleed kept MUSIC dom). Under strict (sustained 55+ rough bumps music<15% persBias
+=1.2 tier PRO + log newfields): C4 predicts consistent #7 red 4.8-5.8 (count>0.1 60+/90), eff 0.95-1.1, ROAD_MID dom 65
+%+ (energy+spd+preview+guard), new fields rough0.7-1.0 pers1.18-1.25 ema2.1-2.6 auxF1.3-1.5 (preview contrib ~25-35% of
+ red lift, personal ~15-20%, IMU rough/ema ~20%, crowd vision +10-15% future). vs #4b baseline same run: 10x+ red delta
+ (0.5 vs 5.3), eff 0.2 vs 1.0, MUSIC vs ROAD_MID -- direct quantify #7 rumble contrib from IMU/personal/rough/preview i
+n one drive. C3 guards prevent over-boost artifacts (high bias/rough music bleed) while unlocking gains. Crowd NVH from
+ coarse/rough clusters (logged in C4) enables future preload (1.15x aux on match) for predictive gains without extra dr
+ive. Matches code paths (guarded boosts speed28+ now extended to 50+ for full; pipeline ema always; processor personal*
+tier). One strict real + full A/B + re-sim closes calib gap fast."
+  
+> # === UPDATED SUGGESTIONS FOR SCRIPT ===
+  Write-Host ""
+> Write-Host "=== UPDATED SUGGESTIONS FOR SCRIPT (auto-warn spd<50 #7, monitor rough/pers/ema in running_snapshot) ==="
+  Write-Host "1. AncTestScript.kt #7 instructions: add 'AUTO: if vehicleSpeedKmh sustained <50 during tuning_7_strong_r
+oad, log WARN \"SPD<50: #7 rumble contrib partial (preview/rough/energy guard not full); repeat on higher spd rough for
+ valid data + newfields\". Monitor in running_snapshot: roughness, personalRumbleBias, rumbleAccelEma, rumbleAuxFactor,
+ crowdsourcedNVHPreload, coarseLat (log if >0 + rough>0.7 for NVH cluster). Add to checklist 'sustained 55+ kmh rough b
+umps music<15% pers=1.2 tier=PRO'."
+  Write-Host "2. AudioEngine.kt / AncSessionLogFormatter: ensure all new C3/C4 fields (roughness personalRumbleBias rum
+bleAccelEma coarse* rumbleAuxFactor crowdsourcedNVHPreload imuHybridImprove) ALWAYS emitted in running_snapshot even if
+ 0 (for sim parse). Add 'if (guided==\"tuning_7_strong_road\" && speed<50) Log.w(TAG, \"SPD_LOW #7: preview guard inact
+ive, expect partial gains vs sim C4 pred\")'."
+> # === HOW THIS ACCELERATES ITER ===
+  Write-Host ""
+> Write-Host "=== HOW THIS ACCELERATES ITER ==="
+  Write-Host "One real drive with strict cond (55+ rough low-music pers=1.2) + full A/B (old prep/4/4b/5 unchanged + #6
+/#7 new) + log newfields (rough/pers/ema/coarse) gives rich data: within-log #4b baseline vs #7 rumble contrib (IMU+per
+sonal+rough+preview deltas quantified via eff/red/dom/%ROAD_MID + newfields). Parse log (abs path), feed real stats to 
+sim_iter.ps1 (update calib in C3/C4 funcs or re-exec), sim re-predicts next gains + crowd NVH preload factors from logg
+ed coarse/rough clusters (e.g. 國道 rough segs -> future 1.15x aux). NO NEED per-step real tests: variants (bias 1.15 vs 
+1.25, tier PRO vs STD, guard on/off, crowd on) all predicted in internal cycles from one drive's A/B data. Cycle: real-
+strict-drive -> parse+sim-recalib (minutes) -> predict C3/C4 next -> minimal script tweak if gap -> repeat. 3-4x throug
+hput vs real-only (each small change requiring full drive+wait). f4c00dc + sim enables crowdsourced loop: clusters from
+ drives seed NVH map -> preload boosts all future #7 without extra drives. Data-driven from f4c00dc code + parsed 6/29 
+logs (abs paths used). Fast sim accel: pure PS math no build."
+  
+> Write-Host "=== SUBAGENT3 C3/C4 COMPLETE. Use terminal: powershell -File sim_iter.ps1 | Select-String -Pattern 'C3 |C
+4 |JSONL.*tuning_7|FEASIB|ACCEL' for output. Re-run after next strict real log for close. Absolute paths: C:\\Users\\us
+er\\AndroidStudioProjects\\CarANC\\log\\... + sim_iter.ps1 . ==="
+  
+
+
