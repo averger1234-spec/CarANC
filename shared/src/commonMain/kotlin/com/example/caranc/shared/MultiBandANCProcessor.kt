@@ -350,8 +350,12 @@ class MultiBandANCProcessor(
         blockEnergyEma = 0.95f * blockEnergyEma + 0.05f * rms
 
         // Dynamic threshold: higher (less freeze) at highway speeds for steady tire/wind rumble
+        // In music dominant (from log analysis 06-30: frequent freeze + artifact even in normal mode), use higher threshold to avoid over-freezing rumble learning.
         val speed = vehicleSpeedKmh
-        val threshold = if (speed > 50f) debugFreezeThreshold.coerceAtLeast(12f) else debugFreezeThreshold
+        var threshold = if (speed > 50f) debugFreezeThreshold.coerceAtLeast(12f) else debugFreezeThreshold
+        if (musicDominantRumbleMode) {
+            threshold = (threshold * 1.5f).coerceAtLeast(15f)  // less sensitive in music dom to prevent telegraph on residual while allowing rumble LMS
+        }
         val minRms = if (speed > 50f) 0.015f else 0.02f
 
         if (ratio > threshold && rms > minRms) {

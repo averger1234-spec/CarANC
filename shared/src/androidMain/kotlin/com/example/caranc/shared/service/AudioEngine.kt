@@ -590,7 +590,12 @@ class AudioEngine(
                         // direction C: also set MUSIC_DOMINANT_RUMBLE flag when music + low suppression (for special rumble focus mode)
                         referencePipeline?.snapshotMetrics()?.let { m ->
                             ancProcessor?.setMusicSuppressionQuality(m.musicSuppressionQuality)
-                            val musicDominant = audioManager.isMusicActive && m.playbackActive && m.musicSuppressionQuality < 0.6f
+                            var musicDominant = audioManager.isMusicActive && m.playbackActive && m.musicSuppressionQuality < 0.6f
+                            // Force conservative rumble mode if dominant is MUSIC_BROAD (even if quality calc stuck at 0 due to AA music bleed or low subtracted).
+                            // Prevents aggressive mic-residue processing that causes telegraph/white noise artifacts (as seen in 06-30 logs).
+                            if (lastDominant == com.example.caranc.shared.model.DominantNoiseBand.MUSIC_BROAD) {
+                                musicDominant = true
+                            }
                             ancProcessor?.setMusicDominantRumbleMode(musicDominant)
                         }
 
