@@ -520,3 +520,44 @@
 These two are the direct response to 07-01 log analysis (persistent quality=0 + frequent sonif + low boost despite energy present). Phone has latest APK (clean build + install). Next strict-protocol test with latest code should show the improvements in virtualSuppressionQuality values and sonif-period boost stability.
 
 (Also updated: iOS stub, script instructions with C18 note, sim_iter.ps1. Code changes committed with this .md update.)
+
+## 2026-07-01 logcat-driven breakthrough: what real data to capture from logcat/snapshots + the fix for "boost not activating" dilemma
+
+**User query trigger:** 「因該是你想從logcat基實抓甚麼數據吧，怎麼突破我們得困境」 (right after pulling 200636.log + showing filtered music/sonif/ANC perf from live wireless logcat during AA music+vol tests).
+
+**Current dilemma quantified from real 07-01 logs (esp 200636 full tuning_v1 #7 + 174553 1k+ snaps):**
+- persistent musicSuppressionQuality=0, mediaSubtracted=0, mediaRefActive=false, playbackRefActive=false (AA remote-submix capture unavailable or bleed; classifier stuck dominantNoiseBand=MUSIC_BROAD even @58kmh + accel 0.6-1.4).
+- flag musicDominantRumbleMode=true ~88-90% in music (force on BROAD or accel>0.8 works, 920 true in 174553).
+- But rumbleVibBoost only ~1.1-1.2 (base roadMode 1+accel*0.15 PRO), effectiveLowMu ~0.58-0.64 ; reductionDb tiny 0.11-0.22 even in PRO mu=2.05 musicLow.
+- Many freeze on low blockRms during music (even with threshold9 +1.5x), sonif thousands (protected but need verify rumble not damped).
+- virtualSuppressionQuality 0.1-0.2 (from energy proxy), but the *2.8x + continuous energyProxy*0.6 + EMA (0.65/0.35) + hasClearRumble(>0.25) + vq<0.5 extra never kicked in → limited red/boost.
+- lowBandMuScale logged 0.38 (snapshot fudged for music floor), bandLowRatio tiny ~1e-5 (music high-band energy dominates overall dB red metric).
+- No volume data yet → couldn't see vol adjust impact on bleed/rms/freeze/red.
+
+**Key data points we are now capturing from wireless adb logcat (10.176.11.105:5555 while USB AA + music + vol adjust + notif) + session snapshots (every ~2s):**
+- From live logcat (monitor + live_anc_logcat.txt append, filtered ANCService/freeze/sonif/force/... + volume/gain): 
+  - "force_music_dominant_rumble: MUSIC_BROAD_or_highAccel (flag=true ...)" Log.d (new) — confirms force path + speed/accel/q at moment of decision.
+  - freeze_state: remaining=... blockRms=... (every 200blk or during freeze)
+  - bump_detected: blockRms=... -> freeze set
+  - sonification_detected + confidence/burstRatio/gainScaleApplied + override active periods
+  - Any perf_timing / reduction / mode switches during vol change.
+- From every running_snapshot (in pulled anc_session_*.log , also visible if we add Log but mainly jsonl):
+  - musicDominantRumbleMode, rumbleVibBoost, effectiveLowMu, virtualSuppressionQuality, **NEW rumbleEnergyProxy** (raw 0-1), musicSuppressionQuality=0, dominantNoiseBand=MUSIC_BROAD, processingMode=floor_noise_music_road, blockRms, lmsPfxEma/VarEma, lowBandMuScale/mid/high, freezeBlocksRemaining, sonificationOverride/gainScale, ancOutputGain=1.0/userAncGain=1.0
+  - **NEW for volume+music conflict:** musicStreamVolume, musicStreamMax, musicVolNorm (0-1) — adjust vol live in car, see in next snapshot how norm 0.3->0.7 correlates to blockRms jump, red drop, more freezes, virtual dip, sonif up.
+  - accelMag, speedKmh, roughness, noiseSource=ROAD, reductionDb (overall, note limit by highband music), antiNoiseDb.
+- Additional for breakthrough: in processor now also exposes rumbleEnergyProxy; engine now forces early so pipeline also gets musicDominantRumble=true for 3.5x rumble ref mix.
+- How to capture real-time: adb -s 10.176.11.105:5555 logcat (wireless via phone hotspot while AA USB active), filtered, append to live_anc_logcat.txt + monitor running. Pull session log after drive: scripts/pull-latest-log.ps1 . Filter for "tuning_7|running_snapshot|force_music|freeze_state|sonification_detected" + vol fields.
+
+**The breakthrough fix (code written 07-01):**
+- Root cause of "refinements not showing (boost stuck ~1.1 despite flag+accel)": in MultiBandANCProcessor.process(), local `val musicDominantRumbleMode = processingMode == MUSIC_DOMINANT_RUMBLE` **shadowed** the member flag (set by engine force on BROAD/accel). The if (musicDominantRumbleMode) { hasClearRumble; extra=2.8/1.4; vq boost; *= (1+energy*0.6); EMA } + lowAdaptiveScale=1f for sonif-protect **never true** in the actual path (engine sets FLOOR_NOISE_MUSIC_ROAD + flag, never changes processingMode to MUSIC_DOM...).
+- Fix: `val musicDominantRumbleMode = this.musicDominantRumbleMode || (processingMode == ...)`  (now floor+flag will activate full 2.8x+3.5x pipeline + EMA stability + sonif non-interfere + continuous proxy).
+- Also: moved force calc early (before preprocessBlock) so pipeline IMU rumble ref boost also sees forced value; added the force Log.d; updated snapshot PRO rumbleBoost 0.15 (was 0.09 stale), lowBandMuScale if now covers FLOOR_MUSIC_ROAD, added 3 vol fields + rumbleEnergyProxy.
+- Also added to script monitored + #7 instructions explicit "what data from logcat to capture to breakthrough".
+- This directly addresses "怎麼突破" : now the intended aggressive IMU (first-principles vibration preview primary ref, immune to music/latency) will actually apply when flag forced in music road rumble. Combined with virtual proxy, expect higher sustained effLowMu, more low-band LMS, better rumble red (even if overall dB still limited by classifier high-band; future add low-specific red metric).
+- Next: re-build, install-debug (phone latest), re-run #7 strict (>55kmh sustained, low music, vol adjust experiments, notif trigger), pull log + inspect live_anc_logcat.txt + monitor events, feed to C18+ sub-agents for sim predict next deltas (e.g. relax freeze thresh more in rumble mode when virtual high, scale virtual proxy higher 1.0-1.2x, log low band error power).
+
+**Live capture running now:** monitor task for wireless logcat (persistent), bg job for live_anc_logcat.txt. When you drive/AA/music/vol/notif, lines will notify here + file. Use "show ANC perf" or "有相關調整音量及音樂衝突logcat" to get tails/samples.
+
+**Also:** update .md (this + test script), sim_iter.ps1 may need C19 if new fields. Phone will be updated via install after compile check. All per user "有幫我更新至github了嗎(包括.md檔案)?手機也是最新版本了嗎?" emphasis + "從logcat基實抓甚麼數據".
+
+(Changes not yet pushed; after user test + sims we commit.)

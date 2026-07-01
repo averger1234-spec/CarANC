@@ -368,7 +368,9 @@ class MultiBandANCProcessor(
         val speed = vehicleSpeedKmh
         var threshold = if (speed > 50f) debugFreezeThreshold.coerceAtLeast(12f) else debugFreezeThreshold
         if (musicDominantRumbleMode) {
-            threshold = (threshold * 1.5f).coerceAtLeast(15f)  // less sensitive in music dom to prevent telegraph on residual while allowing rumble LMS
+            // 07-01 data driven: even with *1.5, live logcat during music showed repeated low-rms (0.000x) bump/freeze floods (blockRms << ema? or music transients). Relax more when IMU rumble energy present (virtual proxy high) so rumble LMS not paused constantly.
+            val rumbleRelax = (1f + rumbleEnergyProxy * 1.0f).coerceIn(1f, 2.2f)
+            threshold = (threshold * 1.5f * rumbleRelax).coerceAtLeast(18f)
         }
         val minRms = if (speed > 50f) 0.015f else 0.02f
 
@@ -400,8 +402,9 @@ class MultiBandANCProcessor(
         // At low speed + low/steady rms (no strong rumble excitation, ratio near 1 < high thresh), short-freeze LMS to halt over-adaptation on residuals/bleed/elec.
         // Complements speed-dependent minRms/thresh; productive rumble at 50+ never triggers this (high rms or varying).
         val isIdleLowSpeed = speed < 10f
-        if (isIdleLowSpeed && rms < 0.025f && ratio < 1.6f) {
+        if (isIdleLowSpeed && rms < 0.025f && ratio < 1.6f && !musicDominantRumbleMode) {
             // steady low energy: freeze briefly (4 blocks ~16ms @64samp) to prevent pulsed weights from high mu on low pfx
+            // Skip entirely in rumble dominant music (virtual high) to allow continuous low LMS (data from 07-01 live: freezes were limiting rumble even at drive speeds).
             val shortFreeze = 4
             if (freezeWeightUpdates < shortFreeze) freezeWeightUpdates = shortFreeze
             return true
@@ -441,7 +444,8 @@ class MultiBandANCProcessor(
         val roadMode = processingMode == AncProcessingMode.ROAD_NOISE_GPS ||
             processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD
         val callFloorMode = processingMode == AncProcessingMode.FLOOR_NOISE_CALL
-        val musicDominantRumbleMode = processingMode == AncProcessingMode.MUSIC_DOMINANT_RUMBLE
+        // Use member flag (set from engine force on MUSIC_BROAD or high accel) OR the dedicated mode, so special rumble boost/sonif-protect/low mu activates in floor_music_road + flag case (the practical path for music+rumble).
+        val musicDominantRumbleMode = this.musicDominantRumbleMode || (processingMode == AncProcessingMode.MUSIC_DOMINANT_RUMBLE)
         val sirenScale = if (sirenOverride) sirenGainScale else 1f
         val sonifScale = if (sonificationOverride) sonificationGainScale else 1f
         val eventScale = minOf(sirenScale, sonifScale)  // any important transient ducks ANC output + adaptation
@@ -1004,4 +1008,6 @@ class MultiBandANCProcessor(
         val rumbleEnergyProxy = (rumbleAccelMag / 5f).coerceIn(0f, 1f)
         return kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f)
     }
+
+    override fun getRumbleEnergyProxy(): Float = rumbleEnergyProxy
 }

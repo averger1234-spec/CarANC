@@ -175,4 +175,6 @@ class IosAncProcessorFacade(
     }
 
     override fun getVirtualSuppressionQuality(): Float = 0f
+
+    override fun getRumbleEnergyProxy(): Float = 0f
 }

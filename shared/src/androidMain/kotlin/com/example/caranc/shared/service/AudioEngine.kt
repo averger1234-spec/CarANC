@@ -580,6 +580,16 @@ class AudioEngine(
 
                         val playbackRead = mediaPlaybackCapture?.read(playbackRefBuffer, read) ?: 0
                         val speedSnap = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
+                        // Compute music dominant rumble flag EARLY (using prior q + force on MUSIC_BROAD/accel), so both pipeline (IMU ref mix 3.5x) and processor (low boost 2.8x+) see the forced intent.
+                        // This ensures the 07-01 refinements (extra IMU boost, continuous energy, EMA, sonif non-damp on rumble mu) actually apply in the floor_music_road + flag path used for AA music+road rumble.
+                        val priorQ = referencePipeline?.snapshotMetrics()?.musicSuppressionQuality ?: 1f
+                        var musicDominantRumbleForThisBlock = audioManager.isMusicActive && priorQ < 0.6f
+                        if (lastDominant == com.example.caranc.shared.model.DominantNoiseBand.MUSIC_BROAD) {
+                            musicDominantRumbleForThisBlock = true
+                        }
+                        if (speedSnap.linearAccelMagnitude > 0.8f) {
+                            musicDominantRumbleForThisBlock = true
+                        }
                         val preprocessed = referencePipeline?.preprocessBlock(
                             micInput = input,
                             size = read,
@@ -587,27 +597,15 @@ class AudioEngine(
                             playbackSize = playbackRead,
                             lastAntiNoise = lastAntiNoise,
                             rumbleAccel = speedSnap.linearAccelMagnitude,
-                            musicDominantRumble = ancProcessor?.getProcessingMode() == AncProcessingMode.MUSIC_DOMINANT_RUMBLE || (audioManager.isMusicActive && (referencePipeline?.snapshotMetrics()?.musicSuppressionQuality ?: 1f) < 0.6f),
-                            suppressionQuality = referencePipeline?.snapshotMetrics()?.musicSuppressionQuality ?: 1f
+                            musicDominantRumble = musicDominantRumbleForThisBlock || (ancProcessor?.getProcessingMode() == AncProcessingMode.MUSIC_DOMINANT_RUMBLE),
+                            suppressionQuality = priorQ
                         ) ?: input.copyOf(read)
 
-                        // P1: pass suppression quality to processor for conservative mode (protect music when subtractor poor)
-                        // Allows dynamic conservative scaling in music modes without always aggressive processing that creates artifacts.
-                        // direction C: also set MUSIC_DOMINANT_RUMBLE flag when music + low suppression (for special rumble focus mode)
-                        referencePipeline?.snapshotMetrics()?.let { m ->
-                            ancProcessor?.setMusicSuppressionQuality(m.musicSuppressionQuality)
-                            var musicDominant = audioManager.isMusicActive && m.playbackActive && m.musicSuppressionQuality < 0.6f
-                            // Force conservative rumble mode if dominant is MUSIC_BROAD (even if quality calc stuck at 0 due to AA music bleed or low subtracted).
-                            // Prevents aggressive mic-residue processing that causes telegraph/white noise artifacts (as seen in 06-30 logs).
-                            if (lastDominant == com.example.caranc.shared.model.DominantNoiseBand.MUSIC_BROAD) {
-                                musicDominant = true
-                            }
-                            // 07-01 log feedback: even at low speed, if high rumble energy (accel), force mode to let IMU boost work (bypass quality=0).
-                            if (speedSnap.linearAccelMagnitude > 0.8f) {
-                                musicDominant = true
-                            }
-                            ancProcessor?.setMusicDominantRumbleMode(musicDominant)
-                            // 即使 quality=0 也強制進入模式後，進一步降低 micFactor，讓 IMU rumble ref 更主導（減少高延遲 music residue 影響）。
+                        // pass + set flag (for processor special logic + snapshot)
+                        ancProcessor?.setMusicSuppressionQuality(priorQ)
+                        ancProcessor?.setMusicDominantRumbleMode(musicDominantRumbleForThisBlock)
+                        if (musicDominantRumbleForThisBlock) {
+                            Log.d("ANCService", "force_music_dominant_rumble: MUSIC_BROAD_or_highAccel (flag=true for 2.8x+boost+EMA+sonif-protect) speedKmh=${"%.1f".format(speedSnap.speedKmh)} accel=${"%.2f".format(speedSnap.linearAccelMagnitude)} q=$priorQ dominant=$lastDominant")
                         }
 
                         val detector = sirenDetector
@@ -1230,6 +1228,10 @@ class AudioEngine(
                         "carSinkRouted" to (audioRouteManager?.isCarSinkRouted(audioTrack, isAAConnected()) == true),
                         "ancOutputGain" to (audioRouteManager?.ancOutputGain ?: 1f),
                         "userAncGain" to AncTestPreferences.getUserAncGain(appContext),
+                        // Music volume for volume-adjust + music-rumble conflict diagnosis (correlate with blockRms, reduction, freezes, virtualQ during AA tests).
+                        "musicStreamVolume" to audioManager.getStreamVolume(AudioManager.STREAM_MUSIC),
+                        "musicStreamMax" to audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+                        "musicVolNorm" to (if (audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) > 0) audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) else 0f),
                         "weightFrozen" to (ancProcessor?.isWeightUpdateFrozen() == true),
                         "processingMode" to (ancProcessor?.let { processingModeName(it) } ?: "unknown"),
                         "acousticDelaySamples" to (ancProcessor?.getAcousticDelaySamples() ?: acousticDelaySamples),
@@ -1259,6 +1261,7 @@ class AudioEngine(
                         "musicSuppressionQuality" to (referencePipeline?.snapshotMetrics()?.musicSuppressionQuality ?: 0f),  // P1: for monitoring conservative mode effectiveness in logs
                         "musicRoadEnergyRatio" to (referencePipeline?.snapshotMetrics()?.musicRoadEnergyRatio ?: 0f),  // music vs road energy ratio guard
                         "virtualSuppressionQuality" to (ancProcessor?.getVirtualSuppressionQuality() ?: 0f),  // 混合 media quality + IMU rumble energy proxy，改善 quality 卡 0 時仍能依 rumble 能量 aggressive
+                        "rumbleEnergyProxy" to (ancProcessor?.getRumbleEnergyProxy() ?: 0f),  // raw for logcat/snapshot diagnosis of when virtual kicks in (accel driven) vs stuck music q=0
                         // 06-30 user feedback verification points: confirm force-entry sets flag true even at quality=0; IMU boost actually applies (rumbleVibBoost>2, effectiveLowMu rises); artifact down.
                         "musicDominantRumbleMode" to (ancProcessor?.isMusicDominantRumbleMode() ?: false),
                         "rumbleVibBoost" to (ancProcessor?.getLastRumbleVibBoost() ?: 1f),
@@ -1276,7 +1279,7 @@ class AudioEngine(
                         "debugLeakage" to AncTestPreferences.getDebugLeakage(appContext),  // legacy; prefer effectiveLeakageFromTier
                         "effectiveLeakageFromTier" to (when (sessionContext.tierManager.currentTier.value.name) { "LIGHT" -> 0.9999f; "STANDARD" -> 0.9998f; "PRO" -> 0.9995f; else -> 0.9998f }),
                         "effectiveVssScaleFromTier" to (when (sessionContext.tierManager.currentTier.value.name) { "LIGHT" -> 0.65f; "STANDARD" -> 0.85f; "PRO" -> 1.0f; else -> 0.85f }),
-                        "effectiveRumbleBoostFromTier" to (when (sessionContext.tierManager.currentTier.value.name) { "LIGHT" -> 0.015f; "STANDARD" -> 0.045f; "PRO" -> 0.09f; else -> 0.045f }),
+                        "effectiveRumbleBoostFromTier" to (when (sessionContext.tierManager.currentTier.value.name) { "LIGHT" -> 0.015f; "STANDARD" -> 0.045f; "PRO" -> 0.15f; else -> 0.045f }),
                         "effectiveUseNativeFromTier" to (sessionContext.tierManager.currentTier.value.name == "PRO"),
                         "debugFreezeThreshold" to AncTestPreferences.getDebugFreezeThreshold(appContext),
                         "debugFreezeConsec" to AncTestPreferences.getDebugFreezeConsecutive(appContext),
@@ -1284,7 +1287,7 @@ class AudioEngine(
                         "usingLatencyOverride" to (AncTestPreferences.getDebugLatencyOverrideMs(appContext) > 5f),
                         // Approximate current band mu scales from latency limiter (for the fixed centers)
                         // Iter4: mid uses 320f center (rumble tuned), roadRumble now also considers dominant if available (but approx via mode for AA)
-                        "lowBandMuScale" to (LatencyAwareBandLimiter.bandMuScale(190f, ancProcessor?.getLatencyBandLimits()?.estimatedLatencyMs ?: 150f, roadRumble = (ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || ancProcessor?.getProcessingMode() == AncProcessingMode.ROAD_NOISE_GPS)) * (if (ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC && AncTestPreferences.isMusicLowAncEnabled(appContext)) 1f else 0.38f) /* rough mode factor */),
+                        "lowBandMuScale" to (LatencyAwareBandLimiter.bandMuScale(190f, ancProcessor?.getLatencyBandLimits()?.estimatedLatencyMs ?: 150f, roadRumble = (ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || ancProcessor?.getProcessingMode() == AncProcessingMode.ROAD_NOISE_GPS)) * (if ((ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC || ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD) && AncTestPreferences.isMusicLowAncEnabled(appContext)) 1f else 0.38f) /* rough mode factor; now includes road music case */),
                         "midBandMuScale" to LatencyAwareBandLimiter.bandMuScale(335f, ancProcessor?.getLatencyBandLimits()?.estimatedLatencyMs ?: 150f, roadRumble = (ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || ancProcessor?.getProcessingMode() == AncProcessingMode.ROAD_NOISE_GPS)),
                         "highBandMuScale" to LatencyAwareBandLimiter.bandMuScale(1200f, ancProcessor?.getLatencyBandLimits()?.estimatedLatencyMs ?: 150f, roadRumble = (ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || ancProcessor?.getProcessingMode() == AncProcessingMode.ROAD_NOISE_GPS)),
                         // Iter2: effective mid mu after roadMode+musicLow boost + relax (key for 200-350Hz rumble breakthrough)
