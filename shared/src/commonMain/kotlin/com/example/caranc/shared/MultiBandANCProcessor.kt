@@ -102,6 +102,7 @@ class MultiBandANCProcessor(
     private var musicDominantRumbleMode = false  // direction C flag for MUSIC_DOMINANT_RUMBLE mode
     private var lastRumbleVibBoost = 1f
     private var lastEffectiveLowMu = 0f
+    private var rumbleVibBoostEma = 1f  // EMA for stable boost strength in music dominant (07-01 feedback: peaks seen but not stable)
     private var bandGains = BandGains(low = 1f, mid = 0.25f, high = 0.05f)
     private var lastDominant = com.example.caranc.shared.model.DominantNoiseBand.MIXED
     private var resonancePeaks = emptyList<com.example.caranc.shared.model.ResonancePeak>()
@@ -469,23 +470,28 @@ class MultiBandANCProcessor(
             // Boost only in roadMode; for "personal mobile quiet cabin" across any car (AA).
             val baseRumbleBoost = if (roadMode) (1f + rumbleAccelMag.coerceAtMost(5f) * rumbleBoostFactor).coerceAtMost(1.8f) else 1f
             var rumbleVibBoost = (baseRumbleBoost * personalRumbleBias).coerceIn(0.8f, 2.0f)
-            // First-principles: in MUSIC_DOMINANT_RUMBLE, make IMU rumble boost even stronger (vibration precursor is the cleanest rumble ref, unaffected by music/latency)
-            // Dynamic: low suppressionQuality (<0.4) -> extra aggressive (1.3-1.5x more)
+            // First-principles: in MUSIC_DOMINANT_RUMBLE, make IMU rumble boost EVEN STRONGER and more STABLE (vibration precursor is the cleanest rumble ref, unaffected by music/latency)
+            // User feedback 07-01: direction correct, seeing improvement peaks, but strength not stable enough. Amplify base multipliers + add EMA for stability.
+            // Dynamic: low suppressionQuality (<0.5) -> extra aggressive.
+            // 07-01 user feedback: amplify for stronger + stable IMU dominance in music (direction correct but peaks not sustained); also targets AA high-latency bottleneck by maximizing clean vibration precursor ref.
             if (musicDominantRumbleMode) {
-                // 06-30 feedback: avoid over-conservative. Only give strong IMU extra boost if rumble energy (accel proxy) clearly present ( > music residual bleed case); else milder to protect.
-                val hasClearRumble = rumbleAccelMag > 0.35f   // proxy for structural rumble energy high enough vs possible music bleed
-                var extra = if (hasClearRumble) 2.0f else 1.15f
-                if (musicSuppressionQuality < 0.4f && hasClearRumble) {
-                    extra *= (1.0f + (0.4f - musicSuppressionQuality) * 1.25f).coerceIn(1.0f, 1.5f)
+                // Widened clear rumble threshold (0.25f) to trigger strong boost more often when any structural rumble present.
+                val hasClearRumble = rumbleAccelMag > 0.25f
+                var extra = if (hasClearRumble) 2.8f else 1.4f   // amplified for stronger, more consistent IMU dominance in music
+                if (musicSuppressionQuality < 0.5f && hasClearRumble) {
+                    extra *= (1.0f + (0.5f - musicSuppressionQuality) * 1.4f).coerceIn(1.0f, 1.8f)
                 }
                 rumbleVibBoost *= extra
-                rumbleVibBoost = rumbleVibBoost.coerceAtMost(3.0f)
+                rumbleVibBoost = rumbleVibBoost.coerceAtMost(4.5f)
             }
-            // IMU coupling quality: if accelMag too low (poor phone placement/coupling), dampen boost to avoid over-relying on weak signal.
-            val couplingQuality = (rumbleAccelMag / 0.3f).coerceIn(0f, 1f)  // baseline ~0.1-0.3 from logs; adjust if needed
-            if (couplingQuality < 0.5f && musicDominantRumbleMode) {
-                rumbleVibBoost *= (0.5f + couplingQuality)  // reduce if poor coupling
+            // IMU coupling quality: dampen only if very poor; less aggressive dampen to keep strength.
+            val couplingQuality = (rumbleAccelMag / 0.3f).coerceIn(0f, 1f)
+            if (couplingQuality < 0.4f && musicDominantRumbleMode) {
+                rumbleVibBoost *= (0.6f + couplingQuality * 0.6f)
             }
+            // Stability: EMA the boost so peaks don't flicker (user: strength not stable enough)
+            rumbleVibBoostEma = 0.65f * rumbleVibBoostEma + 0.35f * rumbleVibBoost
+            rumbleVibBoost = rumbleVibBoostEma
             val effectiveLowMu = lowMu * rumbleVibBoost
             lastRumbleVibBoost = rumbleVibBoost
             lastEffectiveLowMu = effectiveLowMu
@@ -674,15 +680,16 @@ class MultiBandANCProcessor(
         // First-principles: in MUSIC_DOMINANT_RUMBLE, boost road/IMU ref weight (cleaner than mic which has music mix), reduce mic reliance for low rumble.
         // Dynamic with suppression and coupling.
         if (musicDominantRumbleMode) {
-            val hasClearRumble = rumbleAccelMag > 0.35f
-            var extra = if (hasClearRumble) 1.5f else 1.05f
-            if (musicSuppressionQuality < 0.4f && hasClearRumble) {
-                extra *= (1.0f + (0.4f - musicSuppressionQuality) * 1.25f).coerceIn(1.0f, 1.5f)
+            // 07-01 feedback: stronger, more stable IMU/road dominance in music. Higher roadWeight boost + lower micFactor.
+            val hasClearRumble = rumbleAccelMag > 0.25f
+            var extra = if (hasClearRumble) 2.2f else 1.3f
+            if (musicSuppressionQuality < 0.5f && hasClearRumble) {
+                extra *= (1.0f + (0.5f - musicSuppressionQuality) * 1.4f).coerceIn(1.0f, 1.7f)
             }
-            roadWeight = (roadWeight * extra).coerceAtMost(1f)
+            roadWeight = (roadWeight * extra).coerceAtMost(0.92f)
             val couplingQuality = (rumbleAccelMag / 0.3f).coerceIn(0f, 1f)
-            if (couplingQuality < 0.5f) {
-                roadWeight *= (0.5f + couplingQuality)
+            if (couplingQuality < 0.4f) {
+                roadWeight *= (0.65f + couplingQuality * 0.5f)
             }
         }
         if (roadWeight <= 0f) {
@@ -695,8 +702,8 @@ class MultiBandANCProcessor(
         val energyScale = sessionContext.roadNoiseReferenceModel.roadEnergyScale(vehicleSpeedKmh)
         val scaledRoad = roadComponent * (0.55f + 0.45f * energyScale)
         val micLow = if (floorMode) lowPassInput(xRaw) else lowSample
-        // First-principles explicit: in MUSIC_DOMINANT_RUMBLE, further lower mic residue weight in low band (reduce reliance on high-latency mic signal which carries music bleed).
-        val micFactor = if (musicDominantRumbleMode) 0.3f else 1f  // per 06-30 log feedback: even lower mic weight in music dom to rely more on IMU (vibration immune to music bleed)
+        // First-principles explicit: in MUSIC_DOMINANT_RUMBLE, further lower mic residue weight (07-01: even more aggressive to rely on IMU precursor, bypassing AA latency + music bleed).
+        val micFactor = if (musicDominantRumbleMode) 0.18f else 1f
         val blendedLow = (1f - roadWeight) * micLow * micFactor + roadWeight * scaledRoad
         return BandSamples(blendedLow, 0f, 0f)
     }
@@ -712,7 +719,7 @@ class MultiBandANCProcessor(
             AncProcessingMode.FLOOR_NOISE_CALL -> 0.08f
             AncProcessingMode.ROAD_NOISE_GPS -> 0.75f
             AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD -> if (band.label == "low" && musicLowAncEnabled) 1f else if (roadMode) 0.75f else 0.55f
-            AncProcessingMode.MUSIC_DOMINANT_RUMBLE -> if (band.label == "low") 1.2f * musicSuppressionQuality.coerceAtLeast(0.5f) else 0.5f * musicSuppressionQuality.coerceAtLeast(0.7f)  // direction C: rumble focus, conservative on music
+            AncProcessingMode.MUSIC_DOMINANT_RUMBLE -> if (band.label == "low") 1.6f * musicSuppressionQuality.coerceAtLeast(0.45f) else 0.45f * musicSuppressionQuality.coerceAtLeast(0.65f)  // 07-01: stronger low-band mu in dominant for more stable rumble cancel strength (while still conservative on mid/high for music)
         }
         // P1 conservative mode: when music dominates and suppressionQuality low (subtractor not removing music well),
         // scale down low/mid mu to avoid treating music residual as noise -> artifacts that make users disable ANC.

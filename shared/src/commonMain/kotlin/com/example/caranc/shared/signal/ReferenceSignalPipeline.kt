@@ -41,6 +41,7 @@ class ReferenceSignalPipeline(
     // EMA for smooth proxy; adaptive scale for preview (higher on rough detected).
     private var rumbleAccelEma = 0f
     private var lastRumbleScale = 0.0008f
+    private var rumbleScaleEma = 0.001f  // EMA for stable IMU rumble ref strength (07-01: make dominant mode boost less peaky)
 
     // Perf note: preprocessBlock allocates ShortArray per block (called every 64 samples ~1.5ms @44k).
     // Quick win: reuse buffer (size fixed to PROCESSING_READ_SIZE=64 in ANCService path) to reduce allocations.
@@ -112,16 +113,19 @@ class ReferenceSignalPipeline(
             // First-principles: in MUSIC_DOMINANT_RUMBLE, boost IMU rumble ref even more (immune to music/latency issues), de-emphasize afterMedia (mic-based which has music bleed).
             // Dynamic: when suppressionQuality low (<0.4), extra aggressive boost (1.3-1.5x more) so IMU becomes even more dominant.
             if (musicDominantRumble) {
-                // 06-30 feedback: avoid over-conserv. Strong IMU rumble ref boost only when clear rumble energy (accelEma proxy) vs possible residual music.
-                val hasClearRumble = rumbleAccelEma > 0.35f
-                var boost = if (hasClearRumble) 2.5f else 1.1f
-                if (suppressionQuality < 0.4f && hasClearRumble) {
-                    boost *= (1.0f + (0.4f - suppressionQuality) * 1.25f).coerceIn(1.0f, 1.5f)
+                // 07-01 feedback: amplify IMU rumble ref even more for stable strength in music dominant (bypass high AA latency + music bleed via vibration precursor).
+                // Wider threshold + higher multipliers for more consistent strong preview. EMA added for stability.
+                val hasClearRumble = rumbleAccelEma > 0.25f
+                var boost = if (hasClearRumble) 3.5f else 1.5f
+                if (suppressionQuality < 0.5f && hasClearRumble) {
+                    boost *= (1.0f + (0.5f - suppressionQuality) * 1.4f).coerceIn(1.0f, 1.8f)
                 }
                 rumbleScale *= boost
             }
-            lastRumbleScale = rumbleScale
-            val rumbleRef = rumbleAccelEma * rumbleScale
+            // Stability EMA (07-01 feedback)
+            rumbleScaleEma = 0.6f * rumbleScaleEma + 0.4f * rumbleScale
+            lastRumbleScale = rumbleScaleEma
+            val rumbleRef = rumbleAccelEma * rumbleScaleEma
             val afterRumble = afterMedia - rumbleRef   // aux ref subtraction (feedforward style, hybrid with mic error)
 
             output[i] = (afterRumble * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()

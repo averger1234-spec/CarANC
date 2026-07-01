@@ -269,9 +269,9 @@ object CarAncTestScript {
         "mediaAdaptationActive",
         "musicSuppressionQuality",  // P1: track when conservative mode kicks in during music dominant tests
         "musicRoadEnergyRatio",  // music vs road energy ratio guard
-        "musicDominantRumbleMode",  // direction C: explicit mode for IMU-dominant rumble when music dominates (now logged; force true on MUSIC_BROAD)
-        "rumbleVibBoost",  // actual applied (2.5+ base in mode, +dynamic if qual<0.4, dampened on coupling)
-        "effectiveLowMu",  // = baseLowMu * rumbleVibBoost (key to verify IMU boost took effect)
+        "musicDominantRumbleMode",  // direction C: IMU-dominant rumble when music (07-01: stronger multipliers 2.8x+3.5x, EMA for stability, micFactor 0.18, lower clear threshold 0.25)
+        "rumbleVibBoost",  // actual applied (stronger base + dynamic; EMA smoothed for less flicker)
+        "effectiveLowMu",  // = baseLowMu * rumbleVibBoost (verify stronger/more stable IMU effect in music)
         "couplingQuality",  // IMU coupling (accelMag baseline / 0.3); <0.5 dampens boost in dominant mode
 
         "sirenOverride",
@@ -486,8 +486,8 @@ object CarRoadTuningScript {
                 "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_7_strong_road + effectiveMidMu>0.6 + dominant=ROAD_MID + midBandMuScale>0.6 + reductionDb>3 + maxC>300 + lmsUpdateCount high；若 music 強仍 MUSIC_BROAD 則無效（退回用#4b/#6 baseline A/B）",
                 "C8: 嚴格維持 speed 55+ rough (sustained) 觸發 full crowd vision 1.5x preloadBoost (agg from prior #7 coarse/rough clusters) + new fields: crowdsourcedPreloadBoost/rumbleAuxFactor/crowdsourcedNVHPreload/rumbleAuxPreviewFactor/imuHybridImprove 高值。記錄 scenario 含 'C8 crowdPre=1.5 rough=XX coarse=XX'。",
                 "C15/C11 延伸（更多 cycle 模擬）：STRICT: 維持 sustained spd>55kmh (enforce via vehicleSpeedProvider; if <50 during step WARN + partial data) rough (國道/台68 bumps) low-music<15% pers=1.28 tier=PRO. #7 rumble 200-350Hz focus. LOG clusters (coarse~0.001 + rough>1.1 + rumbleEma>2.5 + red>4) for NVH preload. Monitor running_snapshot: rumbleAuxPreviewFactor crowdsourcedPreloadBoost imuHybridMidErrImprove roughness personalRumbleBias rumbleAccelEma coarse* energyFactor speedKmh dominant effectiveMidMu reductionDb. If spd<55 -> repeat for full C15 data. Compare vs same-run #4b A/B (old unchanged). C15 master: high spd rough pers1.28 + IMU hybrid + crowd 1.5-1.8 unlocks 8-10.5dB / 1.65 effMid vs real partial logs (0.147/3.95, newfields=0, low spd~10); 11-18x delta vs #4b baseline. Use c15_full_cycle11_report.txt + c11_cycle_output.txt for planning.",
-                "06-30 log 驗證重點（從這次 artifact 分析）：進入 #7 後，特別注意 musicDominantRumbleMode flag 是否 true（即使 quality=0 也應強制，現已 logging）；rumbleVibBoost / effectiveLowMu 是否有明顯提高（IMU 更主導，>2.0 即明顯）；artifactRisk 是否降低（telegraph/white noise 減少）；musicSuppressionQuality / musicRoadEnergyRatio / mediaSubtracted / mediaCorrelation 數值（為什麼常 0？）。如果 spd 掉或 music dominant，記錄實際表現，之後給 log 讓我繼續迭代微調 guard/boost。強制模式 + 更高 IMU boost + micFactor=0.3 + freeze*1.5 已 bake；仍需追 quality 機制在 AA 真實音樂下的觸發 + 避免過保守（rumble 能量門檻）。",
-"Notification / Sonification 保護（06-30 另一問題）：當車機通知鈴聲出現時，AA 音訊 choppy + 鈴聲有 echo。已實作 SonificationDetector + setSonificationOverride：playbackRef 偵測到短 burst 時，立即將 ANC 輸出 gain duck 到 ~0.06-0.18，並觸發 freeze + 降低 mu，避免把 notification 當 noise 處理產生延遲 echo，也避免干擾 routing 造成 underrun。事件結束自動恢復。只保護短暫事件，不影響正常 rumble 降噪。log 會出現 sonification_detected + sonificationOverride=true + sonificationGainScale。測試時可故意觸發通知觀察是否還有 echo/choppy，並記錄當時的 route 與 dominant。"
+                "07-01 改善重點（針對音樂主導策略 + AA高延遲瓶頸）：musicDominantRumbleMode 應更頻繁/穩定為 true；rumbleVibBoost / effectiveLowMu 應有更高更穩定的提升（目標 >2.5 sustained 而非尖峰閃爍，觀察 EMA 是否讓 boost 較平滑）；在音樂主導時仍看到較多/較穩的 reduction 尖峰（>2-3dB 持續）；micFactor 低至 0.18 後 low band 更 reliance IMU/road。記錄 music dominant 時 rumble 能量 (accel) 與 boost 的對應、sonification 事件是否干擾。仍需觀察 quality=0 時是否過保守，以及高延遲下 IMU precursor 是否提供穩定預覽優勢。",
+"Notification / Sonification 保護（06-30 另一問題）：當車機通知鈴聲出現時，AA 音訊 choppy + 鈴聲有 echo。已實作 SonificationDetector + setSonificationOverride：playbackRef 偵測到短 burst 時，立即將 ANC 輸出 gain duck 到 ~0.06-0.18，並觸發 freeze + 降低 mu，避免把 notification 當 noise 處理產生延遲 echo，也避免干擾 routing 造成 underrun。事件結束自動恢復。只保護短暫事件，不影響正常 rumble 降噪。log 會出現 sonification_detected + sonificationOverride=true + sonificationGainScale。測試時可故意觸發通知觀察是否還有 echo/choppy，並記錄當時的 route 與 dominant。07-01 改善與此互補（music dom 時更強 IMU 仍保護 sonif 事件不干擾 rumble boost）。"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,  // tier PRO for most aggressive auto (low leak high boost native); demonstrates only manual switch is tier (sims pick values for balance)

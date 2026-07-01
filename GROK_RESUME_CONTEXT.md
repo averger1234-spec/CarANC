@@ -469,3 +469,28 @@
 - Complements prior 06-30 log-driven changes (force MUSIC_DOMINANT_RUMBLE, freeze*1.5, mic=0.3, IMU extra boost + hasClearRumble guard).
 - BUILD SUCCESSFUL after changes.
 
+## 2026-07-01 針對音樂主導策略 + AA高延遲瓶頸的改善（基於 log 分析回饋）
+
+**使用者回饋重點：**
+- 音樂主導處理策略：架構方向正確（IMU 主導），已開始看到改善尖峰，但強度還不夠穩定（peaky, flicker）。
+- 根本限制：AA 高延遲 (130-417ms) + 音樂存在，仍是最大瓶頸（phase alignment 破壞，mic  bleed 難解）。
+
+**針對改善（放大 IMU precursor 優勢 + 穩定性）：**
+- **MultiBandANCProcessor**：
+  - musicDominantRumbleMode rumbleVibBoost：base extra 2.8f (clear) / 1.4f，quality extra 放大，max 4.5f；hasClearRumble 門檻放寬至 0.25f（更常觸發強 boost）；coupling dampen 減輕。
+  - 加入 rumbleVibBoostEma（0.65/0.35）讓 boost 更平滑穩定（避免尖峰閃爍）。
+  - buildReference roadWeight：extra 2.2f / 1.3f，roadWeight 上限放寬，micFactor 降至 0.18f（更極端依賴 IMU/road，減少高延遲 mic music residue）。
+  - effectiveMuScale low band in dominant：base 1.6f * qual (更 aggressive low rumble mu)。
+- **ReferenceSignalPipeline**：
+  - musicDominantRumble rumbleScale：boost 3.5f (clear) / 1.5f，quality extra 放大；加入 rumbleScaleEma 穩定。
+  - rumbleRef 直接用 ema 值。
+- **test script**：monitored + #7 instructions 更新，強調觀察 "sustained >2.5 boost 而非 peaky"，music dominant 時 reduction 尖峰穩定性、mic 低權重後 low band 表現。
+- 方向仍是 first-principles：IMU 震動前兆 immune to music + latency，提供 "preview" 補償 AA 延遲；music 時極度 de-emphasize mic，保守 mid/high，unlock 低頻 rumble 強度。
+- 預期 log 驗證：更多/更穩定的 reduction 尖峰（尤其 music true 時），rumbleVibBoost / effectiveLowMu 曲線較平滑，sonification 事件不影響 rumble 強度。
+
+這些改動針對「看到尖峰但不穩定」直接放大倍數 + 加 EMA 穩定；針對「高延遲瓶頸」進一步降低 mic 依賴、提升 IMU ref 權重/scale，讓 vibration precursor 更主導。
+
+後續：log 驗證新倍數/EMA 效果；若仍不夠，可考慮 IMU upsampling 或更預測性融合。
+
+（已同步更新 processor/pipeline/script + 本 resume）
+
