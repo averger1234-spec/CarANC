@@ -89,6 +89,9 @@ interface AncProcessorFacade : AudioProcessor {
     fun getLastRumbleVibBoost(): Float = 1f
     fun getLastEffectiveLowMu(): Float = 0f
 
+    // virtualSuppressionQuality: 混合 media quality + IMU rumble energy proxy。用來在 quality 卡 0 時仍能依 rumble 能量給較 aggressive 處理。
+    fun getVirtualSuppressionQuality(): Float = 0f
+
     // Iter2+: expose effective mid band mu (after road/musicLow boosts + bandMuScale) for logging mid contrib to 200-350Hz rumble.
     // 0 means no mid adaptation (pre-iter1 case for 136ms AA).
     fun getLastEffectiveMidMu(): Float = 0f

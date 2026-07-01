@@ -1881,3 +1881,8 @@ Write-Host "Update to sim: thresholds/funcs added for C17 + refinements (dynamic
 Write-Host "=== C17 COMPLETE (tables, 8+ JSONL, deltas, feasibility, thresholds updated in sim_iter.ps1). Run powershell -File sim_iter.ps1 to re-exec full incl C17. Next real drive validation post-log parse. ==="
 Write-Host "SUBAGENT C17 TASK: verification sims done; sim_iter.ps1 updated; outputs tables/JSONL as prior C rounds; based on real 417ms/MUSIC_BROAD + code for new changes. Quant deltas reported."
 
+# C18: 07-01 real log calibration (174553 main + 071503)
+# Stats: avg spd #7 ~15-21 (low, max~52), mode true rate high in one log (~88%), observed boost~1.08-1.52 (pre full 2.8x), red low~0.22, sonif high (476-6984), quality~0, MUSIC_BROAD dominant, accel~1.1 avg but peaks high.
+# Predict: with 2.8x+EMA+0.18mic, in "lowsupp like real" red~2.5-3.5 protected; if strict spd enforced -> unlock highsupp path +10dB safe.
+# New variant: "rumbleEnergyProxy" = max(0, (accelEma-0.25)*4 ) * (1 if musicBroad else 1.5); use to scale boost continuous even low spd.
+Write-Host "C18 added: 07-01 log point + rumbleEnergyProxy continuous boost model for low-spd robustness + sonif co-exist (boost not ducked by sonif)."

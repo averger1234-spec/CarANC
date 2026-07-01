@@ -94,6 +94,7 @@ class MultiBandANCProcessor(
     private var vehicleSpeedKmh = 0f
     private var vehicleSpeedValid = false
     private var rumbleAccelMag = 0f  // IMU linear accel mag as rumble vibration proxy (integrated into low band for boost)
+    private var rumbleEnergyProxy = 0f  // for virtualSuppressionQuality (blend with media quality to bypass stuck quality=0 in AA)
     private var blockRmsVssScale = 1f  // blockRms variance based scale from AudioEngine for enhanced VSS in BandFxLms
     private var useNativeLowBand = false  // switch to native low band when available (stub now, real impl when NDK active)
     private var rumbleBoostFactor = 0.05f  // per-tier strength for IMU rumble boost (set by tier in updateTier)
@@ -445,6 +446,12 @@ class MultiBandANCProcessor(
         val sonifScale = if (sonificationOverride) sonificationGainScale else 1f
         val eventScale = minOf(sirenScale, sonifScale)  // any important transient ducks ANC output + adaptation
 
+        // virtualSuppressionQuality: "virtual quality" 混合 media quality + IMU rumble energy proxy。
+        // 解決 AA music 時 mediaSubtractor 常卡 quality=0 的困境。
+        // 當 IMU 偵測到強 rumble 能量時，即使 media quality 低，也給較 aggressive rumble 處理。
+        rumbleEnergyProxy = (rumbleAccelMag / 5f).coerceIn(0f, 1f)  // normalized from accel (0-5+ mag typical)
+        val virtualSuppressionQuality = kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f)
+
         val latencyLimits = latencyBandLimits
         val freeze = freezeWeightUpdates > 0 || sirenOverride || sonificationOverride
 
@@ -458,8 +465,11 @@ class MultiBandANCProcessor(
             val lowSample = if (floorMode || roadMode) reference.low else bands.low
             val idleMode = !floorMode && !roadMode && !callActive
 
+            // sonif 更不干擾 rumble：musicDominantRumbleMode 時，rumble 的 muScale 不受 sonif eventScale 影響（只影響最終輸出 gain）。
+            // 這樣通知時仍保護音樂/避免 echo，但 IMU rumble boost 和學習繼續運作（vibration preview 不中斷）。
+            val lowAdaptiveScale = if (musicDominantRumbleMode) 1f else eventScale
             val lowMu = effectiveMuScale(lowBand, floorMode, roadMode) *
-                eventScale *
+                lowAdaptiveScale *
                 latencyLimits.lowGain *
                 LatencyAwareBandLimiter.bandMuScale(lowBand.centerHz, estimatedLatencyMs, roadRumble = roadMode)
 
@@ -478,11 +488,15 @@ class MultiBandANCProcessor(
                 // Widened clear rumble threshold (0.25f) to trigger strong boost more often when any structural rumble present.
                 val hasClearRumble = rumbleAccelMag > 0.25f
                 var extra = if (hasClearRumble) 2.8f else 1.4f   // amplified for stronger, more consistent IMU dominance in music
-                if (musicSuppressionQuality < 0.5f && hasClearRumble) {
-                    extra *= (1.0f + (0.5f - musicSuppressionQuality) * 1.4f).coerceIn(1.0f, 1.8f)
+                val vq = kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f)
+                if (vq < 0.5f && hasClearRumble) {
+                    extra *= (1.0f + (0.5f - vq) * 1.4f).coerceIn(1.0f, 1.8f)
                 }
                 rumbleVibBoost *= extra
                 rumbleVibBoost = rumbleVibBoost.coerceAtMost(4.5f)
+                // 07-01 log feedback (high accel even at low spd ~15avg): add continuous energy proxy so boost scales with rumble strength, not just binary clear. Helps low-spd high-bump cases without over-boosting noise.
+                val energyProxy = ((rumbleAccelMag - 0.25f) * 1.2f).coerceAtLeast(0f).coerceAtMost(1.5f)
+                rumbleVibBoost *= (1f + energyProxy * 0.6f)
             }
             // IMU coupling quality: dampen only if very poor; less aggressive dampen to keep strength.
             val couplingQuality = (rumbleAccelMag / 0.3f).coerceIn(0f, 1f)
@@ -503,7 +517,8 @@ class MultiBandANCProcessor(
                 val useLowErrBoost = musicLowAncEnabled && vehicleSpeedKmh > 12f
                 // Safe "amplify road noise" (post-subtractor): only boost error (for stronger rumble LMS) when suppression good.
                 // Implements user's idea with guard: high suppression + rumble context -> more aggressive low band learning without amplifying music artifact.
-                val suppressionBoost = 1.0f + (musicSuppressionQuality * 0.8f).coerceAtMost(0.8f)  // up to ~1.8x when perfect suppression
+                val vq3 = kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f)
+                val suppressionBoost = 1.0f + (vq3 * 0.8f).coerceAtMost(0.8f)  // up to ~1.8x when perfect suppression (or high rumble energy proxy)
                 val lowError = if (useLowErrBoost) virtualBands.low * suppressionBoost else virtualBands.low
                 lowBand.processSample(
                     sample = decimated,
@@ -683,8 +698,9 @@ class MultiBandANCProcessor(
             // 07-01 feedback: stronger, more stable IMU/road dominance in music. Higher roadWeight boost + lower micFactor.
             val hasClearRumble = rumbleAccelMag > 0.25f
             var extra = if (hasClearRumble) 2.2f else 1.3f
-            if (musicSuppressionQuality < 0.5f && hasClearRumble) {
-                extra *= (1.0f + (0.5f - musicSuppressionQuality) * 1.4f).coerceIn(1.0f, 1.7f)
+            val vq2 = kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f)
+            if (vq2 < 0.5f && hasClearRumble) {
+                extra *= (1.0f + (0.5f - vq2) * 1.4f).coerceIn(1.0f, 1.7f)
             }
             roadWeight = (roadWeight * extra).coerceAtMost(0.92f)
             val couplingQuality = (rumbleAccelMag / 0.3f).coerceIn(0f, 1f)
@@ -983,4 +999,9 @@ class MultiBandANCProcessor(
     override fun isMusicDominantRumbleMode(): Boolean = musicDominantRumbleMode
     override fun getLastRumbleVibBoost(): Float = lastRumbleVibBoost
     override fun getLastEffectiveLowMu(): Float = lastEffectiveLowMu
+
+    override fun getVirtualSuppressionQuality(): Float {
+        val rumbleEnergyProxy = (rumbleAccelMag / 5f).coerceIn(0f, 1f)
+        return kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f)
+    }
 }

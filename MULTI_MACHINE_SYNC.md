@@ -819,3 +819,29 @@ pull 後用新 panel 調參數測試 rumble 路段，記得同時記 scenario �
 
 （已同步 append 到三個 .md + 對應 code 改動）
 
+
+## 2026-07-01 Additional refinements: sonif less interference + virtualSuppressionQuality (directly addressing quality=0 + sonif events in 07-01 logs)
+
+**sonif 更不干擾 (Sonification protection does not damp rumble processing):**
+- Problem observed in logs: 4500+ sonification_detected events during #7. sonifOverride's eventScale (0.06-0.18 gain) was multiplying into lowMu (and thus effectiveLowMu) even when musicDominantRumbleMode=true. This could unnecessarily reduce IMU rumble boost/learning during notifications, interrupting the "vibration preview" path.
+- Solution: In MultiBandANCProcessor.process(), when musicDominantRumbleMode, use lowAdaptiveScale = 1f (skip eventScale) specifically for low band muScale. 
+  - Sonif still: ducks final anti-noise output gain + contributes to freeze (prevents LMS from learning transients → artifact).
+  - But: rumbleVibBoost calc, rumble ref mix (in pipeline), and mu for rumble stay at full strength (including 2.8x/EMA/energyProxy).
+- Result: Notifications protected (no echo/choppy) without collateral damage to the IMU-dominant rumble strategy. Rumble boost curve remains sustained even during sonif events.
+- Code: lowAdaptiveScale logic + comments in processor. Also in AudioEngine snapshot logging for verification.
+- Script: updated #7 instructions and monitored fields to emphasize "sonif 期間 rumble boost 是否持續".
+
+**virtualSuppressionQuality (bypass for quality stuck at 0):**
+- Problem (all recent logs): musicSuppressionQuality / musicRoadEnergyRatio / mediaSubtracted / mediaCorrelation persistently ~0 in real AA (247ms remote-submix + music bleed). This forces overly conservative scales/extra-boost everywhere, even when IMU sees strong rumble energy (high accelMag/roughness), limiting red in music-dominant cases.
+- Solution: 
+  - rumbleEnergyProxy = (rumbleAccelMag / 5f).coerceIn(0f,1f) (normalized IMU energy).
+  - virtualSuppressionQuality = max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f).
+  - Used in: extra boost multipliers (in musicDominantRumbleMode), suppressionBoost for lowError, roadWeight extra, etc. (replaces raw quality where we want "less conservative when rumble energy high").
+- Exposed: new getter in AncProcessorFacade + MultiBandANCProcessor, logged in every running_snapshot as "virtualSuppressionQuality", added to script monitoredSnapshotFields and #7 verification points.
+- Benefits: When IMU detects rumble energy (even if media quality calc is broken), system can still be more aggressive on low-band rumble processing/boost. Directly enables the first-principles goal ("音樂存在時，要盡量減少對高延遲 mic residue 的依賴，改用 IMU 震動前兆作為 rumble 的主要參考來源").
+- Complements prior: works together with force mode, 2.8x multipliers, EMA, 0.18 micFactor, energyProxy continuous scaling.
+- Sim: C18 in sim_iter.ps1 extended with 07-01 log stats (low spd, high sonif, quality=0, observed boost) + this virtual/proxy model. Predicts better red in "low-supp but high-rumble-energy" cases vs pure media quality.
+
+These two are the direct response to 07-01 log analysis (persistent quality=0 + frequent sonif + low boost despite energy present). Phone has latest APK (clean build + install). Next strict-protocol test with latest code should show the improvements in virtualSuppressionQuality values and sonif-period boost stability.
+
+(Also updated: iOS stub, script instructions with C18 note, sim_iter.ps1. Code changes committed with this .md update.)

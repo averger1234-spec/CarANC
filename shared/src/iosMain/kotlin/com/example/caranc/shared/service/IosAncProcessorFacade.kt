@@ -173,4 +173,6 @@ class IosAncProcessorFacade(
     override fun setMusicDominantRumbleMode(enabled: Boolean) {
         // iOS stub (MUSIC_DOMINANT_RUMBLE flag; future)
     }
+
+    override fun getVirtualSuppressionQuality(): Float = 0f
 }
