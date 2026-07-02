@@ -248,6 +248,7 @@ class AudioRouteManager(context: Context) {
 
         // AA routing 保險機制偵測
         if (isAaConnected && !result.carSinkRouted && !aaSonificationRoutingFailed) {
+            // 07-02 log 教訓：#7 期間及結束時多次 route_refresh_warning + carSinkRouted=false，導致 rumble ref 不穩 (playbackRefActive false)。AA routing 保險機制偵測
             // 嘗試判斷是否是因為 SONIFICATION 導致 routing 失敗
             // (carSinkRouted false 且 routed 到非車機 sink)
             val routedName = result.routedOutputName ?: ""

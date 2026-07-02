@@ -561,3 +561,40 @@ These two are the direct response to 07-01 log analysis (persistent quality=0 + 
 **Also:** update .md (this + test script), sim_iter.ps1 may need C19 if new fields. Phone will be updated via install after compile check. All per user "有幫我更新至github了嗎(包括.md檔案)?手機也是最新版本了嗎?" emphasis + "從logcat基實抓甚麼數據".
 
 (Changes not yet pushed; after user test + sims we commit.)
+
+## 2026-07-02 log 分析（依用戶提供結構 + 深度解析）
+
+**1. 測試條件總覽**
+- 路面非常粗糙（bump_detected 高達 26,737 次）：非常適合 rumble 測試。
+- 音樂主導模式 musicDominantRumbleMode: true 佔比約 90%（585 次）：模式進入率極高。
+- 通知事件 sonification_detected 1,076 次：仍算多，但比上次少。
+- 測試流程完整跑完 tuning_4 → tuning_finish：腳本執行正常。
+- 延遲仍使用 80ms override：與之前一致。
+這次測試的最大亮點是路面夠粗糙，提供了足夠的 rumble 能量來驗證 IMU 主導策略。
+
+**2. Bug Fix 後的實際效果（最重要觀察）**
+shadowing bug 已修復，這次 log 反映真實行為。
+- musicDominantRumbleMode 進入率極高（90%），觸發機制正常。
+- 新欄位（virtualSuppressionQuality、rumbleEnergyProxy）正常記錄。
+- 深度解析：全 log rumbleVibBoost >=2 的快照有 551 個（最高 6.5+）。在 tuning_7_strong_road 步：239 個有 boost field，其中 171 個 >=1.5（71%）。證明 aggressive IMU 邏輯（2.8x + EMA + energy proxy + vq lift）在 fix 後真正生效。
+- vq vs raw：在高 boost 樣本中 vq 0.05-0.13 > rawQ=0.0，proxy 正在提供 lift。
+- effectiveLowMu：在有高 boost 時應跟著提升（雖整體 red 仍低）。
+- sonif 期間：高 boost 快照存在，顯示 rumble 主路徑（mu）不受 sonif 0.06 duck 影響（lowAdaptiveScale=1f 生效）。但需確認輸出 gain 是否受影響導致感知低。
+- reduction 仍偏低（多 0.00x，甚至 #7 期間）：可能 high band music 主導整體 dB，或 placement coupling 差（中控下方 accel 低 → proxy 低）。
+
+**3. 新功能 / 新欄位觀察**
+- virtualSuppressionQuality / rumbleEnergyProxy：有記錄，vq > rawQ，機制正確。
+- musicStreamVolume / musicVolNorm：記錄正常（例 8/25 → 0.32），測試有調音量。
+- Sonification 事件時 rumble 行為：高 boost 快照多，sonif gain 多 0.06，rumble boost 在 sonif 期間多能維持（非干擾主路徑）。
+
+**4. 整體評估**
+正面：粗糙路面好條件；模式進入率高；新欄位正常；shadowing fix 讓 aggressive 邏輯發揮（551 高 boost，#7 71% 高）。
+仍需改善：red 平均仍低（high band music 拖累 metric？coupling 差？）；sonif 事件仍 1076 次（雖保護 mu，但感知可能受輸出 duck 影響）。
+
+**5. 建議下一步 + 已執行改善**
+- 已執行：增加 rumbleEnergyProxy 對 boost 的權重（從 0.6 提到 1.0）；virtualQ 權重提到 1.0；freeze 在 dominant 即使 proxy 低也額外 relax；sonif 在 high rumble 時 output duck milder；script #7 加入這次 log 具體數據 + 觀察點（高 boost 存在證明 fix 有效、placement 建議）。
+- 下次測試重點：用相同腳本，換 phone 放 floor/seat 改善 coupling；記錄高 boost 時的 red / sonif 前後 boost 是否降；目標 sustained red 在 rumble 期。
+- 若仍不夠：可再調高 energy 係數、加 low-band specific red metric 到 snapshot（目前 high band music 常主導整體 red）。
+
+(已同步到 3 .md + code + script)
+
