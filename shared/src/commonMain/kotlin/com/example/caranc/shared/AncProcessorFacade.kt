@@ -37,6 +37,9 @@ interface AncProcessorFacade : AudioProcessor {
     fun setEstimatedLatencyMs(latencyMs: Float)
     fun getLatencyBandLimits(): LatencyBandLimits
 
+    // Dynamic real end-to-end latency from probe (used to tune RumblePreviewPredictor horizon and feedforward weights).
+    fun setProbeCorrMs(probeCorrMs: Float) {}
+
     // CYCLE3_EXTRA: expose low-band LMS profiling counters (from inner BandFxLms) for AudioEngine extended timing/monitoring.
     // lmsUpdateCount: actual weight updates performed (not just calls).
     // lmsProcessCalls: total invocations into low LMS process path.

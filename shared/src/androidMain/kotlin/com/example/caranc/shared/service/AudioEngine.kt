@@ -221,6 +221,11 @@ class AudioEngine(
                 }
                 audioTrack = audioTrackBuilder.build()
 
+                // AA latency note (user 2026-07-02 request for architecture change to break 0.5s / phase dilemma):
+                // AA remote_submix is the hard limit (~247ms + buffering in logs). AAudio low-latency + specific usage (e.g. USAGE_ASSISTANCE_NAVIGATION_GUIDANCE or media) may help in non-AA paths or future, but AA integration typically forces submix for mixing.
+                // We prioritize predictive feedforward (RumblePreviewPredictor + IMU + road Wiener) over adaptive for low band in AA rumble.
+                // If not AA, lowLatency flag + AAudio would be used here for better base latency.
+
                 val initialRoute = routeManager.applyPreferredDevices(
                     audioRecord = audioRecord!!,
                     audioTrack = audioTrack!!,
@@ -863,6 +868,7 @@ class AudioEngine(
                                 lastMeasBlock = blockCount
                                 runtimeMeasuredLatencyMs = if (runtimeMeasuredLatencyMs < 5f) meas else 0.65f * runtimeMeasuredLatencyMs + 0.35f * meas
                                 ancProcessor?.setEstimatedLatencyMs(getEffectiveLatencyForSet(runtimeMeasuredLatencyMs))
+                                ancProcessor?.setProbeCorrMs(probeC)
                                 AncSessionLogger.log(
                                     phase = "runtime_latency_correlated",
                                     fields = mapOf(
@@ -1215,6 +1221,14 @@ class AudioEngine(
         // User's 125731.log showed overall reductionDb avg~0.22 (max5.57) but almost none in driving despite internal rumbleVibBoost/effMu high.
         // Low band (<250Hz) reduction will now be logged separately to diagnose if IMU ref + effectiveRumble + classifier force actually cancels the rumble component.
         val lowBandReductionDb = computeLowBandReductionDb(rawSpectrum, cancelledSpectrum, audioRecord?.sampleRate ?: 44100)
+
+        // Real-time visibility for "when speakers produce sound" (user: can't know in real-time when ANC anti is played through AA speakers).
+        // Prints to logcat when anti output is active (antiDb < -10 means significant speaker power).
+        // User can run live on PC: adb -s 57191FDCG002KH logcat -s ANCService | findstr SPEAKER_ANTI
+        // This gives timestamped "喇叭出現聲音" with context (speed, accel, red, mode, rumble flag) to correlate with what is heard (note ~0.5s delay from AA + latency).
+        if (antiNoiseDb < -10f) {
+            Log.d("ANCService", "SPEAKER_ANTI_ACTIVE: antiDb=${"%.1f".format(antiNoiseDb)} redDb=${"%.3f".format(estimatedRawDb - residualDb)} lowBandRed=${"%.2f".format(lowBandReductionDb)} mode=${processingModeName(ancProcessor!!)} effRumble=${ancProcessor?.isEffectiveRumbleMode() ?: false} speed=${"%.1f".format(speed.speedKmh)} accel=${"%.2f".format(speed.linearAccelMagnitude)} blockRms=${"%.4f".format(lastBlockRms)}")
+        }
 
         if (estimatedRawDb > -90f) {
             sessionContext.stateManager.updateVisualization(rawSpectrum, cancelledSpectrum, estimatedRawDb, residualDb)

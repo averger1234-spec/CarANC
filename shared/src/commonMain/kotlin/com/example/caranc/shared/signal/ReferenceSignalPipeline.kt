@@ -115,8 +115,10 @@ class ReferenceSignalPipeline(
             if (musicDominantRumble) {
                 // 07-01 feedback: amplify IMU rumble ref even more for stable strength in music dominant (bypass high AA latency + music bleed via vibration precursor).
                 // Wider threshold + higher multipliers for more consistent strong preview. EMA added for stability.
+                // AA latency mitigation (07-02 user): for high-lat AA, the IMU preview (vibration leads sound by tens to hundreds of ms) allows us to subtract rumbleRef *earlier* than the delayed mic error arrives.
+                // This is the key architecture shift: make the "afterRumble" ref much more IMU-dominant so the downstream low-band adaptive sees a pre-cleaned rumble ref, not the full delayed AA mic.
                 val hasClearRumble = rumbleAccelEma > 0.25f
-                var boost = if (hasClearRumble) 3.5f else 1.5f
+                var boost = if (hasClearRumble) 4.5f else 2.0f   // increased for AA high-lat cases to rely even more on preview
                 if (suppressionQuality < 0.5f && hasClearRumble) {
                     boost *= (1.0f + (0.5f - suppressionQuality) * 1.4f).coerceIn(1.0f, 1.8f)
                 }

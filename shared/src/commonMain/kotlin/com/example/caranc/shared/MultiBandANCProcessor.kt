@@ -17,6 +17,7 @@ import com.example.caranc.shared.latency.NativeLowBandProcessor
 import com.example.caranc.shared.latency.PreLearnedAncBank
 import com.example.caranc.shared.latency.RoadNoiseWienerBank
 import com.example.caranc.shared.latency.VirtualSensingModel
+import com.example.caranc.shared.predictor.RumblePreviewPredictor
 import com.example.caranc.shared.signal.VoiceBandProtector
 import kotlin.math.PI
 
@@ -134,6 +135,12 @@ class MultiBandANCProcessor(
     private var estimatedLatencyMs = 150f
     private var learningCaptured = false
 
+    // Dedicated RumblePreviewPredictor (architecture change for AA high-latency rumble).
+    // Uses past IMU + speed to extrapolate future rumble ~250ms ahead (tuned by real probe/estimated latency).
+    // In AA submix + effectiveRumble + low band: we will use this heavily as preview feedforward,
+    // de-emphasize adaptive LMS so anti is mostly "pre-aligned" predictive rumble inverse, not delayed-error chasing (which produces white noise).
+    private val rumblePredictor = RumblePreviewPredictor()
+
     private var musicLowAncEnabled = true
 
     // Debug tuning (for "PID-like" LMS adaptation learning via TestLogPanel)
@@ -198,6 +205,13 @@ class MultiBandANCProcessor(
     override fun setEstimatedLatencyMs(latencyMs: Float) {
         estimatedLatencyMs = latencyMs.coerceIn(15f, 400f)
         latencyBandLimits = LatencyAwareBandLimiter.limits(estimatedLatencyMs)
+        // Tune predictor horizon from measured latency (probeCorr will further refine via perf updates)
+        // This allows dynamic adjustment of preview delay for real AA end-to-end (247ms + buffering).
+        rumblePredictor.setPredictionHorizon(estimatedLatencyMs, estimatedLatencyMs)  // probe passed separately if available
+    }
+
+    override fun setProbeCorrMs(probeCorrMs: Float) {
+        rumblePredictor.setPredictionHorizon(estimatedLatencyMs, probeCorrMs)
     }
 
     override fun getLatencyBandLimits(): LatencyBandLimits = latencyBandLimits
@@ -248,6 +262,8 @@ class MultiBandANCProcessor(
 
     override fun setRumbleAccel(mag: Float) {
         rumbleAccelMag = mag.coerceAtLeast(0f)
+        // Feed to predictor (with current time as proxy; in practice timestamp from engine would be better)
+        rumblePredictor.update(rumbleAccelMag, vehicleSpeedKmh, System.currentTimeMillis().toDouble())
     }
 
     override fun setPersonalRumbleBias(bias: Float) {
@@ -314,6 +330,8 @@ class MultiBandANCProcessor(
             preLearnedBank.blendedWeights(vehicleSpeedKmh)?.let { bias ->
                 lowBand.applyWeightBias(bias, blend = 0.25f)
             }
+            // Update predictor with speed (IMU already fed via setRumbleAccel)
+            rumblePredictor.update(rumbleAccelMag, vehicleSpeedKmh, System.currentTimeMillis().toDouble())
         }
     }
 
@@ -482,6 +500,22 @@ class MultiBandANCProcessor(
             val lowSample = if (floorMode || roadMode) reference.low else bands.low
             val idleMode = !floorMode && !roadMode && !callActive
 
+            // RumblePreviewPredictor integration (AA high-lat architecture shift).
+            // In effectiveRumble + high estimated latency (AA submix), get the extrapolated future rumble preview.
+            // This preview (from past IMU + speed linear fit, horizon tuned by real latency) is used to directly
+            // generate low-band anti, with heavy de-emphasis on adaptive LMS for low band.
+            // Goal: produce anti that is "pre-aligned" to rumble (IMU leads sound), bypassing the 247ms+ delayed
+            // mic error that causes poor phase and white-noise-like output.
+            val rumblePreview = if (lastEffectiveRumbleMode && estimatedLatencyMs > 150f) {
+                rumblePredictor.getCurrentPreviewRumble()
+            } else 0f
+            if (rumblePreview != 0f) {
+                // Real-time visibility of the new predictor (for debugging the architecture change).
+                // Correlates with SPEAKER_ANTI_ACTIVE to see if preview is driving the anti instead of delayed adaptive.
+                // (println for KMP common; in release builds this can be removed or routed via sessionContext debug logger)
+                println("RUMBLE_PREVIEW: val=${"%.3f".format(rumblePreview)} latMs=${estimatedLatencyMs} effRumble=true")
+            }
+
             // sonif 更不干擾 rumble：effectiveRumbleMode (music dom or driving rumble) 時，rumble 的 muScale 不受 sonif eventScale 影響（只影響最終輸出 gain）。
             // 這樣通知時仍保護音樂/避免 echo，但 IMU rumble boost 和學習繼續運作（vibration preview 不中斷）。
             val lowAdaptiveScale = if (effectiveRumbleMode) 1f else eventScale
@@ -516,6 +550,13 @@ class MultiBandANCProcessor(
                 val energyProxy = ((rumbleAccelMag - 0.25f) * 1.2f).coerceAtLeast(0f).coerceAtMost(1.5f)
                 rumbleVibBoost *= (1f + energyProxy * 1.0f)
             }
+
+            // AA high-lat + rumble: use the RumblePreviewPredictor output to directly contribute to low band ref/anti.
+            // This is the "directly produce anti from preview (almost not rely on adaptive LMS)" path.
+            // Preview is future rumble proxy; we add it to low ref so the generated lowOut / anti includes the predicted inverse.
+            val lowSampleForLowBand = if (lastEffectiveRumbleMode && estimatedLatencyMs > 150f) {
+                lowSample + rumblePreview * 1.2f  // scale tuned; positive preview -> more negative anti in the -combined
+            } else lowSample
             // IMU coupling quality: dampen only if very poor; less aggressive dampen to keep strength.
             val couplingQuality = (rumbleAccelMag / 0.3f).coerceIn(0f, 1f)
             if (couplingQuality < 0.4f && effectiveRumbleMode) {
@@ -528,7 +569,7 @@ class MultiBandANCProcessor(
             lastRumbleVibBoost = rumbleVibBoost
             lastEffectiveLowMu = effectiveLowMu
 
-            val lowOut = multirateLow.processSample(lowSample) { decimated ->
+            val lowOut = multirateLow.processSample(lowSampleForLowBand) { decimated ->
                 // Aggressive per-"quiet zone" rumble focus: in musicLow, amplify low errorSample to drive stronger LMS adaptation for tire/wind (simulate seat-specific quiet zones)
                 // IDLE ARTIFACT FIX (minimal, speed guard only): skip lowErr boost at very low speed (<12kmh) to suppress telegraph on low-rms residuals/bleed without rumble excitation.
                 // At drive speed 50+ (for #6/#7) fully active. Preserves effMidMu 0.6+ goal.
@@ -537,10 +578,14 @@ class MultiBandANCProcessor(
                 // Implements user's idea with guard: high suppression + rumble context -> more aggressive low band learning without amplifying music artifact.
                 val vq3 = kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f)
                 val suppressionBoost = 1.0f + (vq3 * 0.8f).coerceAtMost(0.8f)  // up to ~1.8x when perfect suppression (or high rumble energy proxy)
+
+                // AA high-lat rumble: damp error drive for low band (almost turn off adaptive for low band <250Hz).
+                // Use the preview-injected lowSampleForLowBand; let LMS only do small residual correction.
                 val lowError = if (useLowErrBoost) virtualBands.low * suppressionBoost else virtualBands.low
+                val lowMuToUse = if (lastEffectiveRumbleMode && estimatedLatencyMs > 150f) effectiveLowMu * 0.15f else effectiveLowMu
                 lowBand.processSample(
                     sample = decimated,
-                    muScale = effectiveLowMu,
+                    muScale = lowMuToUse,
                     freezeUpdates = freeze,
                     errorSample = lowError
                 )
@@ -660,13 +705,27 @@ class MultiBandANCProcessor(
                     - (lowAnti + protectedHigher) + engineFf + roadFfInMusicLow
                 }
                 floorMode -> -lowPassOutput(adaptiveCombined) + engineFf
-                roadMode -> -roadLowPassOutput(adaptiveCombined) + roadFf + engineFf * 0.3f
+                roadMode -> {
+                    val roadFfGain = if (estimatedLatencyMs > 150f && lastEffectiveRumbleMode) 1.6f else 1.0f
+                    val previewAntiContribution = if (lastEffectiveRumbleMode && estimatedLatencyMs > 150f) {
+                        -rumblePreview * 0.9f   // direct predictive anti from preview (the "almost no adaptive LMS" path for low band rumble in AA)
+                    } else 0f
+                    -roadLowPassOutput(adaptiveCombined) + roadFf * roadFfGain + engineFf * 0.3f + previewAntiContribution
+                }
                 else -> -adaptiveCombined + engineFf
             }
 
             // 07-02 log: 1076 sonif events (many in #7) with 0.06 duck may over-protect and reduce perceived rumble even if mu not affected. In dominant rumble + high energy, use milder duck (protect less aggressively).
             val outputEventScale = if (musicDominantRumbleMode && rumbleEnergyProxy > 0.2f) (eventScale * 0.5f + 0.5f).coerceAtMost(1f) else eventScale
-            output[i] = (combined * outputEventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
+
+            // Gate speaker output to (near) zero in low-excitation idle/no-rumble conditions.
+            // Prevents "white noise" / telegraph artifact from being played through speakers (AA or otherwise) when there's no rumble to cancel.
+            // User observation: even if phase not perfectly aligned ("沒有對準"), it should NOT produce audible white noise/hiss.
+            // Only allow anti output when rumble excitation is present (speed/accel/proxy) or effectiveRumbleMode (our IMU logic).
+            // Over pits/bumps (high accel) or driving rumble will still trigger output as intended.
+            val lowExcitationNoRumble = vehicleSpeedKmh < 10f && rumbleAccelMag < 0.4f && rumbleEnergyProxy < 0.15f && !effectiveRumbleMode
+            val gatedCombined = if (lowExcitationNoRumble) 0f else combined
+            output[i] = (gatedCombined * outputEventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
 
             if (freezeWeightUpdates > 0) {
                 freezeWeightUpdates--
@@ -729,6 +788,16 @@ class MultiBandANCProcessor(
                 roadWeight *= (0.65f + couplingQuality * 0.5f)
             }
         }
+
+        // AA remote_submix latency mitigation (hard limit ~247ms + buffering, user measures ~0.5s perceived delay).
+        // For high-latency AA + rumble, force even more feedforward (IMU preview + road model) dominance.
+        // This shifts architecture toward "predictive open-loop" for low band rumble: the preview (IMU leads acoustic by 50-200ms depending on car/speed/suspension) + roadWiener can pre-apply anti BEFORE the delayed mic error arrives.
+        // Adaptive LMS on delayed path has poor phase margin for rumble; we de-emphasize mic reliance here.
+        // Even if adaptive can't fully align, the feedforward provides the bulk of rumble cancel, reducing the "uncorrelated white noise" output user hears.
+        // This is the main architectural lever without changing AA routing.
+        if (estimatedLatencyMs > 150f && lastEffectiveRumbleMode) {
+            roadWeight = (roadWeight * 1.15f).coerceAtMost(0.97f)
+        }
         if (roadWeight <= 0f) {
             val micLow = if (floorMode) lowPassInput(xRaw) else lowSample
             return BandSamples(micLow, 0f, 0f)
@@ -740,7 +809,10 @@ class MultiBandANCProcessor(
         val scaledRoad = roadComponent * (0.55f + 0.45f * energyScale)
         val micLow = if (floorMode) lowPassInput(xRaw) else lowSample
         // First-principles explicit: in effectiveRumbleMode, further lower mic residue weight (bypass AA latency + music bleed or motion correlation loss via IMU precursor ref).
-        val micFactor = if (lastEffectiveRumbleMode) 0.18f else 1f
+        // High latency AA: drop micFactor to 0.05 so ref is almost pure preview (road + IMU), avoiding feeding delayed mic into the low band ref.
+        val micFactor = if (lastEffectiveRumbleMode) {
+            if (estimatedLatencyMs > 150f) 0.05f else 0.18f
+        } else 1f
         val blendedLow = (1f - roadWeight) * micLow * micFactor + roadWeight * scaledRoad
         return BandSamples(blendedLow, 0f, 0f)
     }
@@ -769,7 +841,12 @@ class MultiBandANCProcessor(
         // IDLE ARTIFACT FIX (minimal, speed<8 only; #7 at 50-70 untouched): lower muScale at pure idle to reduce over-adapt on low-energy residuals while musicLow/debug high mu active.
         // roadMode at low spd rare (thresholds); rumble drive unaffected. Helps telegraph w/o touching effMidMu 0.6+ at speed.
         val idleMuScale = if (vehicleSpeedKmh < 8f && !roadMode) 0.32f else 1f
-        return band.baseMuScale * modeScale * speedMuScale() * resonanceScale * debugMuMultiplier * idleMuScale * musicConservativeScale
+
+        // High AA latency + rumble: de-emphasize low-band adaptive mu (the delayed mic error path has bad phase for rumble).
+        // Let the strong feedforward (road + IMU in ref mix) do the heavy lifting; adaptive only fine-tunes.
+        // This prevents the adaptive from "fighting" the preview and producing the uncorrelated hiss user hears as white noise.
+        val highLatAdaptiveDamp = if (estimatedLatencyMs > 150f && lastEffectiveRumbleMode && band.label == "low") 0.4f else 1f
+        return band.baseMuScale * modeScale * speedMuScale() * resonanceScale * debugMuMultiplier * idleMuScale * musicConservativeScale * highLatAdaptiveDamp
     }
 
     private fun speedMuScale(): Float =
