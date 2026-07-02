@@ -71,7 +71,7 @@ class ReferenceSignalPipeline(
         playbackSize: Int,
         lastAntiNoise: ShortArray?,
         rumbleAccel: Float = 0f,  // simple IMU aux ref for rumble feedforward (vibration proxy mixed into low freq residue)
-        musicDominantRumble: Boolean = false,  // first-principles: when music dominant, boost IMU rumble ref weight (immune to music), reduce reliance on mic-based afterMedia for low rumble
+        musicDominantRumble: Boolean = false,  // 07-02: now also true for pure driving rumble (isDrivingRumble music=false) via AudioEngine force; boosts IMU ref weight (immune to latency + motion correlation loss), reduce mic reliance for rumble cancel. Name kept for compat.
         suppressionQuality: Float = 1f  // for dynamic IMU boost: lower suppression -> more aggressive IMU ref to compensate
     ): ShortArray {
         // Use reuse buffer when size matches (common case 64); fallback new only for unusual sizes. Reduces alloc in hot preprocess path.
@@ -110,8 +110,8 @@ class ReferenceSignalPipeline(
             // Adaptive: higher mix when vibration strong (preview rough road) or high speed context (caller speed not passed, infer via accel).
             val adapt = (1f + (rumbleAccelEma * 0.6f).coerceAtMost(1.2f))
             var rumbleScale = (baseScale * adapt).coerceIn(0.0005f, 0.005f)
-            // First-principles: in MUSIC_DOMINANT_RUMBLE, boost IMU rumble ref even more (immune to music/latency issues), de-emphasize afterMedia (mic-based which has music bleed).
-            // Dynamic: when suppressionQuality low (<0.4), extra aggressive boost (1.3-1.5x more) so IMU becomes even more dominant.
+            // First-principles: in rumble dominant (music dom OR driving rumble music=false), boost IMU rumble ref even more (immune to AA latency + weak IMU-acoustic corr in motion), de-emphasize afterMedia.
+            // Dynamic: when suppressionQuality low (<0.4), extra aggressive boost so IMU becomes even more dominant.
             if (musicDominantRumble) {
                 // 07-01 feedback: amplify IMU rumble ref even more for stable strength in music dominant (bypass high AA latency + music bleed via vibration precursor).
                 // Wider threshold + higher multipliers for more consistent strong preview. EMA added for stability.

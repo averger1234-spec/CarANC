@@ -43,7 +43,8 @@ class NoiseBandClassifier(
         speedKmh: Float,
         speedValid: Boolean,
         isMusicActive: Boolean,
-        isCallActive: Boolean
+        isCallActive: Boolean,
+        linearAccelMagnitude: Float = 0f  // NEW: IMU for driving rumble bias (when speed high + accel, force ROAD even if MUSIC_BROAD)
     ): NoiseBandClassification {
         if (spectrum.isEmpty() || sampleRate <= 0) {
             return NoiseBandClassification(
@@ -69,8 +70,22 @@ class NoiseBandClassifier(
         // Rumble presence now wins over pure high-dominant for adaptation goal (protection still handled in gains/mode).
         val hasDecentRumbleForMid = lowMidRatio >= 0.06f
 
+        // NEW 07-02: Driving rumble bias from IMU (user feedback: even music off, still MUSIC_BROAD in driving; high boost/mu but no red in driving).
+        // When speed high + accel (rumble proxy), force ROAD rumble mode to enable full IMU dominant low/mid processing (ignore MUSIC_BROAD for low band).
+        // This addresses: classifier failing to see rumble when driving (perhaps wind/tire high freq swamping), so use IMU as prior.
+        // Matches log: when accel high, boost high internally but reduction low -> need to force the mode to let IMU ref dominate.
+        val rumbleProxy = (linearAccelMagnitude / 5f).coerceIn(0f, 1f)
+        val isDrivingRumble = speedValid && speedKmh > 40f && linearAccelMagnitude > 0.5f && rumbleProxy > 0.15f
+
         val dominantBand = when {
             isCallActive -> DominantNoiseBand.MUSIC_BROAD
+            // 07-02 STRENGTHENED (user: "我沒看到你在修改APP?", analysis of 125731.log: music=false 100%, but MUSIC_BROAD 537x, ROAD_MID only 1x; internal rumbleVibBoost max 11.25/effLowMu 14.7/virtualQ 0.75 but driving reductionDb~0 (only idle some); placement not core issue).
+            // IMU structural prior (vibration) takes precedence over mic spectrum when driving rumble detected.
+            // Bypass hasDecentRumbleForMid (lowMidRatio>=0.06) and highRatio MUSIC gate entirely: mic often shows high dominant in motion (wind/hiss/tire) even with strong road rumble.
+            // This forces bandGains to ROAD (higher mid/low), enables rumble paths in processor, and improves log dominant for diagnosis.
+            // isDrivingRumble already requires speed>40 + accel>0.5 + proxy>0.15; safe to force rumble band.
+            isDrivingRumble ->
+                if (lowRatio >= midRatio) DominantNoiseBand.ROAD_LOW else DominantNoiseBand.ROAD_MID
             // Subagent3 Extended #7 + iter variant: classifier tweak for pure ROAD_MID even with music.
             // Data-driven: speed>28 + decent rumble energy (low+mid>=~0.06, observed max~0.071 in real AA mic under music) -> force ROAD_MID/LOW.
             // This enables effectiveMidMu 0.5-0.8, higher mid contrib to 200-350Hz Skoda rumble despite music=true.

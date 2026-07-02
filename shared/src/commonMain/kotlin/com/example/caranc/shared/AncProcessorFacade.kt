@@ -89,6 +89,9 @@ interface AncProcessorFacade : AudioProcessor {
     fun getLastRumbleVibBoost(): Float = 1f
     fun getLastEffectiveLowMu(): Float = 0f
 
+    // 07-02: expose whether effectiveRumble (music dom OR pure driving rumble IMU) is active; used for ref boost, low mu, sonif relax etc.
+    fun isEffectiveRumbleMode(): Boolean = false
+
     // virtualSuppressionQuality: 混合 media quality + IMU rumble energy proxy。用來在 quality 卡 0 時仍能依 rumble 能量給較 aggressive 處理。
     fun getVirtualSuppressionQuality(): Float = 0f
 

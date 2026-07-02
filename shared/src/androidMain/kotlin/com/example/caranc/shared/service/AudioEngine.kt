@@ -580,15 +580,17 @@ class AudioEngine(
 
                         val playbackRead = mediaPlaybackCapture?.read(playbackRefBuffer, read) ?: 0
                         val speedSnap = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
-                        // Compute music dominant rumble flag EARLY (using prior q + force on MUSIC_BROAD/accel), so both pipeline (IMU ref mix 3.5x) and processor (low boost 2.8x+) see the forced intent.
-                        // This ensures the 07-01 refinements (extra IMU boost, continuous energy, EMA, sonif non-damp on rumble mu) actually apply in the floor_music_road + flag path used for AA music+road rumble.
+                        // Compute rumble dominant flag EARLY (using prior q + force on MUSIC_BROAD/accel + now explicit isDrivingRumble for music=false case).
+                        // 07-02: even when !musicActive (per 125731.log), if speed>40 + high IMU accel, force rumble intent so pipeline IMU ref mix + processor effectiveRumble get full strength (strong roadWeight, low micFactor=0.18, extra vibBoost).
+                        // This + classifier force ROAD on IMU prior should deliver driving rumble cancel (user: high internal but 0 driving red before).
                         val priorQ = referencePipeline?.snapshotMetrics()?.musicSuppressionQuality ?: 1f
-                        var musicDominantRumbleForThisBlock = audioManager.isMusicActive && priorQ < 0.6f
-                        if (lastDominant == com.example.caranc.shared.model.DominantNoiseBand.MUSIC_BROAD) {
-                            musicDominantRumbleForThisBlock = true
+                        val isDrivingRumbleNow = speedSnap.valid && speedSnap.speedKmh > 40f && speedSnap.linearAccelMagnitude > 0.5f
+                        var rumbleDominantForThisBlock = audioManager.isMusicActive && priorQ < 0.6f
+                        if (lastDominant == com.example.caranc.shared.model.DominantNoiseBand.MUSIC_BROAD || isDrivingRumbleNow) {
+                            rumbleDominantForThisBlock = true
                         }
                         if (speedSnap.linearAccelMagnitude > 0.8f) {
-                            musicDominantRumbleForThisBlock = true
+                            rumbleDominantForThisBlock = true
                         }
                         val preprocessed = referencePipeline?.preprocessBlock(
                             micInput = input,
@@ -597,15 +599,15 @@ class AudioEngine(
                             playbackSize = playbackRead,
                             lastAntiNoise = lastAntiNoise,
                             rumbleAccel = speedSnap.linearAccelMagnitude,
-                            musicDominantRumble = musicDominantRumbleForThisBlock || (ancProcessor?.getProcessingMode() == AncProcessingMode.MUSIC_DOMINANT_RUMBLE),
+                            musicDominantRumble = rumbleDominantForThisBlock || (ancProcessor?.getProcessingMode() == AncProcessingMode.MUSIC_DOMINANT_RUMBLE),
                             suppressionQuality = priorQ
                         ) ?: input.copyOf(read)
 
-                        // pass + set flag (for processor special logic + snapshot)
+                        // pass + set flag (for processor special logic + snapshot). Note API name still "musicDominant" for compat but now drives effectiveRumble for pure driving rumble too.
                         ancProcessor?.setMusicSuppressionQuality(priorQ)
-                        ancProcessor?.setMusicDominantRumbleMode(musicDominantRumbleForThisBlock)
-                        if (musicDominantRumbleForThisBlock) {
-                            Log.d("ANCService", "force_music_dominant_rumble: MUSIC_BROAD_or_highAccel (flag=true for 2.8x+boost+EMA+sonif-protect) speedKmh=${"%.1f".format(speedSnap.speedKmh)} accel=${"%.2f".format(speedSnap.linearAccelMagnitude)} q=$priorQ dominant=$lastDominant")
+                        ancProcessor?.setMusicDominantRumbleMode(rumbleDominantForThisBlock)
+                        if (rumbleDominantForThisBlock) {
+                            Log.d("ANCService", "force_rumble_dominant: MUSIC_BROAD_or_highAccel_or_isDrivingRumble (flag for IMU ref/boost/sonif-protect) speedKmh=${"%.1f".format(speedSnap.speedKmh)} accel=${"%.2f".format(speedSnap.linearAccelMagnitude)} q=$priorQ dominant=$lastDominant isDriving=$isDrivingRumbleNow")
                         }
 
                         val detector = sirenDetector
@@ -662,7 +664,12 @@ class AudioEngine(
                             }
 
                             if (sonifHit) {
-                                val scale = sonifDet.ancGainScale()
+                                var scale = sonifDet.ancGainScale()
+                                // 07-02: relax sonif duck when driving rumble (isDrivingRumbleNow or flag): road bumps/transients frequently false-positive as sonif bursts (log had 3141 sonif + 85k bumps in 28MB midday log).
+                                // Don't want repeated deep duck (0.06-0.18) killing continuous rumble cancel output during real drive. Milder scale keeps rumble path active while still reducing some echo risk.
+                                if (isDrivingRumbleNow || rumbleDominantForThisBlock) {
+                                    scale = (scale * 0.5f + 0.5f).coerceIn(0.3f, 1f)
+                                }
                                 ancProcessor?.setSonificationOverride(true, scale)
 
                                 val nowMs = System.currentTimeMillis()
@@ -675,7 +682,8 @@ class AudioEngine(
                                             "confidence" to sonifDet.sonificationConfidence,
                                             "burstRatio" to sonifDet.burstRatio,
                                             "gainScaleApplied" to scale,
-                                            "fromPlaybackRef" to (playbackRead > 0)
+                                            "fromPlaybackRef" to (playbackRead > 0),
+                                            "relaxedForRumble" to (isDrivingRumbleNow || rumbleDominantForThisBlock)
                                         )
                                     )
                                 }
@@ -1134,6 +1142,31 @@ class AudioEngine(
         )
     }
 
+    /**
+     * 07-02: Compute low-band (<250Hz) reduction in dB from raw vs cancelled magnitude spectra.
+     * Used for driving rumble diagnostics: isolates rumble band performance (IMU-boosted low/mid) separate from overall red (which includes high freq wind/tire hiss that masks).
+     * Mirrors bandEnergies logic in NoiseBandClassifier (low <250Hz).
+     * If lowBandRumbleReduction >> overall reductionDb in driving + high accel -> good sign IMU path working for rumble.
+     */
+    private fun computeLowBandReductionDb(rawSpectrum: FloatArray, cancelledSpectrum: FloatArray, sampleRate: Int): Float {
+        if (rawSpectrum.isEmpty() || cancelledSpectrum.size != rawSpectrum.size || sampleRate <= 0) return 0f
+        val nyquist = sampleRate / 2f
+        var lowRaw = 0f
+        var lowCancelled = 0f
+        val n = rawSpectrum.size
+        for (i in rawSpectrum.indices) {
+            val freq = (i + 0.5f) * nyquist / n
+            if (freq < 250f) {
+                lowRaw += rawSpectrum[i]
+                lowCancelled += cancelledSpectrum[i]
+            }
+        }
+        val lowRed = if (lowCancelled > 1e-9f && lowRaw > 1e-9f) {
+            (20.0 * kotlin.math.log10((lowRaw / lowCancelled).toDouble())).toFloat()
+        } else 0f
+        return lowRed.coerceAtLeast(0f)
+    }
+
     private fun logStateChange(previous: AncState, current: AncState) {
         if (previous::class == current::class) return
         AncSessionLogger.log(
@@ -1173,6 +1206,11 @@ class AudioEngine(
             rawDb
         }
 
+        // 07-02 ADD: low-band rumble specific reduction (primary target for driving rumble cancel).
+        // User's 125731.log showed overall reductionDb avg~0.22 (max5.57) but almost none in driving despite internal rumbleVibBoost/effMu high.
+        // Low band (<250Hz) reduction will now be logged separately to diagnose if IMU ref + effectiveRumble + classifier force actually cancels the rumble component.
+        val lowBandReductionDb = computeLowBandReductionDb(rawSpectrum, cancelledSpectrum, audioRecord?.sampleRate ?: 44100)
+
         if (estimatedRawDb > -90f) {
             sessionContext.stateManager.updateVisualization(rawSpectrum, cancelledSpectrum, estimatedRawDb, residualDb)
         }
@@ -1186,7 +1224,8 @@ class AudioEngine(
             speedKmh = speed.speedKmh,
             speedValid = speed.valid,
             isMusicActive = audioManager.isMusicActive,
-            isCallActive = audioManager.mode != AudioManager.MODE_NORMAL
+            isCallActive = audioManager.mode != AudioManager.MODE_NORMAL,
+            linearAccelMagnitude = speed.linearAccelMagnitude  // pass IMU for driving rumble bias in classifier (force ROAD even if MUSIC_BROAD when driving high accel)
         )
         ancProcessor?.applyClassifierResult(classification)
         sessionContext.stateManager.updateDominantNoiseBand(classification.dominantBand.name)
@@ -1219,9 +1258,14 @@ class AudioEngine(
                         "cancelledDb" to residualDb,
                         "antiNoiseDb" to antiNoiseDb,
                         "reductionDb" to (estimatedRawDb - residualDb).coerceAtLeast(0f),
+                        // 07-02: lowBandRumbleReduction for driving rumble focus (see computeLowBand...); expect higher than overall red when rumble dominant + IMU active.
+                        "lowBandRumbleReduction" to lowBandReductionDb,
                         "tier" to sessionContext.tierManager.currentTier.value.name,
                         "music" to audioManager.isMusicActive,
                         "call" to (audioManager.mode != AudioManager.MODE_NORMAL),
+                        // 07-02: explicit isDrivingRumble flag (speed>40 + accel>0.5) for log correlation with lowBandRumbleReduction, rumbleVibBoost, dominant etc.
+                        // Helps confirm when pure driving rumble path (no music) is active vs idle.
+                        "isDrivingRumble" to (speed.valid && speed.speedKmh > 40f && speed.linearAccelMagnitude > 0.5f),
                         "routeLabel" to (route?.routeLabel ?: "unknown"),
                         "inputDevice" to (audioRouteManager?.getActiveInputDeviceName(audioRecord) ?: "unknown"),
                         "outputDevice" to (audioRouteManager?.getActiveOutputDeviceName(audioTrack) ?: "unknown"),
@@ -1264,6 +1308,7 @@ class AudioEngine(
                         "rumbleEnergyProxy" to (ancProcessor?.getRumbleEnergyProxy() ?: 0f),  // raw for logcat/snapshot diagnosis of when virtual kicks in (accel driven) vs stuck music q=0
                         // 06-30 user feedback verification points: confirm force-entry sets flag true even at quality=0; IMU boost actually applies (rumbleVibBoost>2, effectiveLowMu rises); artifact down.
                         "musicDominantRumbleMode" to (ancProcessor?.isMusicDominantRumbleMode() ?: false),
+                        "effectiveRumbleMode" to (ancProcessor?.isEffectiveRumbleMode() ?: false),
                         "rumbleVibBoost" to (ancProcessor?.getLastRumbleVibBoost() ?: 1f),
                         "effectiveLowMu" to (ancProcessor?.getLastEffectiveLowMu() ?: 0f),
 
