@@ -368,6 +368,7 @@ object CarRoadTuningScript {
             instructions = listOf(
                 "USB AA 連車機",
                 "車型/手機位置/情境在「實車測試 Log」填寫清楚（例如「個人 Pixel + USB AA + 粗糙國道 iter4」）",
+                "★ 最高優先提醒（07-02 log 證實）：phone placement 對 IMU rumble coupling 極關鍵！這次用「中控下方」導致 accelMag / rumbleEnergyProxy 很低（0.01-0.12），virtualSuppressionQuality 卡低，boost 難起。即使進入 musicDominant 也沒用。強烈建議放 floor（腳踏墊下）或座椅底部（更好結構震動傳導）。填寫時註明 'placement=floor_seat for good coupling'，並觀察 log 裡 accelMag >0.5 + roughness >0.5 + rumbleEnergyProxy >0.3 才算好條件。",
                 "點「開始降噪」完成校正，狀態顯示「降噪中」",
                 "準備好後進入同一条粗糙路面（50-70km/h 顛簸強 rumble），全程**嚴格低音樂（音量<20% 或 off）** + speed 50+ 維持 rough road",
                 "接下來每步按「完成這步」前，系統會自動套用對應的 LMS 調校參數",
@@ -486,6 +487,7 @@ object CarRoadTuningScript {
                 "**切到粗糙路面，嚴格維持 50+ km/h 粗糙顛簸路 60-90秒**（確保 speed>28 + low/mid energy ratio >0.06 觸發 classifier pure ROAD_MID，即使 music=true；guarded by roadMode+speed+energy。2026-06-29 log 實測：高音樂時 max 只有 0.071，必須嚴格低 vol 才行）",
                 "Skoda Octavia 專用：#7 目標是 dominant shift 至 rumble + bigger mid 貢獻。觀察 effectiveMidMu 0.6+、midScale high、maxC 300-380Hz、200-350Hz reduction -4~-6dB（比#6 更深）；比較 vs old #4b baseline + #6 A/B（old parts 穩定不變）",
                 "記錄 scenario \"Skoda #7_ext strong S3 iter4, roadMode active, effectiveMidMu=XX dominant=ROAD_MID speed=XX music=low-strict reduction=XX\"",
+                "★ 07-02 log 核心教訓：即使 #7 參數 + musicDominant=true 71% 有高 boost (>=1.5)，red 仍低，主因 placement coupling 差 (中控下方) 導致 proxy 低。務必確認這次 placement 讓 accelMag / roughness / rumbleEnergyProxy 在 #7 期間明顯高（>0.5/0.5/0.3）。如果 proxy 低，virtualQ 起不來，boost 再高也沒用。",
                 "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_7_strong_road + effectiveMidMu>0.6 + dominant=ROAD_MID + midBandMuScale>0.6 + reductionDb>3 + maxC>300 + lmsUpdateCount high；若 music 強仍 MUSIC_BROAD 則無效（退回用#4b/#6 baseline A/B）",
                 "C8: 嚴格維持 speed 55+ rough (sustained) 觸發 full crowd vision 1.5x preloadBoost (agg from prior #7 coarse/rough clusters) + new fields: crowdsourcedPreloadBoost/rumbleAuxFactor/crowdsourcedNVHPreload/rumbleAuxPreviewFactor/imuHybridImprove 高值。記錄 scenario 含 'C8 crowdPre=1.5 rough=XX coarse=XX'。",
                 "C15/C11 延伸（更多 cycle 模擬）：STRICT: 維持 sustained spd>55kmh (enforce via vehicleSpeedProvider; if <50 during step WARN + partial data) rough (國道/台68 bumps) low-music<15% pers=1.28 tier=PRO. #7 rumble 200-350Hz focus. LOG clusters (coarse~0.001 + rough>1.1 + rumbleEma>2.5 + red>4) for NVH preload. Monitor running_snapshot: rumbleAuxPreviewFactor crowdsourcedPreloadBoost imuHybridMidErrImprove roughness personalRumbleBias rumbleAccelEma coarse* energyFactor speedKmh dominant effectiveMidMu reductionDb. If spd<55 -> repeat for full C15 data. Compare vs same-run #4b A/B (old unchanged). C15 master: high spd rough pers1.28 + IMU hybrid + crowd 1.5-1.8 unlocks 8-10.5dB / 1.65 effMid vs real partial logs (0.147/3.95, newfields=0, low spd~10); 11-18x delta vs #4b baseline. Use c15_full_cycle11_report.txt + c11_cycle_output.txt for planning.",

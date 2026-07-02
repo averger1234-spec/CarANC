@@ -686,3 +686,22 @@ shadowing bug 已修復，這次 log 反映真實行為。
 
 (已同步到 3 .md + code + script)
 
+
+## 2026-07-02 後續實作（依用戶評價與優先建議）
+
+**已實作最高優先項目：**
+- Placement & coupling 硬防護：在 tuning_prep 和 tuning_7_strong_road instructions 加入強烈提醒（引用 07-02 log 證據：中控下方導致 proxy 低，boost 難起）。強調 floor/seat 並記錄 accel/roughness/proxy。
+- 新增 low band rumble 專屬 metric：在 running_snapshot 新增 "lowBandRumbleReduction"（rough estimate = overall reduction * lowEnergyRatio）。幫助在 high band music 拖累時仍看到 rumble 改善。
+- 驗證 virtualSuppressionQuality 權重（已提到 1.0f）和 sonif milder duck（已在 high rumble 時 output eventScale 減輕）。
+
+**中優先已調整：**
+- Classifier 更積極 force rumble mode：增加 if (accel >0.5 && musicVolNorm <0.5) 強制 musicDominantRumbleForThisBlock。
+- Freeze 放寬加條件：只在 rumbleEnergyProxy >0.25f 時才額外 *1.5x relax（符合「避免低能量時增加 artifact」）。
+
+**其他回應評價：**
+- AA routing：已加強 log warning。
+- 兩腳本：維持 tuning_v1 為推薦（已更新說明強調 baseline A/B 和這次 log 教訓），standard v3 留作可選全面驗證。
+- 核心問題（proxy 仍低導致 virtual/boost 起不來）：placement 提醒 + low band metric 直接針對。後續測試應 reposition 並觀察新 metric。
+
+所有改動已 commit/push + build + install-debug 到手機（最新 APK）。
+

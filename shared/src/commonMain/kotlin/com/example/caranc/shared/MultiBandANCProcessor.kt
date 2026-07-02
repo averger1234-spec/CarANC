@@ -370,8 +370,10 @@ class MultiBandANCProcessor(
         if (musicDominantRumbleMode) {
             // 07-01 data driven: even with *1.5, live logcat during music showed repeated low-rms (0.000x) bump/freeze floods (blockRms << ema? or music transients). Relax more when IMU rumble energy present (virtual proxy high) so rumble LMS not paused constantly.
             var rumbleRelax = (1f + rumbleEnergyProxy * 1.0f).coerceIn(1f, 2.2f)
-            // 07-02 log driven: even with proxy low (poor coupling or placement), in dominant rumble mode (#7) relax more aggressively to prevent over-freeze on bumps interrupting rumble LMS (log showed many freezes despite #7).
-            rumbleRelax = (rumbleRelax * 1.5f).coerceAtLeast(1.5f)
+            // 07-02 log driven: only extra relax when proxy decent (>0.25) to avoid artifact in low energy (per review). In dominant rumble (#7) prevent over-freeze on bumps.
+            if (rumbleEnergyProxy > 0.25f) {
+                rumbleRelax = (rumbleRelax * 1.5f).coerceAtLeast(1.5f)
+            }
             threshold = (threshold * 1.5f * rumbleRelax).coerceAtLeast(18f)
         }
         val minRms = if (speed > 50f) 0.015f else 0.02f

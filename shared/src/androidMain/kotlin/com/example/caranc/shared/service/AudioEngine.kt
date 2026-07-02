@@ -590,6 +590,11 @@ class AudioEngine(
                         if (speedSnap.linearAccelMagnitude > 0.8f) {
                             musicDominantRumbleForThisBlock = true
                         }
+                        // 07-02 feedback: more aggressive force rumble mode using rumbleEnergyProxy (accel) + low musicVolNorm to help when media q stuck but rumble energy present. Helps classifier and boost in strong road even with some music.
+                        val musicVolNorm = if (audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) > 0) audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) else 0f
+                        if (speedSnap.linearAccelMagnitude > 0.5f && musicVolNorm < 0.5f) {
+                            musicDominantRumbleForThisBlock = true
+                        }
                         val preprocessed = referencePipeline?.preprocessBlock(
                             micInput = input,
                             size = read,
@@ -1219,6 +1224,8 @@ class AudioEngine(
                         "cancelledDb" to residualDb,
                         "antiNoiseDb" to antiNoiseDb,
                         "reductionDb" to (estimatedRawDb - residualDb).coerceAtLeast(0f),
+                        // 07-02 log driven: low band rumble specific metric (rough estimate of rumble contribution to reduction, since overall dB often dominated by high band music). Helps verify if IMU rumble boost actually improves 200-350Hz low rumble even if total red low.
+                        "lowBandRumbleReduction" to ((estimatedRawDb - residualDb).coerceAtLeast(0f) * classification.lowEnergyRatio),
                         "tier" to sessionContext.tierManager.currentTier.value.name,
                         "music" to audioManager.isMusicActive,
                         "call" to (audioManager.mode != AudioManager.MODE_NORMAL),
