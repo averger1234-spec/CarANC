@@ -370,7 +370,11 @@ class MultiBandANCProcessor(
         var threshold = if (speed > 50f) debugFreezeThreshold.coerceAtLeast(12f) else debugFreezeThreshold
         if (lastEffectiveRumbleMode) {
             // 07-01 data driven: even with *1.5, live logcat during music showed repeated low-rms (0.000x) bump/freeze floods (blockRms << ema? or music transients). Relax more when IMU rumble energy present (virtual proxy high) so rumble LMS not paused constantly.
-            val rumbleRelax = (1f + rumbleEnergyProxy * 1.0f).coerceIn(1f, 2.2f)
+            var rumbleRelax = (1f + rumbleEnergyProxy * 1.0f).coerceIn(1f, 2.2f)
+            // 07-02 log driven: only extra relax when proxy decent (>0.25) to avoid artifact in low energy (per review). In dominant rumble (#7) prevent over-freeze on bumps.
+            if (rumbleEnergyProxy > 0.25f) {
+                rumbleRelax = (rumbleRelax * 1.5f).coerceAtLeast(1.5f)
+            }
             threshold = (threshold * 1.5f * rumbleRelax).coerceAtLeast(18f)
         }
         val minRms = if (speed > 50f) 0.015f else 0.02f
@@ -462,7 +466,8 @@ class MultiBandANCProcessor(
         // 解決 AA music 時 mediaSubtractor 常卡 quality=0 的困境。
         // 當 IMU 偵測到強 rumble 能量時，即使 media quality 低，也給較 aggressive rumble 處理。
         rumbleEnergyProxy = (rumbleAccelMag / 5f).coerceIn(0f, 1f)  // normalized from accel (0-5+ mag typical)
-        val virtualSuppressionQuality = kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f)
+        // 07-02 log: virtualQ still very low (0.01) even in #7, leading to low boost. Increase proxy weight to allow more aggressive when IMU sees rumble energy (bypass persistent quality=0 in AA).
+        val virtualSuppressionQuality = kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 1.0f)
 
         val latencyLimits = latencyBandLimits
         val freeze = freezeWeightUpdates > 0 || sirenOverride || sonificationOverride
@@ -507,8 +512,9 @@ class MultiBandANCProcessor(
                 rumbleVibBoost *= extra
                 rumbleVibBoost = rumbleVibBoost.coerceAtMost(4.5f)
                 // 07-01 log feedback (high accel even at low spd ~15avg): add continuous energy proxy so boost scales with rumble strength, not just binary clear. Helps low-spd high-bump cases without over-boosting noise.
+                // 07-02 log: even with high boost snapshots existing, in #7 periods red still low and proxy low – increase energyProxy coefficient to 1.0 for stronger continuous scaling when rumble energy present (per user suggestion to lift if not obvious improvement).
                 val energyProxy = ((rumbleAccelMag - 0.25f) * 1.2f).coerceAtLeast(0f).coerceAtMost(1.5f)
-                rumbleVibBoost *= (1f + energyProxy * 0.6f)
+                rumbleVibBoost *= (1f + energyProxy * 1.0f)
             }
             // IMU coupling quality: dampen only if very poor; less aggressive dampen to keep strength.
             val couplingQuality = (rumbleAccelMag / 0.3f).coerceIn(0f, 1f)
@@ -658,7 +664,9 @@ class MultiBandANCProcessor(
                 else -> -adaptiveCombined + engineFf
             }
 
-            output[i] = (combined * eventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
+            // 07-02 log: 1076 sonif events (many in #7) with 0.06 duck may over-protect and reduce perceived rumble even if mu not affected. In dominant rumble + high energy, use milder duck (protect less aggressively).
+            val outputEventScale = if (musicDominantRumbleMode && rumbleEnergyProxy > 0.2f) (eventScale * 0.5f + 0.5f).coerceAtMost(1f) else eventScale
+            output[i] = (combined * outputEventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
 
             if (freezeWeightUpdates > 0) {
                 freezeWeightUpdates--

@@ -561,3 +561,59 @@ These two are the direct response to 07-01 log analysis (persistent quality=0 + 
 **Also:** update .md (this + test script), sim_iter.ps1 may need C19 if new fields. Phone will be updated via install after compile check. All per user "有幫我更新至github了嗎(包括.md檔案)?手機也是最新版本了嗎?" emphasis + "從logcat基實抓甚麼數據".
 
 (Changes not yet pushed; after user test + sims we commit.)
+
+## 2026-07-02 log 分析（依用戶提供結構 + 深度解析）
+
+**1. 測試條件總覽**
+- 路面非常粗糙（bump_detected 高達 26,737 次）：非常適合 rumble 測試。
+- 音樂主導模式 musicDominantRumbleMode: true 佔比約 90%（585 次）：模式進入率極高。
+- 通知事件 sonification_detected 1,076 次：仍算多，但比上次少。
+- 測試流程完整跑完 tuning_4 → tuning_finish：腳本執行正常。
+- 延遲仍使用 80ms override：與之前一致。
+這次測試的最大亮點是路面夠粗糙，提供了足夠的 rumble 能量來驗證 IMU 主導策略。
+
+**2. Bug Fix 後的實際效果（最重要觀察）**
+shadowing bug 已修復，這次 log 反映真實行為。
+- musicDominantRumbleMode 進入率極高（90%），觸發機制正常。
+- 新欄位（virtualSuppressionQuality、rumbleEnergyProxy）正常記錄。
+- 深度解析：全 log rumbleVibBoost >=2 的快照有 551 個（最高 6.5+）。在 tuning_7_strong_road 步：239 個有 boost field，其中 171 個 >=1.5（71%）。證明 aggressive IMU 邏輯（2.8x + EMA + energy proxy + vq lift）在 fix 後真正生效。
+- vq vs raw：在高 boost 樣本中 vq 0.05-0.13 > rawQ=0.0，proxy 正在提供 lift。
+- effectiveLowMu：在有高 boost 時應跟著提升（雖整體 red 仍低）。
+- sonif 期間：高 boost 快照存在，顯示 rumble 主路徑（mu）不受 sonif 0.06 duck 影響（lowAdaptiveScale=1f 生效）。但需確認輸出 gain 是否受影響導致感知低。
+- reduction 仍偏低（多 0.00x，甚至 #7 期間）：可能 high band music 主導整體 dB，或 placement coupling 差（中控下方 accel 低 → proxy 低）。
+
+**3. 新功能 / 新欄位觀察**
+- virtualSuppressionQuality / rumbleEnergyProxy：有記錄，vq > rawQ，機制正確。
+- musicStreamVolume / musicVolNorm：記錄正常（例 8/25 → 0.32），測試有調音量。
+- Sonification 事件時 rumble 行為：高 boost 快照多，sonif gain 多 0.06，rumble boost 在 sonif 期間多能維持（非干擾主路徑）。
+
+**4. 整體評估**
+正面：粗糙路面好條件；模式進入率高；新欄位正常；shadowing fix 讓 aggressive 邏輯發揮（551 高 boost，#7 71% 高）。
+仍需改善：red 平均仍低（high band music 拖累 metric？coupling 差？）；sonif 事件仍 1076 次（雖保護 mu，但感知可能受輸出 duck 影響）。
+
+**5. 建議下一步 + 已執行改善**
+- 已執行：增加 rumbleEnergyProxy 對 boost 的權重（從 0.6 提到 1.0）；virtualQ 權重提到 1.0；freeze 在 dominant 即使 proxy 低也額外 relax；sonif 在 high rumble 時 output duck milder；script #7 加入這次 log 具體數據 + 觀察點（高 boost 存在證明 fix 有效、placement 建議）。
+- 下次測試重點：用相同腳本，換 phone 放 floor/seat 改善 coupling；記錄高 boost 時的 red / sonif 前後 boost 是否降；目標 sustained red 在 rumble 期。
+- 若仍不夠：可再調高 energy 係數、加 low-band specific red metric 到 snapshot（目前 high band music 常主導整體 red）。
+
+(已同步到 3 .md + code + script)
+
+
+## 2026-07-02 後續實作（依用戶評價與優先建議）
+
+**已實作最高優先項目：**
+- Placement & coupling 硬防護：在 tuning_prep 和 tuning_7_strong_road instructions 加入強烈提醒（引用 07-02 log 證據：中控下方導致 proxy 低，boost 難起）。強調 floor/seat 並記錄 accel/roughness/proxy。
+- 新增 low band rumble 專屬 metric：在 running_snapshot 新增 "lowBandRumbleReduction"（rough estimate = overall reduction * lowEnergyRatio）。幫助在 high band music 拖累時仍看到 rumble 改善。
+- 驗證 virtualSuppressionQuality 權重（已提到 1.0f）和 sonif milder duck（已在 high rumble 時 output eventScale 減輕）。
+
+**中優先已調整：**
+- Classifier 更積極 force rumble mode：增加 if (accel >0.5 && musicVolNorm <0.5) 強制 musicDominantRumbleForThisBlock。
+- Freeze 放寬加條件：只在 rumbleEnergyProxy >0.25f 時才額外 *1.5x relax（符合「避免低能量時增加 artifact」）。
+
+**其他回應評價：**
+- AA routing：已加強 log warning。
+- 兩腳本：維持 tuning_v1 為推薦（已更新說明強調 baseline A/B 和這次 log 教訓），standard v3 留作可選全面驗證。
+- 核心問題（proxy 仍低導致 virtual/boost 起不來）：placement 提醒 + low band metric 直接針對。後續測試應 reposition 並觀察新 metric。
+
+所有改動已 commit/push + build + install-debug 到手機（最新 APK）。
+
