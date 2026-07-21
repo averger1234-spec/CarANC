@@ -4,6 +4,48 @@
 
 **核心原則**：任何修改（包含 AI 在這邊幫你改的）都必須透過 Git commit + push，其他機器用 git pull 取得。**不會自動跨機器同步**。
 
+---
+
+## 另一台電腦現在請這樣拉（2026-07-21）
+
+在第二台（或任何機器）的專案根目錄：
+
+```powershell
+cd <你的路徑>\CarANC
+git pull origin main
+git log -3 --oneline
+# 應看到 f624ad0（或更新）: #6-#9 + #11
+# 以及 dafbcac / b9e135c 等 P0/P1
+```
+
+Android Studio：
+
+1. **File → Reload All from Disk**
+2. **Sync Project with Gradle Files**
+3. 可選：`.\scripts\install-debug.ps1` 裝到手機
+
+讀文件恢復上下文：
+
+1. 開 `GROK_RESUME_CONTEXT.md` 最上方「最新進度（2026-07-21）」
+2. 開 `README.md` 同標題段落
+3. 把 GROK 那段貼給新 Grok 對話當開場
+
+### 本次已 push 的架構變更（摘要）
+
+| # | 內容 | 主要檔案 |
+|---|------|----------|
+| P0 | `FF_PREVIEW_ONLY`、plant=measured | `MultiBandANCProcessor`、`LatencyAwareBandLimiter`、`AudioEngine` |
+| P1 | Preview EMA + 診斷 log | `RumblePreviewPredictor` |
+| #6 | Delayless/partitioned FDAF | `FdafLowBandProcessor.kt` |
+| #7 | speed×roughness bank | `PreLearnedAncBank.kt` + `setRoadRoughness` |
+| #8 | 本機 AAudio-like | `LocalLowLatencyAudio.kt`（僅非 AA） |
+| #9 | 有線 AA 優先 | `AudioRouteManager.kt` |
+| #11 | Car App scaffold | `CarAncAutoScreen.kt`、manifest automotive optional |
+
+**路測**：優先 **USB 有線 Android Auto**；無線 AA 會有 `wireless_aa_warning` / `wirelessAaSuspected=true`。
+
+---
+
 ## 同一台電腦的 Android Studio 會自動看到修改嗎？
 
 **不會完全自動同步**。
@@ -900,4 +942,57 @@ shadowing bug 已修復，這次 log 反映真實行為。
 - 核心問題（proxy 仍低導致 virtual/boost 起不來）：placement 提醒 + low band metric 直接針對。後續測試應 reposition 並觀察新 metric。
 
 所有改動已 commit/push + build + install-debug 到手機（最新 APK）。
+
+
+---
+
+## 2026-07-21 跨機器同步：P0 + P1 + #6–#9 + #11（已 push main）
+
+**目的**：第二台電腦 git pull 後立刻知道「現在 main 有什麼」與「怎麼驗證」。
+
+### Git 檢查清單
+
+```powershell
+git pull origin main
+git log -5 --oneline
+# 期望至少含：
+# f624ad0 feat(anc): implement #6-#9 medium-term + #11 car-app scaffold
+# b9e135c feat(anc): P1 high-lat FF quality
+# dafbcac feat(anc): P0 high-latency FF_PREVIEW_ONLY
+```
+
+### 文件對齊
+
+| 檔案 | 內容 |
+|------|------|
+| `GROK_RESUME_CONTEXT.md` | 最上方「最新進度 2026-07-21」— 給 AI 開場 |
+| `README.md` | 功能/架構/log 欄位/限制 — 同日更新 |
+| `MULTI_MACHINE_SYNC.md` | 本節 + 開頭「另一台電腦現在請這樣拉」 |
+
+### 實作對照表
+
+| # | 辦法 | 狀態 | 備註 |
+|---|------|------|------|
+| P0 | FF_PREVIEW_ONLY + plant=measured | 完成 | debug ov 僅 log |
+| P1 | Predictor EMA + 診斷 | 完成 | previewRumble 等 |
+| 6 | Delayless/partitioned FDAF | 完成 | low only, 4×64 |
+| 7 | PreLearned speed×roughness | 完成 | fixed 主、adaptive 輔 |
+| 8 | AAudio-like 僅本機 | 完成 | AA 仍 Track+submix；真 exclusive 需 NDK |
+| 9 | 有線 AA only | 完成 | 警告+降權，不硬崩潰 |
+| 11 | AAOS / Car App | scaffold | 非 OEM ECU RNC |
+
+### 裝機與路測
+
+```powershell
+.\scripts\install-debug.ps1
+# 或雙擊 scripts\install-debug.bat
+```
+
+- 優先 **USB 有線 Android Auto**
+- running_snapshot 看：`latencyStrategy`、`audioBackend`、`fdafDelayless`、`fixedBankOut`、`wirelessAaSuspected`、`plantElectricalDelaySamples`
+- 拉 log：`.\scripts\pull-latest-log.ps1`
+
+### 給新 Grok 的一句話
+
+「專案 CarANC，已 pull main（含 f624ad0）。先讀 GROK_RESUME_CONTEXT.md 與 README 最新進度 2026-07-21，繼續 AA 高延遲 rumble / log 分析。」
 

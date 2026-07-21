@@ -19,6 +19,7 @@
 - **#11 AAOS**：強化 Car App 畫面 + optional automotive feature；**非**原廠 ECU RNC（見 CarAncAutoScreen 註解）
 - Log 新欄位：`audioBackend` / `fdafDelayless` / `fdafPartitions` / `fixedBankOut` / `wirelessAaSuspected`
 - install：`.\scripts\install-debug.ps1`
+- **文件已對齊（三份都要 pull）**：`GROK_RESUME_CONTEXT.md` + `README.md` + `MULTI_MACHINE_SYNC.md` 皆含 2026-07-21 進度；第二台：`git pull origin main`
 
 **歷史進度（2026-06-25）**：
 - 多機開發環境已建立（兩台 Windows + 一台 Mac）
