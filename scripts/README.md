@@ -17,7 +17,28 @@
 - 輸入 `adb devices`
 - 手機上允許偵錯後，應該會看到你的裝置。
 
-## 兩個主要工具
+## 三個主要工具
+
+### 0. start-dhu.ps1 （電腦當 Android Auto 車機）
+
+**用途**：沒有實車時，用 **Desktop Head Unit (DHU)** 讓 **Windows PC 扮演 AA 頭單元**，手機 USB 接電腦走**真正的 Android Auto 協議**（不是 App 內假開關）。
+
+**怎麼用**：
+1. 手機 USB 接電腦，開啟 USB 偵錯，`adb devices` 要看到 `device`。
+2. 手機安裝 **Android Auto** → 連點版本進開發者設定 → 開 **未知來源** → **啟動 head unit 伺服器**。
+3. 雙擊 `scripts\start-dhu.bat`，或：
+   ```
+   .\scripts\start-dhu.ps1
+   ```
+4. 電腦會跳出 DHU 視窗（= 假車機）。App 裡 connectionType 可填 `dhu` 或 `usb_aa`。
+5. 若尚未安裝 DHU，腳本會用 sdkmanager 裝 `extras;google;auto`；也可只裝：
+   ```
+   .\scripts\start-dhu.ps1 -InstallOnly
+   ```
+
+**驗證 log**：應出現 `aa_connected`、`aaConnected=true`、`audioBackend=AUDIOTRACK_AA_SUBMIX`。
+
+官方說明：https://developer.android.com/training/cars/testing/dhu
 
 ### 1. install-debug.ps1 （快速把新程式裝到手機）
 

@@ -157,6 +157,7 @@ class AudioEngine(
                 )
 
                 routeManager.registerDeviceCallback()
+                // Real AA only (car USB or Desktop Head Unit on PC). See scripts/start-dhu.ps1.
                 val aa = isAAConnected()
                 val route = routeManager.resolveRoute(aa)
                 currentRoute = route
@@ -219,7 +220,7 @@ class AudioEngine(
                     recordBufferBytes = computeRecordBufferBytes(minBuffer, bufferSize, sampleRate)
                     trackBufferBytes = computeTrackBufferBytes(minTrackBuffer, framesPerBuffer, sampleRate)
 
-                    // AA remote_submix: force track buffer cap (cannot use exclusive AAudio)
+                    // AA remote_submix (real car or DHU): force track buffer cap (cannot use exclusive AAudio)
                     val isHighLatencyRoute = trackBufferBytes > 20000 || minTrackBuffer > 16384
                     if (isHighLatencyRoute) {
                         val forced = 16384
@@ -1280,10 +1281,6 @@ class AudioEngine(
         // Prints to logcat when anti output is active (antiDb < -10 means significant speaker power).
         // User can run live on PC: adb -s 57191FDCG002KH logcat -s ANCService | findstr SPEAKER_ANTI
         // This gives timestamped "喇叭出現聲音" with context (speed, accel, red, mode, rumble flag) to correlate with what is heard (note ~0.5s delay from AA + latency).
-        if (antiNoiseDb < -10f) {
-            Log.d("ANCService", "SPEAKER_ANTI_ACTIVE: antiDb=${"%.1f".format(antiNoiseDb)} redDb=${"%.3f".format(estimatedRawDb - residualDb)} lowBandRed=${"%.2f".format(lowBandReductionDb)} mode=${processingModeName(ancProcessor!!)} effRumble=${ancProcessor?.isEffectiveRumbleMode() ?: false} speed=${"%.1f".format(speed.speedKmh)} accel=${"%.2f".format(speed.linearAccelMagnitude)} blockRms=${"%.4f".format(lastBlockRms)}")
-        }
-
         if (estimatedRawDb > -90f) {
             sessionContext.stateManager.updateVisualization(rawSpectrum, cancelledSpectrum, estimatedRawDb, residualDb)
         }
@@ -1300,6 +1297,14 @@ class AudioEngine(
             isCallActive = audioManager.mode != AudioManager.MODE_NORMAL,
             linearAccelMagnitude = speed.linearAccelMagnitude  // pass IMU for driving rumble bias in classifier (force ROAD even if MUSIC_BROAD when driving high accel)
         )
+
+        // Real-time visibility for "when speakers produce sound" (user: can't know in real-time when ANC anti is played through AA speakers).
+        // Prints to logcat when anti output is active (antiDb < -10 means significant speaker power).
+        // User can run live on PC: adb -s 57191FDCG002KH logcat -s ANCService | findstr SPEAKER_ANTI
+        // This gives timestamped "喇叭出現聲音" with context (speed, accel, red, mode, rumble flag) to correlate with what is heard (note ~0.5s delay from AA + latency).
+        if (antiNoiseDb < -10f) {
+            Log.d("ANCService", "SPEAKER_ANTI_ACTIVE: antiDb=${"%.1f".format(antiNoiseDb)} redDb=${"%.3f".format(estimatedRawDb - residualDb)} lowBandRed=${"%.2f".format(lowBandReductionDb)} mode=${processingModeName(ancProcessor!!)} effRumble=${ancProcessor?.isEffectiveRumbleMode() ?: false} speed=${"%.1f".format(speed.speedKmh)} accel=${"%.2f".format(speed.linearAccelMagnitude)} blockRms=${"%.4f".format(lastBlockRms)}")
+        }
         ancProcessor?.applyClassifierResult(classification)
         sessionContext.stateManager.updateDominantNoiseBand(classification.dominantBand.name)
         lastDominant = classification.dominantBand  // persist for force MUSIC_DOMINANT_RUMBLE bypass in hot read loop (when MUSIC_BROAD)

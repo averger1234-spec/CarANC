@@ -209,6 +209,14 @@ fun TestLogPanel(
             }
 
             Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "無車測 AA：電腦當車機請用 Desktop Head Unit（專案 scripts\\start-dhu.ps1）。" +
+                    "連線方式可填 dhu 或 usb_aa。勿用 App 假開關——必須真的 AA 協議連線。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
             Text("ANC 獨立強度 (0~1，獨立於系統音樂/語音音量)：${"%.2f".format(userAncGain)}", style = MaterialTheme.typography.bodySmall)
             Slider(
                 value = userAncGain,

@@ -62,6 +62,8 @@ class ANCService : LifecycleService() {
 
     private var isAAConnected = false
     private fun setupCarConnection() {
+        // Real Android Auto only: phone USB to car OR Desktop Head Unit (PC as head unit).
+        // Do NOT fake isAAConnected in-app — use scripts/start-dhu.ps1 for PC-as-AA testing.
         carConnection = CarConnection(this)
         carConnection?.type?.observe(this) { connectionType ->
             Log.d("ANCService", "Car Connection Type: $connectionType")

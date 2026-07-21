@@ -19,6 +19,7 @@
 - **#11 AAOS**：強化 Car App 畫面 + optional automotive feature；**非**原廠 ECU RNC（見 CarAncAutoScreen 註解）
 - Log 新欄位：`audioBackend` / `fdafDelayless` / `fdafPartitions` / `fixedBankOut` / `wirelessAaSuspected`
 - install：`.\scripts\install-debug.ps1`
+- **無車測真 AA**：`.\scripts\start-dhu.ps1`（Desktop Head Unit = **電腦當車機**，手機 USB 走真 AA 協議）。**不要**做 App 內假 `isAAConnected`。
 - **文件已對齊（三份都要 pull）**：`GROK_RESUME_CONTEXT.md` + `README.md` + `MULTI_MACHINE_SYNC.md` 皆含 2026-07-21 進度；第二台：`git pull origin main`
 - **測試腳本** `car_road_tuning_v1`（`AncTestScript.kt`）：已更新 P0/P1 + #6–#9 驗證說明、monitored 欄位（fdafDelayless/fixedBankOut/audioBackend/wireless…）；#4/#4b ov=log-only；#7 為主驗步
 

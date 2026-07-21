@@ -46,6 +46,54 @@ Android Studio：
 
 ---
 
+## 無車測真 AA：電腦當車機（Desktop Head Unit / DHU）
+
+**正確理解**：要測 Android Auto 路由／延遲／Car App，應讓 **PC 跑官方 Desktop Head Unit**，手機 USB 接電腦，走**真實 AA 協議**。  
+**錯誤理解**：App 內「假裝 isAAConnected」——那不會走 remote_submix / 真 AA 音訊，已從 CarANC 移除，勿再做軟體假 AA。
+
+### 一鍵啟動
+
+```powershell
+cd <你的路徑>\CarANC
+.\scripts\start-dhu.ps1
+# 或雙擊 scripts\start-dhu.bat
+# 僅安裝 SDK 套件：.\scripts\start-dhu.ps1 -InstallOnly
+```
+
+腳本會：找 SDK adb → 必要時安裝 `extras;google;auto` → `adb forward tcp:5277 tcp:5277` → 啟動 `desktop-head-unit.exe`。
+
+本機常見路徑：
+
+```
+%LOCALAPPDATA%\Android\Sdk\extras\google\auto\desktop-head-unit.exe
+```
+
+### 手機端（第一次）
+
+1. Play 商店安裝 **Android Auto**
+2. 開啟 AA App → 連點「版本」約 10 次 → **開發人員設定**
+3. 開啟 **未知來源**
+4. **啟動 head unit 伺服器**（Start head unit server）
+5. USB 接電腦 + USB 偵錯；螢幕保持解鎖
+
+### 驗證是否真的連上 AA
+
+| 檢查 | 期望 |
+|------|------|
+| DHU 視窗 | 有車機 UI，可看到投影 / Car App |
+| CarANC log `aa_connected` | 有 |
+| `aaConnected` | `true` |
+| `audioBackend` | 多為 `AUDIOTRACK_AA_SUBMIX`（AA 路徑） |
+| TestLogPanel 連線方式 | 填 `dhu` 或 `usb_aa` |
+
+### 與實車差異（務實預期）
+
+- DHU 可驗證：**AA 連線偵測、Car App 畫面、多數音訊路由標籤、高延遲路徑是否被選到**
+- 延遲數字／喇叭聲學與**真車**仍可能不同；最終 rumble 效果仍以實車 USB AA 為準
+- 官方文件：https://developer.android.com/training/cars/testing/dhu
+
+---
+
 ## 同一台電腦的 Android Studio 會自動看到修改嗎？
 
 **不會完全自動同步**。
