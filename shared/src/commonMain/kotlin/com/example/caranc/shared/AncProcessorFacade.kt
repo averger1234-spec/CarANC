@@ -37,6 +37,23 @@ interface AncProcessorFacade : AudioProcessor {
     fun setEstimatedLatencyMs(latencyMs: Float)
     fun getLatencyBandLimits(): LatencyBandLimits
 
+    /**
+     * P0 (AA high-latency): pass measured breakdown so plant delay + strategy use REAL path latency.
+     * Debug latencyOverride must NOT replace these for maxCancel / FxLMS plant.
+     */
+    fun setMeasuredLatencyBreakdown(
+        recordMs: Float,
+        trackMs: Float,
+        blockMs: Float,
+        acousticMs: Float,
+        frameworkMs: Float
+    ) {}
+
+    /** e.g. NORMAL | FF_PREVIEW_ONLY — for log diagnosis of AA high-lat strategy. */
+    fun getLatencyStrategy(): String = "NORMAL"
+    fun getPlantElectricalDelaySamples(): Int = 0
+    fun getMeasuredLatencyMs(): Float = 0f
+
     // Dynamic real end-to-end latency from probe (used to tune RumblePreviewPredictor horizon and feedforward weights).
     fun setProbeCorrMs(probeCorrMs: Float) {}
 

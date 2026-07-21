@@ -111,6 +111,22 @@ class IosAncProcessorFacade(
         estimatedLatencyMs = latencyMs
     }
 
+    override fun setMeasuredLatencyBreakdown(
+        recordMs: Float,
+        trackMs: Float,
+        blockMs: Float,
+        acousticMs: Float,
+        frameworkMs: Float
+    ) {
+        estimatedLatencyMs = (recordMs + trackMs + blockMs + acousticMs + frameworkMs).coerceIn(15f, 400f)
+    }
+
+    override fun getLatencyStrategy(): String =
+        if (estimatedLatencyMs > 180f) "HIGH_LAT_CONSERVATIVE" else "NORMAL"
+
+    override fun getPlantElectricalDelaySamples(): Int = 0
+    override fun getMeasuredLatencyMs(): Float = estimatedLatencyMs
+
     override fun getLatencyBandLimits(): LatencyBandLimits {
         // return safe default (low freq cancel only); see LatencyAwareBandLimiter for real calc
         return LatencyBandLimits(

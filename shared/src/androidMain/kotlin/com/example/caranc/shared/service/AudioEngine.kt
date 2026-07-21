@@ -340,7 +340,7 @@ class AudioEngine(
                     fields = mapOf("initialTier" to initialTier.name)
                 )
                 ancProcessor?.applyCabinModel(applyMimoTrial(cabinModel))
-                currentLatency?.let { ancProcessor?.setEstimatedLatencyMs(getEffectiveLatencyForSet(it.totalMs)) }
+                currentLatency?.let { applyMeasuredLatencyToProcessor(getEffectiveLatencyForSet(it.totalMs), it) }
                 ancProcessor?.setPersonalRumbleBias(AncTestPreferences.getPersonalRumbleBias(appContext))  // ensure personal bias applied early (acoustic ID follows phone)
                 logMimoProfile(cabinModel)
                 logLatencyOptimization()
@@ -600,7 +600,7 @@ class AudioEngine(
                         // 07-02 feedback: more aggressive force rumble mode using rumbleEnergyProxy (accel) + low musicVolNorm to help when media q stuck but rumble energy present. Helps classifier and boost in strong road even with some music.
                         val musicVolNorm = if (audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) > 0) audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) else 0f
                         if (speedSnap.linearAccelMagnitude > 0.5f && musicVolNorm < 0.5f) {
-                            musicDominantRumbleForThisBlock = true
+                            rumbleDominantForThisBlock = true
                         }
                         val preprocessed = referencePipeline?.preprocessBlock(
                             micInput = input,
@@ -867,8 +867,12 @@ class AudioEngine(
                             if (meas > 10f) {
                                 lastMeasBlock = blockCount
                                 runtimeMeasuredLatencyMs = if (runtimeMeasuredLatencyMs < 5f) meas else 0.65f * runtimeMeasuredLatencyMs + 0.35f * meas
-                                ancProcessor?.setEstimatedLatencyMs(getEffectiveLatencyForSet(runtimeMeasuredLatencyMs))
-                                ancProcessor?.setProbeCorrMs(probeC)
+                                // Probe updates measured e2e; keep plant on measured (not debug ov).
+                                applyMeasuredLatencyToProcessor(
+                                    getEffectiveLatencyForSet(runtimeMeasuredLatencyMs),
+                                    currentLatency
+                                )
+                                ancProcessor?.setProbeCorrMs(sessionContext.perfMetrics.lastProbeCorrMs)
                                 AncSessionLogger.log(
                                     phase = "runtime_latency_correlated",
                                     fields = mapOf(
@@ -1222,6 +1226,8 @@ class AudioEngine(
         // Low band (<250Hz) reduction will now be logged separately to diagnose if IMU ref + effectiveRumble + classifier force actually cancels the rumble component.
         val lowBandReductionDb = computeLowBandReductionDb(rawSpectrum, cancelledSpectrum, audioRecord?.sampleRate ?: 44100)
 
+        val speed = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
+
         // Real-time visibility for "when speakers produce sound" (user: can't know in real-time when ANC anti is played through AA speakers).
         // Prints to logcat when anti output is active (antiDb < -10 means significant speaker power).
         // User can run live on PC: adb -s 57191FDCG002KH logcat -s ANCService | findstr SPEAKER_ANTI
@@ -1234,7 +1240,6 @@ class AudioEngine(
             sessionContext.stateManager.updateVisualization(rawSpectrum, cancelledSpectrum, estimatedRawDb, residualDb)
         }
 
-        val speed = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
         ancProcessor?.setRumbleAccel(speed.linearAccelMagnitude)  // IMU hybrid: rumbleAccel feeds both (1) ReferenceSignalPipeline aux ref mix (afterMedia - rumbleRef for structural FF), (2) MultiBand rumbleVibBoost on effectiveLowMu (roadMode only, tier auto). Core for Road Preview + NVH map.
         // CYCLE3_EXTRA: classify via scoped instance from context (NoiseBandClassifier now class, wired to road ref)
         val classification = sessionContext.noiseBandClassifier.classify(
@@ -1330,6 +1335,13 @@ class AudioEngine(
                         "effectiveRumbleMode" to (ancProcessor?.isEffectiveRumbleMode() ?: false),
                         "rumbleVibBoost" to (ancProcessor?.getLastRumbleVibBoost() ?: 1f),
                         "effectiveLowMu" to (ancProcessor?.getLastEffectiveLowMu() ?: 0f),
+                        // P0 AA high-lat strategy (FF_PREVIEW_ONLY when measured lat high + rumble)
+                        "latencyStrategy" to (ancProcessor?.getLatencyStrategy() ?: "NORMAL"),
+                        "measuredLatencyMs" to (ancProcessor?.getMeasuredLatencyMs() ?: 0f),
+                        "plantElectricalDelaySamples" to (ancProcessor?.getPlantElectricalDelaySamples() ?: 0),
+                        // debug ov for script A/B only — does NOT drive plant/maxCancel anymore
+                        "debugLatencyOverrideMs" to AncTestPreferences.getDebugLatencyOverrideMs(appContext),
+                        "usingLatencyOverride" to false,
 
                         "maxCancelFrequencyHz" to ancProcessor?.getLatencyBandLimits()?.maxCancelFrequencyHz,
                         "latencyLowGain" to ancProcessor?.getLatencyBandLimits()?.lowGain,
@@ -1347,9 +1359,7 @@ class AudioEngine(
                         "effectiveUseNativeFromTier" to (sessionContext.tierManager.currentTier.value.name == "PRO"),
                         "debugFreezeThreshold" to AncTestPreferences.getDebugFreezeThreshold(appContext),
                         "debugFreezeConsec" to AncTestPreferences.getDebugFreezeConsecutive(appContext),
-                        "debugLatencyOverrideMs" to AncTestPreferences.getDebugLatencyOverrideMs(appContext),
-                        "usingLatencyOverride" to (AncTestPreferences.getDebugLatencyOverrideMs(appContext) > 5f),
-                        // Approximate current band mu scales from latency limiter (for the fixed centers)
+                        // Approximate current band mu scales from latency limiter (MEASURED latency only)
                         // Iter4: mid uses 320f center (rumble tuned), roadRumble now also considers dominant if available (but approx via mode for AA)
                         "lowBandMuScale" to (LatencyAwareBandLimiter.bandMuScale(190f, ancProcessor?.getLatencyBandLimits()?.estimatedLatencyMs ?: 150f, roadRumble = (ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || ancProcessor?.getProcessingMode() == AncProcessingMode.ROAD_NOISE_GPS)) * (if ((ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC || ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD) && AncTestPreferences.isMusicLowAncEnabled(appContext)) 1f else 0.38f) /* rough mode factor; now includes road music case */),
                         "midBandMuScale" to LatencyAwareBandLimiter.bandMuScale(335f, ancProcessor?.getLatencyBandLimits()?.estimatedLatencyMs ?: 150f, roadRumble = (ancProcessor?.getProcessingMode() == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || ancProcessor?.getProcessingMode() == AncProcessingMode.ROAD_NOISE_GPS)),
@@ -1487,7 +1497,7 @@ class AudioEngine(
         acousticDelaySamples = refreshed.acousticDelaySamples
         currentLatency = estimateCurrentLatency(sampleRate, acousticDelaySamples)
         ancProcessor?.applyCabinModel(applyMimoTrial(refreshed))
-        currentLatency?.let { ancProcessor?.setEstimatedLatencyMs(getEffectiveLatencyForSet(it.totalMs)) }
+        currentLatency?.let { applyMeasuredLatencyToProcessor(getEffectiveLatencyForSet(it.totalMs), it) }
         logMimoProfile(refreshed)
         AncSessionLogger.log(phase = "profile_recalibrated", fields = mapOf("profileId" to cabinProfileId))
     }
@@ -1533,9 +1543,24 @@ class AudioEngine(
         )
     }
 
-    private fun getEffectiveLatencyForSet(baseMs: Float): Float {
-        val ov = AncTestPreferences.getDebugLatencyOverrideMs(appContext)
-        return if (ov > 5f) ov else baseMs
+    /**
+     * P0: plant / maxCancel / FxLMS / FF strategy ALWAYS use measured path latency.
+     * Script debugLatencyOverrideMs is for A/B logging only — never fake lower plant delay.
+     */
+    private fun getEffectiveLatencyForSet(baseMs: Float): Float = baseMs
+
+    private fun applyMeasuredLatencyToProcessor(baseMs: Float, breakdown: LatencyBreakdown? = currentLatency) {
+        val proc = ancProcessor ?: return
+        proc.setEstimatedLatencyMs(baseMs)
+        val sr = audioRecord?.sampleRate ?: 44100
+        val bd = breakdown ?: estimateCurrentLatency(sr, acousticDelaySamples)
+        proc.setMeasuredLatencyBreakdown(
+            recordMs = bd.recordBufferMs,
+            trackMs = bd.trackBufferMs,
+            blockMs = bd.processingBlockMs,
+            acousticMs = bd.acousticDelayMs,
+            frameworkMs = bd.frameworkMarginMs
+        )
     }
 
     // measurement helper (P1 #6+7): occasional known signal insert + correlate in ANC loop for real round-trip

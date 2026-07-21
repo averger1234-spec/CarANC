@@ -19,29 +19,32 @@ object LatencyAwareBandLimiter {
 
     fun maxCancelFrequencyHz(latencyMs: Float): Float {
         val l = latencyMs.coerceIn(20f, 400f)
-        // Iter3-4 + S3 Ext #7: fully override-driven maxCancel: if low ov (debug <~130, e.g. 80 for #7) passed (vs real high ~136 AA), use formula that allows 300-380Hz+ for ov=80-120 (higher maxC target).
-        // E.g. for ov=120: ~300Hz+; ov=100:~340; ov=80:~387 . Ambitious but realistic for AA 136ms base + override (S3). For no low-ov fall conservative ~180-220.
-        // Combines with iter1 30000 base for good rumble range. Guarded in processor by roadMode/speed before full effect.
-        val base = 30000f / l
-        val isLowOvClaim = l < 130f
-        val maxHz = if (isLowOvClaim) {
-            (275f + (130f - l) * 2.25f).coerceIn(200f, 410f)
-        } else {
-            base.coerceIn(150f, 280f)
+        // P0: always driven by MEASURED latency (no debug override fake-low).
+        // Classical 1/(4T) is harsh for pure feedback; feedforward RNC can go higher, but AA ~250ms
+        // must stay conservative so adaptive doesn't chase un-cancelable mid/high.
+        // Formula ~ 1000/(2.5*T) with hard caps by latency class.
+        val base = 1000f / (2.5f * l)
+        return when {
+            l >= 200f -> base.coerceIn(60f, 120f)   // AA high-lat: low-rumble focus only
+            l >= 150f -> base.coerceIn(90f, 160f)
+            l >= 100f -> base.coerceIn(120f, 220f)
+            else -> base.coerceIn(150f, 350f)
         }
-        return maxHz
     }
 
     fun limits(latencyMs: Float): LatencyBandLimits {
         val maxHz = maxCancelFrequencyHz(latencyMs)
         val lowGain = 1f
+        // P0: at high measured latency, mid/high adaptive disabled (FF handles low rumble).
         val midGain = when {
+            latencyMs >= 180f -> 0f
             maxHz < 120f -> 0f
             maxHz < 180f -> 0.25f
             maxHz < 250f -> 0.55f
             else -> 0.85f
         }
         val highGain = when {
+            latencyMs >= 150f -> 0f
             maxHz < 200f -> 0f
             maxHz < 280f -> 0.15f
             else -> 0.4f

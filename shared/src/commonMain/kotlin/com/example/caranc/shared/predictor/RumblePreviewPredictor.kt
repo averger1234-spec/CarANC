@@ -85,8 +85,8 @@ class RumblePreviewPredictor(
         // Average recent accel as base
         val baseAccel = sumA / n
 
-        // Extrapolate to future
-        val futureAccel = (baseAccel + slope * currentHorizonMs).coerceIn(0f, 10f).toFloat()
+        // Extrapolate to future (all Double until final Float cast)
+        val futureAccel = (baseAccel + slope * currentHorizonMs).coerceIn(0.0, 10.0).toFloat()
 
         // Simple speed scaling (higher speed -> stronger rumble expectation)
         val avgSpeed = speedHistory.takeLast(3).map { it.second }.average().toFloat().coerceAtLeast(10f)
