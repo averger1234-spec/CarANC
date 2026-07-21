@@ -48,6 +48,12 @@ class FdafLowBandProcessor(
     var lastBlockProcessed = false
         private set
 
+    /**
+     * P1: when false (FF_PREVIEW_ONLY / high-lat rumble), still produce filtered output
+     * but freeze weight updates so delayed-error FDAF does not chase uncancelable phase.
+     */
+    var adaptEnabled: Boolean = true
+
     @Keep
     fun push(sample: Float): Float {
         if (outputAvailable > 0) {
@@ -113,6 +119,9 @@ class FdafLowBandProcessor(
         outputAvailable = blockSize
 
         updateOverlapBuffer()
+
+        // P1: freeze FDAF adaptation under high-lat FF strategy (still emit current anti from frozen W).
+        if (!adaptEnabled) return
 
         errorBlockBuf.fill(0f)
         for (i in errorBlockBuf.indices) {

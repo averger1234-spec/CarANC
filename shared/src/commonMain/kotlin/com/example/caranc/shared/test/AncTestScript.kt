@@ -287,6 +287,16 @@ object CarAncTestScript {
         "debugFreezeConsec",
         "debugLatencyOverrideMs",
         "usingLatencyOverride",
+        // P0/P1 AA high-lat FF path
+        "latencyStrategy",
+        "measuredLatencyMs",
+        "plantElectricalDelaySamples",
+        "previewRumble",
+        "predictionHorizonMs",
+        "previewHistoryAgeMs",
+        "previewHistoryCount",
+        "preLearnedBinCount",
+        "effectiveRumbleMode",
         "lowBandMuScale",
         "midBandMuScale",
         "highBandMuScale",
@@ -319,7 +329,9 @@ object CarAncTestScript {
 
 object CarRoadTuningScript {
     const val SCRIPT_ID = "car_road_tuning_v1"
-    const val SCRIPT_NAME = "Skoda 200-350Hz rumble 快速迭代測試（tier-only: LIGHT/STANDARD/PRO auto-config leakage/VSS/IMU/native via updateTier；基於 sim_iter.ps1 推薦值平衡stab/perf；#4/#4b/#6/#7_ext ... 對比；suggestedTier 切換讓 auto apply；用戶未來只 flip tier，sims 決定其餘）"
+    // P0/P1 (2026-07-21): AA high-lat 真實 plant/maxCancel 永遠用 measured latency；debugLatencyOverrideMs 僅 log A/B 標記，不再假降 plant。
+    // 高 lat + rumble → latencyStrategy=FF_PREVIEW_ONLY（IMU preview FF 主導）。驗證 previewRumble / predictionHorizonMs / plantElectricalDelaySamples。
+    const val SCRIPT_NAME = "Skoda rumble 快速迭代（P1 FF_PREVIEW：measured plant + preview 診斷；tier LIGHT/STANDARD/PRO auto；#4b A/B vs #6/#7）"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -387,44 +399,44 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_4",
-            title = "#4 強制低延遲 + musicLow 對比（Skoda 200-350Hz rumble 專用）（mu=1.7, freeze=11, c=2, override=120）",
+            title = "#4 musicLow 對比（mu=1.7, freeze=11）— ov 僅 log 標記，plant=measured",
             instructions = listOf(
-                "系統已自動套用參數（mu=1.7 / freeze=11 / c=2 / override=120）",
+                "系統已自動套用參數（mu=1.7 / freeze=11 / c=2；latencyOverride=120 僅寫入 log 作 A/B 標記，不再假降 plant/maxCancel）",
                 "同一段粗糙路 60-90 秒",
-                "Skoda Octavia 2019 專用：這步用 override=120 強制推 maxCancel 接近 250Hz+，觀察 mid band (200-350Hz) 是否開始有貢獻（這是你錄音主力頻段）",
-                "預期觀察重點：mid band 貢獻增加、reduction 在 200-350Hz 是否改善，比較 musicLow ON/OFF 感覺（此 step ON，記錄 scenario 註 musicLow=ON + \"Skoda mid-rumble test\"）"
+                "P0/P1：AA ~247ms 時 maxCancel 由 measured 決定（約 60–120Hz class）；重點改看 latencyStrategy、previewRumble、predictionHorizonMs",
+                "預期：musicLow ON 下 low-band / rumble 有感；記錄 scenario musicLow=ON + placement + latencyStrategy"
             ),
             durationSec = 75,
             suggestedTier = UserTier.STANDARD,  // tier switch here auto-applies conservative leakage=0.9998 / vss=0.85 etc for STANDARD (no manual debugLeakage needed)
-            checklist = listOf("muMult=1.7", "freezeTh=11", "consec=2", "override=120", "musicLow=ON", "Skoda 200-350Hz focus", "tier=STANDARD (auto leakage/VSS/IMU/native)"),
+            checklist = listOf("muMult=1.7", "freezeTh=11", "consec=2", "ov=log-only", "musicLow=ON", "check latencyStrategy", "tier=STANDARD"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.7f,
                 "freezeThreshold" to 11f,
                 "freezeConsec" to 2,
-                "latencyOverrideMs" to 120f,
-                "tier" to "STANDARD"  // explicit for log; updateTier auto-configs advanced (future: hide manual sliders)
+                "latencyOverrideMs" to 120f,  // log-only tag (P0: does not drive plant)
+                "tier" to "STANDARD"
             )
         ),
         TestScriptStep(
             id = "tuning_4b_Skoda",
-            title = "#4b 延伸低延遲 musicLow 對比（基於#4 Skoda 經驗，override=150, mu=1.6 mid-focus）",
+            title = "#4b musicLow 延伸（mu=1.6）— stable A/B baseline，ov 僅 log",
             instructions = listOf(
-                "系統已自動套用參數（mu=1.6 / freeze=12 / c=2 / override=150） - 基於前次#4經驗進一步推延遲，針對 mid band 微調 mu",
+                "系統已自動套用參數（mu=1.6 / freeze=12 / c=2；ov=150 僅 log 標記）",
                 "同一段粗糙路 60-90 秒",
-                "Skoda Octavia 2019 專用延伸：延續#4的200-350Hz rumble 對比，觀察是否能讓 reduction 在主力頻段更深、更穩（mid band 貢獻持續增加）。記錄 scenario 註 \"Skoda #4b延伸, musicLow=ON, based on #4 data\""
+                "此步作 old control A/B：與後續 #6/#7 比 red / previewRumble / effectiveRumbleMode。記錄 \"#4b A/B, musicLow=ON\""
             ),
             durationSec = 75,
-            suggestedTier = UserTier.STANDARD,  // tier auto: leakage/vssScale/rumbleBoost/native applied via updateTier; NO manual debugLeakage
-            checklist = listOf("muMult=1.6", "freezeTh=12", "consec=2", "override=150", "musicLow=ON", "Skoda 200-350Hz #4延伸", "tier=STANDARD auto params"),
+            suggestedTier = UserTier.STANDARD,
+            checklist = listOf("muMult=1.6", "freezeTh=12", "ov=log-only", "musicLow=ON", "A/B baseline", "tier=STANDARD"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.6f,
                 "freezeThreshold" to 12f,
                 "freezeConsec" to 2,
-                "latencyOverrideMs" to 150f,
+                "latencyOverrideMs" to 150f,  // log-only tag
                 "musicLowAncEnabled" to true,
-                "tier" to "STANDARD"  // lets auto apply (leakage 0.9998 etc); deprecate debugLeakage in future UI
+                "tier" to "STANDARD"
             )
         ),
         TestScriptStep(
@@ -481,14 +493,15 @@ object CarRoadTuningScript {
         // All changes minimal+guarded (roadMode + speed>28 + energy + musicLow).
         TestScriptStep(
             id = "tuning_7_strong_road",
-            title = "#7 strong road rumble ignore-music 對比（mu=2.05, freeze=9, c=2, override=80, musicLow=ON, force road+mid） - iter4 + S3 Extended#7 更深 rumble 突破",
+            title = "#7 strong road + FF_PREVIEW 驗證（mu=2.05；ov 僅 log；P1 看 latencyStrategy/preview）",
             instructions = listOf(
-                "系統已自動套用參數（mu=2.05 / freeze=9 / c=2 / override=80 / musicLow=ON） - 基於#6經驗 + iter4 + Subagent3 Extended DSP 強化 (stronger mid boost, pure ROAD_MID classifier, midErr*1.28, center 335)",
-                "**切到粗糙路面，嚴格維持 50+ km/h 粗糙顛簸路 60-90秒**（確保 speed>28 + low/mid energy ratio >0.06 觸發 classifier pure ROAD_MID，即使 music=true；guarded by roadMode+speed+energy。2026-06-29 log 實測：高音樂時 max 只有 0.071，必須嚴格低 vol 才行）",
-                "Skoda Octavia 專用：#7 目標是 dominant shift 至 rumble + bigger mid 貢獻。觀察 effectiveMidMu 0.6+、midScale high、maxC 300-380Hz、200-350Hz reduction -4~-6dB（比#6 更深）；比較 vs old #4b baseline + #6 A/B（old parts 穩定不變）",
-                "記錄 scenario \"Skoda #7_ext strong S3 iter4, roadMode active, effectiveMidMu=XX dominant=ROAD_MID speed=XX music=low-strict reduction=XX\"",
-                "★ 07-02 log 核心教訓：即使 #7 參數 + musicDominant=true 71% 有高 boost (>=1.5)，red 仍低，主因 placement coupling 差 (中控下方) 導致 proxy 低。務必確認這次 placement 讓 accelMag / roughness / rumbleEnergyProxy 在 #7 期間明顯高（>0.5/0.5/0.3）。如果 proxy 低，virtualQ 起不來，boost 再高也沒用。",
-                "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_7_strong_road + effectiveMidMu>0.6 + dominant=ROAD_MID + midBandMuScale>0.6 + reductionDb>3 + maxC>300 + lmsUpdateCount high；若 music 強仍 MUSIC_BROAD 則無效（退回用#4b/#6 baseline A/B）",
+                "系統已自動套用參數（mu=2.05 / freeze=9 / c=2 / ov=80 僅 log / musicLow=ON）",
+                "**切到粗糙路面，嚴格維持 50+ km/h 粗糙顛簸路 60-90秒**；全程低音樂；phone 放 floor/seat 提高 IMU coupling",
+                "★ P0/P1 驗證（running_snapshot）：latencyStrategy=FF_PREVIEW_ONLY（measured~240ms + rumble）、previewRumble>0、predictionHorizonMs~140–160、plantElectricalDelaySamples 大（track+fw）、usingLatencyOverride=false、maxCancel 約 60–120（不再被 ov 假抬）",
+                "比較 vs #4b：red / lowBandRed / preview 活躍時主觀 rumble 是否更穩；mid 在 HIGH lat 可能關閉（正常，能量在 low FF）",
+                "記錄 scenario \"#7 FF_PREVIEW, strategy=XX preview=XX horizon=XX plant=XX red=XX placement=floor\"",
+                "★ 07-02 教訓：placement 差 → proxy 低 → boost 無效。accelMag/roughness/rumbleEnergyProxy 需 >0.5/0.5/0.3",
+                "其餘：guidedTestStepId=tuning_7_strong_road + effectiveRumbleMode=true + reduction / lowBandRed 盡量 >2–3；MUSIC_BROAD 時仍可走 effectiveRumble via IMU",
                 "C8: 嚴格維持 speed 55+ rough (sustained) 觸發 full crowd vision 1.5x preloadBoost (agg from prior #7 coarse/rough clusters) + new fields: crowdsourcedPreloadBoost/rumbleAuxFactor/crowdsourcedNVHPreload/rumbleAuxPreviewFactor/imuHybridImprove 高值。記錄 scenario 含 'C8 crowdPre=1.5 rough=XX coarse=XX'。",
                 "C15/C11 延伸（更多 cycle 模擬）：STRICT: 維持 sustained spd>55kmh (enforce via vehicleSpeedProvider; if <50 during step WARN + partial data) rough (國道/台68 bumps) low-music<15% pers=1.28 tier=PRO. #7 rumble 200-350Hz focus. LOG clusters (coarse~0.001 + rough>1.1 + rumbleEma>2.5 + red>4) for NVH preload. Monitor running_snapshot: rumbleAuxPreviewFactor crowdsourcedPreloadBoost imuHybridMidErrImprove roughness personalRumbleBias rumbleAccelEma coarse* energyFactor speedKmh dominant effectiveMidMu reductionDb. If spd<55 -> repeat for full C15 data. Compare vs same-run #4b A/B (old unchanged). C15 master: high spd rough pers1.28 + IMU hybrid + crowd 1.5-1.8 unlocks 8-10.5dB / 1.65 effMid vs real partial logs (0.147/3.95, newfields=0, low spd~10); 11-18x delta vs #4b baseline. Use c15_full_cycle11_report.txt + c11_cycle_output.txt for planning.",
                 "07-01 改善重點（針對音樂主導策略 + AA高延遲瓶頸）：musicDominantRumbleMode 應更頻繁/穩定為 true；rumbleVibBoost / effectiveLowMu 應有更高更穩定的提升（目標 >2.5 sustained 而非尖峰閃爍，觀察 EMA 是否讓 boost 較平滑）；在音樂主導時仍看到較多/較穩的 reduction 尖峰（>2-3dB 持續）；micFactor 低至 0.18 後 low band 更 reliance IMU/road。記錄 music dominant 時 rumble 能量 (accel) 與 boost 的對應、sonification 事件是否干擾。仍需觀察 quality=0 時是否過保守，以及高延遲下 IMU precursor 是否提供穩定預覽優勢。",

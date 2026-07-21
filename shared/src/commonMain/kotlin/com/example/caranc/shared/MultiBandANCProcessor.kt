@@ -104,6 +104,7 @@ class MultiBandANCProcessor(
     private var musicDominantRumbleMode = false  // direction C flag for MUSIC_DOMINANT_RUMBLE mode
     private var lastRumbleVibBoost = 1f
     private var lastEffectiveLowMu = 0f
+    private var lastPreviewRumble = 0f  // P1: last RumblePreviewPredictor output for snapshot
     private var lastEffectiveRumbleMode = false  // 07-02: for isEffectiveRumbleMode() logging/diag (covers driving rumble music=false case)
     private var rumbleVibBoostEma = 1f  // EMA for stable boost strength in music dominant (07-01 feedback: peaks seen but not stable)
     private var bandGains = BandGains(low = 1f, mid = 0.25f, high = 0.05f)
@@ -388,11 +389,13 @@ class MultiBandANCProcessor(
             // CYCLE3: use scoped road ref from sessionContext
             val cutoff = sessionContext.roadNoiseReferenceModel.lowPassCutoffHz(vehicleSpeedKmh)
             roadLpCoeff = (2.0 * PI * cutoff / sampleRate).toFloat().coerceIn(0.005f, 0.15f)
-            preLearnedBank.blendedWeights(vehicleSpeedKmh)?.let { bias ->
-                lowBand.applyWeightBias(bias, blend = 0.25f)
-            }
             // Update predictor with speed (IMU already fed via setRumbleAccel)
             rumblePredictor.update(rumbleAccelMag, vehicleSpeedKmh, System.currentTimeMillis().toDouble())
+            // P1: stronger pre-learned weight blend under high lat (open-loop prior when adaptive frozen).
+            val blend = if (estimatedLatencyMs > HIGH_LATENCY_MS) 0.48f else 0.25f
+            preLearnedBank.blendedWeights(vehicleSpeedKmh)?.let { bias ->
+                lowBand.applyWeightBias(bias, blend = blend)
+            }
         }
     }
 
@@ -569,9 +572,18 @@ class MultiBandANCProcessor(
             // generate low-band anti, with heavy de-emphasis on adaptive LMS for low band.
             // Goal: produce anti that is "pre-aligned" to rumble (IMU leads sound), bypassing the 247ms+ delayed
             // mic error that causes poor phase and white-noise-like output.
+            // P1: always refresh predictor state in rumble; use live + plant-lagged preview for residual.
             val rumblePreview = if (lastEffectiveRumbleMode && estimatedLatencyMs > HIGH_LATENCY_MS) {
                 rumblePredictor.getCurrentPreviewRumble()
+            } else if (lastEffectiveRumbleMode) {
+                rumblePredictor.getCurrentPreviewRumble() * 0.35f  // light preview even mid-lat
             } else 0f
+            lastPreviewRumble = rumblePreview
+            // Preview ring advances once per sample in this loop → lag index ≈ plant electrical samples.
+            val plantLagSteps = plantElectricalDelaySamples.coerceIn(0, 2000)
+            val delayedPreview = if (ffPreviewOnly && plantLagSteps > 0) {
+                rumblePredictor.getDelayedPreviewRumble(plantLagSteps)
+            } else rumblePreview
 
             // sonif 更不干擾 rumble：effectiveRumbleMode 時，rumble 的 muScale 不受 sonif eventScale 影響。
             val lowAdaptiveScale = if (effectiveRumbleMode) 1f else eventScale
@@ -657,8 +669,10 @@ class MultiBandANCProcessor(
                     errorSample = lowError
                 )
             }
-            // profiling counters active in BandFxLms.processSample above; fdaf push buffer reuse at this layer
-            val fdafOut = fdafLow.push(lowSample)
+            // P1: freeze FDAF weights under FF_PREVIEW_ONLY; feed preview-injected low when high lat.
+            fdafLow.adaptEnabled = !ffPreviewOnly
+            val fdafIn = if (ffPreviewOnly) lowSampleForLowBand else lowSample
+            val fdafOut = fdafLow.push(fdafIn) * (if (ffPreviewOnly) 0.35f else 1f)
 
             // CYCLE3_EXTRA integration point: exercise native low proto (switchable via setUseNativeLowBand)
             // Now enabled stub switching point: if flag + available, use native (even if currently stub returns 0, real impl when NDK active will contribute low band rumble cancel)
@@ -773,9 +787,11 @@ class MultiBandANCProcessor(
                     // Guarded by roadMode + speed + energy (minimal safe). Addresses main energy above 150Hz limit.
                     val protectedHigher = if (roadMode && vehicleSpeedKmh > 28f) higherAnti * 0.52f else lowPassOutput(higherAnti)
                     // P0: same predictive anti for floor_music_road hybrid (AA often ends here with music=true).
+                    // P1: mix live preview (immediate anti) + delayed residual prior for plant alignment.
                     val previewAntiMusic = when {
-                        ffPreviewOnly -> -rumblePreview * 1.35f
+                        ffPreviewOnly -> -(rumblePreview * 1.15f + delayedPreview * 0.35f)
                         lastEffectiveRumbleMode && estimatedLatencyMs > HIGH_LATENCY_MS -> -rumblePreview * 0.9f
+                        lastEffectiveRumbleMode && estimatedLatencyMs > 150f -> -rumblePreview * 0.45f
                         else -> 0f
                     }
                     val roadFfBoost = if (ffPreviewOnly) 2.0f else 1f
@@ -791,7 +807,7 @@ class MultiBandANCProcessor(
                         else -> 1.0f
                     }
                     val previewAntiContribution = when {
-                        ffPreviewOnly -> -rumblePreview * 1.35f
+                        ffPreviewOnly -> -(rumblePreview * 1.15f + delayedPreview * 0.35f)
                         lastEffectiveRumbleMode && estimatedLatencyMs > 150f -> -rumblePreview * 0.9f
                         else -> 0f
                     }
@@ -1212,4 +1228,11 @@ class MultiBandANCProcessor(
     }
 
     override fun getRumbleEnergyProxy(): Float = rumbleEnergyProxy
+
+    // P1: preview / plant diagnostics for FF_PREVIEW_ONLY log validation
+    override fun getPreviewRumble(): Float = lastPreviewRumble
+    override fun getPredictionHorizonMs(): Float = rumblePredictor.getHorizonMs()
+    override fun getPreviewHistoryAgeMs(): Float = rumblePredictor.getHistoryAgeMs()
+    override fun getPreviewHistoryCount(): Int = rumblePredictor.getHistorySampleCount()
+    override fun getPreLearnedBinCount(): Int = preLearnedBank.filledBinCount()
 }

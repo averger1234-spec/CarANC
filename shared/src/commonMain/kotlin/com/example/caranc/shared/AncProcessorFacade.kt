@@ -121,4 +121,11 @@ interface AncProcessorFacade : AudioProcessor {
     // Iter2+: expose effective mid band mu (after road/musicLow boosts + bandMuScale) for logging mid contrib to 200-350Hz rumble.
     // 0 means no mid adaptation (pre-iter1 case for 136ms AA).
     fun getLastEffectiveMidMu(): Float = 0f
+
+    // P1: RumblePreviewPredictor diagnostics for AA high-lat FF path validation in logs.
+    fun getPreviewRumble(): Float = 0f
+    fun getPredictionHorizonMs(): Float = 0f
+    fun getPreviewHistoryAgeMs(): Float = 0f
+    fun getPreviewHistoryCount(): Int = 0
+    fun getPreLearnedBinCount(): Int = 0
 }

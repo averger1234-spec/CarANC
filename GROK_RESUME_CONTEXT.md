@@ -10,13 +10,17 @@
 - 等級制度：LIGHT（免費輕度）、STANDARD（普通中/重度）、PRO（專業中/重度）
 - 商業 gating + dev panel 可切方案測試
 
-**最新進度（2026-07-21）P0 AA 高延遲**：
-- Commit `dafbcac` on main：`latencyStrategy=FF_PREVIEW_ONLY` when measured lat >180ms + rumble
-  - micFactor→0、low LMS freeze/0.05x、mid adaptive off、preview/road FF 加權
-  - plantElectricalDelaySamples = track+framework；maxCancel 只看 measured（debug ov 僅 log）
-  - snapshot 新增 latencyStrategy / measuredLatencyMs / plantElectricalDelaySamples / usingLatencyOverride=false
-- assembleDebug OK；install 需手機 USB/無線 adb 連上後跑 `.\scripts\install-debug.ps1`
-- 路測後 pull log 應見 `latencyStrategy":"FF_PREVIEW_ONLY"` 與 plant samples ~ (track+fw)*sr/1000
+**最新進度（2026-07-21）P0+P1 AA 高延遲**：
+- **P0** `dafbcac`：`latencyStrategy=FF_PREVIEW_ONLY`（lat>180 + rumble）
+  - micFactor→0、low LMS freeze/0.05x、mid adaptive off、plant=track+fw、maxCancel=measured only
+- **P1**（本輪）：讓 FF 路徑「真的好用」
+  - RumblePreviewPredictor：更長 history + EMA slope/preview + horizon/history 診斷
+  - FDAF `adaptEnabled=false` under FF_PREVIEW；preview 注入 fdaf 輸入
+  - live+delayed preview anti；high-lat preLearned blend 0.48
+  - snapshot：`previewRumble` / `predictionHorizonMs` / `previewHistoryAgeMs` / `preLearnedBinCount`
+  - 調校腳本：ov 標註 log-only；#7 驗證 FF_PREVIEW 欄位
+- assembleDebug OK；install：`.\scripts\install-debug.ps1`
+- 路測驗：`latencyStrategy=FF_PREVIEW_ONLY` + `previewRumble>0` + `predictionHorizonMs~140–160`
 
 **歷史進度（2026-06-25）**：
 - 多機開發環境已建立（兩台 Windows + 一台 Mac）

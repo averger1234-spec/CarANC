@@ -1339,6 +1339,12 @@ class AudioEngine(
                         "latencyStrategy" to (ancProcessor?.getLatencyStrategy() ?: "NORMAL"),
                         "measuredLatencyMs" to (ancProcessor?.getMeasuredLatencyMs() ?: 0f),
                         "plantElectricalDelaySamples" to (ancProcessor?.getPlantElectricalDelaySamples() ?: 0),
+                        // P1: predictive FF diagnostics
+                        "previewRumble" to (ancProcessor?.getPreviewRumble() ?: 0f),
+                        "predictionHorizonMs" to (ancProcessor?.getPredictionHorizonMs() ?: 0f),
+                        "previewHistoryAgeMs" to (ancProcessor?.getPreviewHistoryAgeMs() ?: 0f),
+                        "previewHistoryCount" to (ancProcessor?.getPreviewHistoryCount() ?: 0),
+                        "preLearnedBinCount" to (ancProcessor?.getPreLearnedBinCount() ?: 0),
                         // debug ov for script A/B only — does NOT drive plant/maxCancel anymore
                         "debugLatencyOverrideMs" to AncTestPreferences.getDebugLatencyOverrideMs(appContext),
                         "usingLatencyOverride" to false,
