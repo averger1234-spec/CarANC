@@ -297,6 +297,15 @@ object CarAncTestScript {
         "previewHistoryCount",
         "preLearnedBinCount",
         "effectiveRumbleMode",
+        // #6–#9 (2026-07-21 medium-term)
+        "fdafDelayless",
+        "fdafPartitions",
+        "fixedBankOut",
+        "audioBackend",
+        "wirelessAaSuspected",
+        "wiredCarPathAvailable",
+        "roadRoughness",
+        "requireWiredAa",
         "lowBandMuScale",
         "midBandMuScale",
         "highBandMuScale",
@@ -329,9 +338,12 @@ object CarAncTestScript {
 
 object CarRoadTuningScript {
     const val SCRIPT_ID = "car_road_tuning_v1"
-    // P0/P1 (2026-07-21): AA high-lat 真實 plant/maxCancel 永遠用 measured latency；debugLatencyOverrideMs 僅 log A/B 標記，不再假降 plant。
-    // 高 lat + rumble → latencyStrategy=FF_PREVIEW_ONLY（IMU preview FF 主導）。驗證 previewRumble / predictionHorizonMs / plantElectricalDelaySamples。
-    const val SCRIPT_NAME = "Skoda rumble 快速迭代（P1 FF_PREVIEW：measured plant + preview 診斷；tier LIGHT/STANDARD/PRO auto；#4b A/B vs #6/#7）"
+    // P0/P1 + #6–#9 (2026-07-21):
+    // - plant/maxCancel = measured only；latencyOverrideMs 僅 log A/B 標記
+    // - 高 lat + rumble → FF_PREVIEW_ONLY + delayless FDAF (#6) + speed×rough fixed bank (#7)
+    // - 實測請 USB 有線 AA (#9)；audioBackend 在 AA 應為 AUDIOTRACK_AA_SUBMIX
+    // 驗證：latencyStrategy / previewRumble / fdafDelayless / fixedBankOut / wirelessAaSuspected=false
+    const val SCRIPT_NAME = "Skoda rumble 快速迭代（FF_PREVIEW+#6 FDAF+#7 bank；USB有線AA；ov僅log；#4b A/B vs #6/#7）"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -378,19 +390,19 @@ object CarRoadTuningScript {
             id = "tuning_prep",
             title = "調校準備（快速）",
             instructions = listOf(
-                "USB AA 連車機",
-                "車型/手機位置/情境在「實車測試 Log」填寫清楚（例如「個人 Pixel + USB AA + 粗糙國道 iter4」）",
-                "★ 最高優先提醒（07-02 log 證實）：phone placement 對 IMU rumble coupling 極關鍵！這次用「中控下方」導致 accelMag / rumbleEnergyProxy 很低（0.01-0.12），virtualSuppressionQuality 卡低，boost 難起。即使進入 musicDominant 也沒用。強烈建議放 floor（腳踏墊下）或座椅底部（更好結構震動傳導）。填寫時註明 'placement=floor_seat for good coupling'，並觀察 log 裡 accelMag >0.5 + roughness >0.5 + rumbleEnergyProxy >0.3 才算好條件。",
-                "點「開始降噪」完成校正，狀態顯示「降噪中」",
-                "準備好後進入同一条粗糙路面（50-70km/h 顛簸強 rumble），全程**嚴格低音樂（音量<20% 或 off）** + speed 50+ 維持 rough road",
-                "接下來每步按「完成這步」前，系統會自動套用對應的 LMS 調校參數",
-                "只需專心開車並在每步維持時間即可，最後一步匯出 log",
-                "延伸：這是 Skoda 專用低延遲 musicLow 快速迭代腳本（基於#4/#4b +#6 +#7 iter4）。跳過無用早期 baseline（已知高延遲問題），直接進入#4/#4b/#6/#7 核心對比。計劃跑 3-4 次完整腳本，每次配錄音+spectrum。優先記錄 mid band 貢獻、effectiveMidMu、200-350Hz reduction。#6/#7 步強制 pure road（forceNormal=false + 維持車速50+ 讓 roadMode 觸發 + strict low music 避免 MUSIC_BROAD）。GPS 需有效，車速>30kmh + low/mid energy > thresh 觸發 ROAD_MID（classifier iter4 強化）。old parts #4b 作為穩定 baseline A/B 對照新 #6/#7 rumble 突破。"
+                "★ #9 必須 USB 有線 Android Auto（不要無線 AA）。無線延遲更差且 log 會出現 wirelessAaSuspected=true",
+                "USB AA 連車機後啟動 ANC；audio_init 應見 audioBackend=AUDIOTRACK_AA_SUBMIX、wiredCarPathAvailable 盡量 true",
+                "車型/手機位置/情境填清楚（例：「Pixel + USB AA + 粗糙國道」）",
+                "★ placement：phone 放 floor/seat（勿中控下方）。accelMag>0.5 + roughness>0.5 + rumbleEnergyProxy>0.3 才算好 coupling",
+                "點「開始降噪」完成校正，狀態「降噪中」",
+                "同一條粗糙路 50–70km/h、嚴格低音樂（<20% 或 off）",
+                "每步「完成這步」會自動套用 debug presets（含 ov 僅 log 標記）",
+                "本腳本驗證 P0 FF_PREVIEW + #6 delayless FDAF + #7 speed×rough bank；#4b 作 A/B baseline。mid 在高 lat 可能關閉（正常，能量在 low FF）"
             ),
             durationSec = 0,
             requiresAncRunning = false,
-            checklist = listOf("AA 已連", "ANC 已跑"),
-            logPhases = listOf("audio_init", "calibration", "rpm_config", "running_snapshot"),
+            checklist = listOf("USB有線AA", "wirelessAaSuspected=false", "ANC已跑", "placement=floor/seat"),
+            logPhases = listOf("audio_init", "calibration", "rpm_config", "running_snapshot", "wireless_aa_warning"),
             debugPresets = mapOf(
                 "forceNormalMode" to true,
                 "musicLowAncEnabled" to true,
@@ -465,26 +477,26 @@ object CarRoadTuningScript {
         // Goal: isolate mid band rumble contrib vs #4/#4b; observe effectiveMidMu >0.5 , reduction on 250-350Hz. Use as A/B vs #4b stable (old unchanged).
         TestScriptStep(
             id = "tuning_6_midforce",
-            title = "#6 mid-force road rumble 對比（mu=1.8, freeze=10, c=2, override=110, musicLow=ON, force road） - 驗證 mid 突破 (iter4+S3: stricter for dominant shift)",
+            title = "#6 road+FDAF 對比（mu=1.8；ov僅log；驗 fdafDelayless + mid 若啟用）",
             instructions = listOf(
-                "系統已自動套用參數（mu=1.8 / freeze=10 / c=2 / override=110 / musicLow=ON）",
-                "切到**粗糙路面，嚴格維持 speed 50+ km/h**（>30 且 rough 讓 GPS+energy 觸發 roadMode + classifier ROAD_MID/LOW） 60-90秒；**全程低音樂或無音樂（vol<15-20% 或 off）** —— 這是關鍵！music 音量高會讓 highRatio~1.0、low+mid<0.07，無法有效 shift dominant 或拿到高 midMu（見 20260629 log 實測）。低音量讓 rumble energy 相對浮現，0.06 thresh 才能 trigger。",
-                "Skoda Octavia 專用：強制 mid 貢獻，觀察 effectiveMidMu 是否 >0.5 (iter4 目標)，midOut 對 200-350Hz rumble 的貢獻，比較 reductionDb 與 band ratios；與前#4b A/B（old baseline）",
-                "記錄 scenario \"Skoda #6 midforce iter4, roadMode active, effectiveMidMu=XX dominant=ROAD_MID speed=XX musicLow=ON music=low\"",
-                "★ 關鍵確認（running_snapshot 重點）：guidedTestStepId=tuning_6_midforce + effectiveMidMu>0.5 + dominant=ROAD_MID/ROAD_LOW + midBandMuScale>0.5 + reduction >2dB improvement；低速/高音樂仍會 MUSIC_BROAD（effMidMu=0，無效此步，改用#4b baseline）"
+                "系統已自動套用（mu=1.8 / freeze=10 / ov=110 僅 log / musicLow=ON / forceNormal=false）",
+                "粗糙路 speed 50+、低音樂 60–90 秒",
+                "★ #6 驗證：fdafDelayless=true、fdafPartitions=4；高 lat 時 mid 可能仍關閉（正常）",
+                "與 #4b A/B：red / previewRumble / fixedBankOut（若已有 pre-learned bins）",
+                "記錄 scenario \"#6 FDAF, fdafDelayless=XX partitions=XX strategy=XX red=XX\""
             ),
             durationSec = 75,
-            suggestedTier = UserTier.PRO,  // tier=PRO auto applies aggressive leakage=0.9995 + vss=1.0 + boost=0.09 + native=true ; step switch tier lets auto apply (no manual debugLeakage)
-            checklist = listOf("muMult=1.8", "freezeTh=10", "consec=2", "override=110", "musicLow=ON", "roadMode active", "effectiveMidMu>0.5", "speed>50 rough low-music", "tier=PRO (auto leakage/vss/rumbleBoost/native)"),
+            suggestedTier = UserTier.PRO,
+            checklist = listOf("muMult=1.8", "ov=log-only", "musicLow=ON", "fdafDelayless=true", "speed>50", "tier=PRO"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing", "debug_presets_apply"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.8f,
                 "freezeThreshold" to 10f,
                 "freezeConsec" to 2,
-                "latencyOverrideMs" to 110f,
+                "latencyOverrideMs" to 110f,  // log-only
                 "musicLowAncEnabled" to true,
                 "forceNormalMode" to false,
-                "tier" to "PRO"  // primary control: updateTier auto-configs the advanced params (sims tuned); legacy debugLeakage deprecated for these
+                "tier" to "PRO"
             )
         ),
         // Iter4 + Subagent3 Extended #7 variant: strong road rumble (on top of #6): mu higher, ov=80 for maxC 300+ sim, stronger DSP mid focus (even music), classifier tweak for pure ROAD_MID even with music.
@@ -493,54 +505,59 @@ object CarRoadTuningScript {
         // All changes minimal+guarded (roadMode + speed>28 + energy + musicLow).
         TestScriptStep(
             id = "tuning_7_strong_road",
-            title = "#7 strong road + FF_PREVIEW 驗證（mu=2.05；ov 僅 log；P1 看 latencyStrategy/preview）",
+            title = "#7 FF_PREVIEW+#6+#7 bank 主驗（mu=2.05；USB AA；ov僅log）",
             instructions = listOf(
-                "系統已自動套用參數（mu=2.05 / freeze=9 / c=2 / ov=80 僅 log / musicLow=ON）",
-                "**切到粗糙路面，嚴格維持 50+ km/h 粗糙顛簸路 60-90秒**；全程低音樂；phone 放 floor/seat 提高 IMU coupling",
-                "★ P0/P1 驗證（running_snapshot）：latencyStrategy=FF_PREVIEW_ONLY（measured~240ms + rumble）、previewRumble>0、predictionHorizonMs~140–160、plantElectricalDelaySamples 大（track+fw）、usingLatencyOverride=false、maxCancel 約 60–120（不再被 ov 假抬）",
-                "比較 vs #4b：red / lowBandRed / preview 活躍時主觀 rumble 是否更穩；mid 在 HIGH lat 可能關閉（正常，能量在 low FF）",
-                "記錄 scenario \"#7 FF_PREVIEW, strategy=XX preview=XX horizon=XX plant=XX red=XX placement=floor\"",
-                "★ 07-02 教訓：placement 差 → proxy 低 → boost 無效。accelMag/roughness/rumbleEnergyProxy 需 >0.5/0.5/0.3",
-                "其餘：guidedTestStepId=tuning_7_strong_road + effectiveRumbleMode=true + reduction / lowBandRed 盡量 >2–3；MUSIC_BROAD 時仍可走 effectiveRumble via IMU",
-                "C8: 嚴格維持 speed 55+ rough (sustained) 觸發 full crowd vision 1.5x preloadBoost (agg from prior #7 coarse/rough clusters) + new fields: crowdsourcedPreloadBoost/rumbleAuxFactor/crowdsourcedNVHPreload/rumbleAuxPreviewFactor/imuHybridImprove 高值。記錄 scenario 含 'C8 crowdPre=1.5 rough=XX coarse=XX'。",
-                "C15/C11 延伸（更多 cycle 模擬）：STRICT: 維持 sustained spd>55kmh (enforce via vehicleSpeedProvider; if <50 during step WARN + partial data) rough (國道/台68 bumps) low-music<15% pers=1.28 tier=PRO. #7 rumble 200-350Hz focus. LOG clusters (coarse~0.001 + rough>1.1 + rumbleEma>2.5 + red>4) for NVH preload. Monitor running_snapshot: rumbleAuxPreviewFactor crowdsourcedPreloadBoost imuHybridMidErrImprove roughness personalRumbleBias rumbleAccelEma coarse* energyFactor speedKmh dominant effectiveMidMu reductionDb. If spd<55 -> repeat for full C15 data. Compare vs same-run #4b A/B (old unchanged). C15 master: high spd rough pers1.28 + IMU hybrid + crowd 1.5-1.8 unlocks 8-10.5dB / 1.65 effMid vs real partial logs (0.147/3.95, newfields=0, low spd~10); 11-18x delta vs #4b baseline. Use c15_full_cycle11_report.txt + c11_cycle_output.txt for planning.",
-                "07-01 改善重點（針對音樂主導策略 + AA高延遲瓶頸）：musicDominantRumbleMode 應更頻繁/穩定為 true；rumbleVibBoost / effectiveLowMu 應有更高更穩定的提升（目標 >2.5 sustained 而非尖峰閃爍，觀察 EMA 是否讓 boost 較平滑）；在音樂主導時仍看到較多/較穩的 reduction 尖峰（>2-3dB 持續）；micFactor 低至 0.18 後 low band 更 reliance IMU/road。記錄 music dominant 時 rumble 能量 (accel) 與 boost 的對應、sonification 事件是否干擾。仍需觀察 quality=0 時是否過保守，以及高延遲下 IMU precursor 是否提供穩定預覽優勢。",
-"07-02 log 教訓 + 好消息（Skoda #7 實際跑）：red 仍多 0.00x（1076 sonif + 26k bumps），但高 boost 快照存在（全 log 551 個 rumbleVibBoost >=2；#7 步 239 個 boost field 中 171 個 >=1.5，最高 6.5+）。virtualQ 0.05-0.13 > rawQ=0.0，證明 proxy 正在 lift quality，aggressive 邏輯 (2.8x + EMA + energy) 在 post-shadowing fix 後有生效（高 boost 出現在 tuning steps）。仍低 red 可能因 high band music 主導整體 dB metric、或 placement coupling 差 (中控下方 accel 低)。改善建議：phone 放 floor/seat 更好 coupling；觀察 virtualSuppressionQuality / rumbleEnergyProxy 是否 >0.3 才 boost；sonif 時若 rumbleEnergy 高則 milder duck。記錄 placement + accel + volNorm + sonif 叢集 vs red + 是否有高 boost 時 red 仍低。目標 #7 red >3 sustained in rumble periods + 確認 sonif 期間 boost 不降。",
-                "Notification / Sonification 保護（06-30 另一問題 + 07-01 測試）：當車機通知鈴聲出現時，AA 音訊 choppy + 鈴聲有 echo。已實作 SonificationDetector + setSonificationOverride：playbackRef 或 mic 偵測到短 burst 時，立即將 ANC 輸出 gain duck 到 ~0.06-0.18，並觸發 freeze + 降低 mu，避免把 notification 當 noise 處理產生延遲 echo，也避免干擾 routing 造成 underrun。事件結束自動恢復。只保護短暫事件，rumble boost / IMU ref 應持續（vibration preview 不中斷）。log 會出現 sonification_detected + sonificationOverride + gainScale。今日 log 看到 4500+ sonif 事件（保護生效）。測試時可故意觸發通知觀察是否還有 echo/choppy，並記錄當時的 route、speed、accel 與 rumbleVibBoost 曲線（應平滑 sustained）。",
-                "今日 log (07-01) 分析後續方向 + 突破困境關鍵數據：從 logcat 真實抓的數據重點（解決 quality=0 + MUSIC_BROAD + 低 red + freeze on music + boost 有限）：1. musicDominantRumbleMode flag 進入 + 處理模式 floor_noise_music_road 時，rumbleVibBoost 是否從 ~1.1 跳到 >2.5 (因 fix 了 processor 內 local val shadowing member flag 的 bug，現在 floor+flag 路徑會觸發 2.8x extra + energyProxy continuous + EMA)；2. rumbleEnergyProxy (raw 0-1 from accel) 與 virtualSuppressionQuality 的對應（即使 q=0 時 virtual 是否 >0.2 驅動 aggressive）；3. 調整音量時 (新增 musicStreamVolume / musicVolNorm 每2s snapshot)：vol 上升是否導致 blockRms 波動、freeze 增加、reduction 掉、virtual 掉、更多 sonif-like bleed；4. freeze_state / bump_detected 在 music dominant 時的 blockRms 閾值 (debug 9.0 +1.5x 放寬？) 與 red 期間是否過度 freeze；5. dominantNoiseBand 即使 speed58+accel1.3 仍 MUSIC_BROAD (high band energy主導分類，mediaSub=0 因 AA submix capture不可用)，virtual 如何 bypass；6. lowBandMuScale / effectiveLowMu / lmsUpdateCount low band 在 rumble mode 的實際活躍度 + sonif 期間 low muScale 是否維持1f (不被 duck)。 無線adb (10.176.11.105:5555 AA時) 實時 logcat 會抓到 force_music_dominant_rumble Log + freeze/sonif/ANCService 事件。 從這些真實數據 (不是猜) 驅動下次 code (e.g. 更 aggressive virtual proxy scale、rumble mode 下放寬 freeze 更多、加 low-band specific red/energy 指標到 snapshot)。 sub-agent C18+ 會用新 log stats 模擬預測。 phone 更新後重跑 strict high spd low music + 調 vol + 觸發 notif 來抓數據。",
+                "系統已自動套用（mu=2.05 / freeze=9 / ov=80 僅 log / musicLow=ON / forceNormal=false / tier=PRO）",
+                "**USB 有線 AA** + 粗糙路 55+ km/h 60–90 秒 + 低音樂；phone floor/seat",
+                "★ P0 驗證：latencyStrategy=FF_PREVIEW_ONLY、measuredLatencyMs~200–250、usingLatencyOverride=false、maxCancel~60–120、plantElectricalDelaySamples 大",
+                "★ P1 驗證：previewRumble>0、predictionHorizonMs~140–160（≈ measured−100）",
+                "★ #6 驗證：fdafDelayless=true、fdafPartitions=4",
+                "★ #7 驗證：roadRoughness 有值、preLearnedBinCount 可能隨時間增加、fixedBankOut 非零（有 bank 時）",
+                "★ #9 驗證：wirelessAaSuspected=false、audioBackend=AUDIOTRACK_AA_SUBMIX",
+                "比較 vs #4b：主觀低頻 rumble + lowBand red；mid 關閉可接受",
+                "記錄 scenario \"#7 full, strategy=XX preview=XX fdaf=XX fixedBank=XX wireless=XX red=XX placement=floor\"",
+                "placement：accel/roughness/proxy 需 >0.5/0.5/0.3；effectiveRumbleMode=true",
+                "可選：故意觸發通知，確認 sonification 保護且 rumble 路徑不中斷"
             ),
             durationSec = 75,
-            suggestedTier = UserTier.PRO,  // tier PRO for most aggressive auto (low leak high boost native); demonstrates only manual switch is tier (sims pick values for balance)
-            checklist = listOf("muMult=2.05", "freezeTh=9", "consec=2", "override=80", "musicLow=ON", "roadMode active", "effectiveMidMu>0.6", "speed>55 sustained rough low-music pers=1.28", "compare vs old #4b/#6 A/B", "tier=PRO auto (leakage=0.9995 etc from sims)", "C15: log clusters coarse/rough/ema/red for NVH 1.5-1.8x; monitor new fields"),
+            suggestedTier = UserTier.PRO,
+            checklist = listOf(
+                "USB有線AA",
+                "FF_PREVIEW_ONLY",
+                "fdafDelayless",
+                "previewRumble>0",
+                "wireless=false",
+                "speed>55 rough low-music",
+                "tier=PRO",
+                "vs #4b A/B"
+            ),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing", "debug_presets_apply"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 2.05f,
                 "freezeThreshold" to 9f,
                 "freezeConsec" to 2,
-                "latencyOverrideMs" to 80f,
+                "latencyOverrideMs" to 80f,  // log-only
                 "musicLowAncEnabled" to true,
                 "forceNormalMode" to false,
-                "tier" to "PRO"  // tier switch triggers updateTier -> auto advanced params. See sim_iter.ps1 for per-tier predicted effMidMu/red/varEma/stab. Deprecate manual debug* for leakage/vss
+                "tier" to "PRO"
             )
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束與匯出 + 準備下次迭代（快速）",
+            title = "結束與匯出 + 準備下次迭代",
             instructions = listOf(
                 "停止降噪",
-                "在「實車測試 Log」點「匯出 Log」或直接用 GuidedTest finish 的「儲存到下載 / CarANC_Logs」按鈕（無需切測試平台）",
-                "把完整 log 傳回分析",
-                "記錄 scenario 註明各 step 參數組合 + speed 範圍 + \"musicLow=ON/OFF\"",
-                "建議配外部錄音 + spectrum（重點 50-250Hz rumble 能量下降，特別 200-350Hz）",
-                "觀察重點：不同 debug 設定下 lowBandLms 更新率、freezeRem 頻率、reduction 在 rumble 主導時變化、主觀低頻 rumble 降低程度（0-10分）",
-                "比較重點：lmsUpdate 上升速度、freeze 頻率、antiNoiseDb 負值、reductionDb、midBand 貢獻（尤其是 Skoda 200-350Hz 區）、是否出現 artifact、effectiveMidMu、dominant shift、maxC",
-                "延伸重點（tier auto + sim_iter）：現在**唯一手動切換是 tier (LIGHT/STANDARD/PRO)**； leakage / vssScale / rumbleBoost / native 全部由 updateTier 自動（依 sims 推薦值）。建議在 prep 用 LIGHT，#4b 用 STANDARD，#6/#7 用 PRO 測試不同 auto 行為。記錄 tier 變化 + running_snapshot 中的 tier + debugLeakage(effective from tier) + blockRmsVssScale + rumbleBoostFactor + useNativeLowBand + lmsPfxVarEma (stability) + effMidMu + reductionDb。單輪內 A/B 用不同 suggestedTier 步驟比較 auto 配置。**sims (sim_iter.ps1) 決定其餘**；累積 log 後 re-run sims 微調 tier* 值。目標：用戶只 flip tier，sims 保駕護航平衡穩定(低varEma無pop)與性能(高effMid red rumble)。驗證 red -4~-6dB on PRO strict rough。",
-                "C15/C11 匯出 + NVH：after drive, terminal: powershell -File scripts/pull-latest-log.ps1; Select-String -Path \"C:\\Users\\user\\AndroidStudioProjects\\CarANC\\log\\anc_session_*.log\" -Pattern \"tuning_7_strong_road|coarseLat|roughness|personalRumbleBias|rumbleAccelEma|reductionDb|ROAD_MID|rumbleAuxPreviewFactor|effectiveMidMu\" | group coarse/rough/ema/red -> save local NVH json (privacy, e.g. clusters.json). Future #7 on 國道 match auto *1.5 rumbleAuxPreviewFactor + crowdsourcedPreloadBoost (predictive from prior C15 clusters). Update scenario log with C15 cond name + spectrum 200-350Hz red validate. re-run powershell -File sim_iter.ps1 for C15 update + seed 1.5-1.8x. Monitor in #7: all new IMU/rough/pers/crowd fields for validation.",
-                "C14 5-drive NVH Waze (long-term cumulative): after drive, parse log for clusters -> save to local nvh_map.json (quantized coarse~0.001° hash + rough>1.1 + ema>2.0 + red>4); next drive auto preload in sim/real (crowdsourcedPreloadBoost=1.5 + rumbleAuxPreviewFactor*1.5 on match e.g. 國道/台68). Use Get-ClusterMatchBoost + Simulate-C14NVHStep. Cumulative after 3+: #7 red +50% from crowd history (1.28 pers * 1.12 imu * 1.5 crowd). Full 5-drive target: eff>1.8 red>11 98% ROAD_MID. Old parts (prep/4/4b/5) always unchanged for low A/B control. Monitor hasClusterMatch/clusterHash/crowdsourcedPreloadBoost/rumbleAuxPreviewFactor etc. See c14_nvh_longterm_5drive.txt for table/JSONL/nvh_map ex +50% quant. re-run powershell -File sim_iter.ps1 (C14 funcs loaded)."
+                "用 GuidedTest finish「儲存到下載 / CarANC_Logs」或測試平台匯出",
+                "把完整 log 傳回分析（或 pull-latest-log.ps1）",
+                "scenario 註：tier / USB-AA / placement / speed / musicLow ON/OFF",
+                "必查欄位：latencyStrategy, previewRumble, fdafDelayless, fdafPartitions, fixedBankOut, preLearnedBinCount, audioBackend, wirelessAaSuspected, plantElectricalDelaySamples, reductionDb / lowBand",
+                "A/B：#4b baseline vs #6 vs #7 的 red + 主觀 rumble（0–10）",
+                "配外部錄音 + spectrum 重點 50–250Hz（尤其 200–350 若 mid 有開）",
+                "下一輪：固定 USB AA + floor placement；若 wirelessAaSuspected=true 先排除連線問題再比 DSP"
             ),
             durationSec = 0,
             requiresAncRunning = false,
-            checklist = listOf("Log 已匯出", "每組都有 scenario 註記"),
+            checklist = listOf("Log已匯出", "含 FF_PREVIEW 與 #6/#7 欄位", "scenario 註記"),
             logPhases = listOf("test_script_complete")
         )
     )

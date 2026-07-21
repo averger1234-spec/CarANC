@@ -20,6 +20,7 @@
 - Log 新欄位：`audioBackend` / `fdafDelayless` / `fdafPartitions` / `fixedBankOut` / `wirelessAaSuspected`
 - install：`.\scripts\install-debug.ps1`
 - **文件已對齊（三份都要 pull）**：`GROK_RESUME_CONTEXT.md` + `README.md` + `MULTI_MACHINE_SYNC.md` 皆含 2026-07-21 進度；第二台：`git pull origin main`
+- **測試腳本** `car_road_tuning_v1`（`AncTestScript.kt`）：已更新 P0/P1 + #6–#9 驗證說明、monitored 欄位（fdafDelayless/fixedBankOut/audioBackend/wireless…）；#4/#4b ov=log-only；#7 為主驗步
 
 **歷史進度（2026-06-25）**：
 - 多機開發環境已建立（兩台 Windows + 一台 Mac）
