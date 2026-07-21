@@ -11,6 +11,14 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- OBD Bluetooth removed (not needed). Manual RPM via prefs supported for engine harmonics. -->
 
+    <!-- #11: optional automotive — app still installable on phones; marks car-host readiness -->
+    <uses-feature
+        android:name="android.hardware.type.automotive"
+        android:required="false" />
+    <uses-feature
+        android:name="android.software.car.templates_host"
+        android:required="false" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

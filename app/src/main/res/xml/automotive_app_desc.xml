@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <automotiveApp>
-    <!-- 使用 Car App Library 模板必須宣告為 template -->
+    <!-- Car App Library template host (phone projection / template HU). -->
+    <!-- #11: This is NOT an OEM AAOS exclusive RNC. Full vehicle HAL + exclusive audio needs a separate automotive product. -->
     <uses name="template" />
 </automotiveApp>

@@ -107,6 +107,8 @@ class AudioEngine(
     private var lastSonifLogMs = 0L
     private var lastSonifLogged = false  // for notification/sonification event protection logging (throttle)
     private var mimoTrialEnabled = true
+    /** #8: AUDIOTRACK_AA_SUBMIX | AAUDIO_LIKE_LOCAL_LOW_LATENCY */
+    private var lastAudioBackendLabel: String = "unknown"
 
     // P1 #6+7: runtime real latency measurement - reuse buffers (no alloc in ANC hot loop) for occasional
     // known signal insert + correlate for round-trip estimate (updates processor estimatedLatencyMs)
@@ -172,59 +174,101 @@ class AudioEngine(
                 val minBuffer = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
                 val minTrackBuffer = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
 
-                val bufferSize = LOW_LATENCY_BUFFER_SAMPLES.coerceAtLeast(
-                    maxOf(minBuffer, minTrackBuffer) / LOW_LATENCY_BUFFER_DIVISOR
-                ).coerceAtMost(1024)
-
-                recordBufferBytes = computeRecordBufferBytes(minBuffer, bufferSize, sampleRate)
-                trackBufferBytes = computeTrackBufferBytes(minTrackBuffer, framesPerBuffer, sampleRate)
-
-                // P0 fix for AA/remote_submix high latency (seen 417ms in 20260630 log with trackBuffer 32708, trackLat 340ms)
-                // remote_submix getMinBufferSize often returns huge value forcing high latency.
-                // Force conservative cap + warn. This helps keep estimatedLatency <200ms where possible.
-                // (route info at this point may not have full routed* fields yet; use buffer size + aa flag as proxy)
-                val isHighLatencyRoute = isAAConnected() || trackBufferBytes > 20000 || minTrackBuffer > 16384
-                if (isHighLatencyRoute) {
-                    val forced = 16384
-                    Log.w("ANCService", "HIGH_LATENCY_AA_DETECTED: trackBuffer was $trackBufferBytes (minTrack=$minTrackBuffer), forcing $forced to reduce latency. aa=${isAAConnected()}")
-                    trackBufferBytes = forced
-                }
-                recordHalSamples = recordBufferBytes / 2
-                trackHalSamples = trackBufferBytes / 2
-
-                var audioSource = route.audioSource
-                audioRecord = AudioRecord(audioSource, sampleRate,
-                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, recordBufferBytes)
-
-                if (audioRecord?.state != AudioRecord.STATE_INITIALIZED &&
-                    audioSource == MediaRecorder.AudioSource.UNPROCESSED
-                ) {
-                    audioRecord?.release()
-                    audioSource = MediaRecorder.AudioSource.VOICE_RECOGNITION
-                    audioRecord = AudioRecord(audioSource, sampleRate,
-                        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, recordBufferBytes)
+                // #9: wired AA preferred; log wireless suspicion (do not hard-crash — warn + tag for analysis)
+                routeManager.requireWiredAa = true
+                if (aa && route.wirelessAaSuspected) {
+                    Log.w(
+                        "ANCService",
+                        "WIRELESS_AA_WARNING: prefer USB Android Auto. wirelessSuspected=${route.wirelessAaSuspected} " +
+                            "wiredAvailable=${route.wiredCarPathAvailable} label=${route.routeLabel}"
+                    )
+                    AncSessionLogger.log(
+                        phase = "wireless_aa_warning",
+                        fields = mapOf(
+                            "wirelessAaSuspected" to true,
+                            "wiredCarPathAvailable" to route.wiredCarPathAvailable,
+                            "routeLabel" to route.routeLabel,
+                            "requireWiredAa" to true
+                        )
+                    )
                 }
 
-                val trackAttributes = routeManager.buildTrackAudioAttributes(aa)
-                val audioTrackBuilder = AudioTrack.Builder()
-                    .setAudioAttributes(trackAttributes)
-                    .setAudioFormat(AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(sampleRate)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                        .build())
-                    .setBufferSizeInBytes(trackBufferBytes)
-                    .setTransferMode(AudioTrack.MODE_STREAM)
+                var audioBackendLabel = "AUDIOTRACK_AA_SUBMIX"
+                if (!aa) {
+                    // #8: local garage / phone-speaker path — AAudio-like low latency (not used for AA)
+                    val local = LocalLowLatencyAudio.plan(
+                        audioManager = audioManager,
+                        sampleRate = sampleRate,
+                        framesPerBuffer = framesPerBuffer,
+                        minRecord = minBuffer,
+                        minTrack = minTrackBuffer
+                    )
+                    recordBufferBytes = local.recordBufferBytes
+                    trackBufferBytes = local.trackBufferBytes
+                    recordHalSamples = recordBufferBytes / 2
+                    trackHalSamples = trackBufferBytes / 2
+                    audioRecord = LocalLowLatencyAudio.buildRecord(local, sampleRate)
+                    audioTrack = LocalLowLatencyAudio.buildTrack(local, sampleRate)
+                    audioBackendLabel = local.backendLabel
+                    Log.i("ANCService", "AUDIO_BACKEND=$audioBackendLabel (non-AA local validation path)")
+                } else {
+                    val bufferSize = LOW_LATENCY_BUFFER_SAMPLES.coerceAtLeast(
+                        maxOf(minBuffer, minTrackBuffer) / LOW_LATENCY_BUFFER_DIVISOR
+                    ).coerceAtMost(1024)
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    audioTrackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                    recordBufferBytes = computeRecordBufferBytes(minBuffer, bufferSize, sampleRate)
+                    trackBufferBytes = computeTrackBufferBytes(minTrackBuffer, framesPerBuffer, sampleRate)
+
+                    // AA remote_submix: force track buffer cap (cannot use exclusive AAudio)
+                    val isHighLatencyRoute = trackBufferBytes > 20000 || minTrackBuffer > 16384
+                    if (isHighLatencyRoute) {
+                        val forced = 16384
+                        Log.w(
+                            "ANCService",
+                            "HIGH_LATENCY_AA_DETECTED: trackBuffer was $trackBufferBytes (minTrack=$minTrackBuffer), forcing $forced. aa=true"
+                        )
+                        trackBufferBytes = forced
+                    }
+                    recordHalSamples = recordBufferBytes / 2
+                    trackHalSamples = trackBufferBytes / 2
+
+                    var audioSource = route.audioSource
+                    audioRecord = AudioRecord(
+                        audioSource, sampleRate,
+                        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, recordBufferBytes
+                    )
+                    if (audioRecord?.state != AudioRecord.STATE_INITIALIZED &&
+                        audioSource == MediaRecorder.AudioSource.UNPROCESSED
+                    ) {
+                        audioRecord?.release()
+                        audioSource = MediaRecorder.AudioSource.VOICE_RECOGNITION
+                        audioRecord = AudioRecord(
+                            audioSource, sampleRate,
+                            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, recordBufferBytes
+                        )
+                    }
+
+                    val trackAttributes = routeManager.buildTrackAudioAttributes(aa)
+                    val audioTrackBuilder = AudioTrack.Builder()
+                        .setAudioAttributes(trackAttributes)
+                        .setAudioFormat(
+                            AudioFormat.Builder()
+                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                                .setSampleRate(sampleRate)
+                                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                                .build()
+                        )
+                        .setBufferSizeInBytes(trackBufferBytes)
+                        .setTransferMode(AudioTrack.MODE_STREAM)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        // Still request low-latency mode; AA host may ignore and use submix
+                        audioTrackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                    }
+                    audioTrack = audioTrackBuilder.build()
+                    audioBackendLabel = "AUDIOTRACK_AA_SUBMIX"
+                    Log.i("ANCService", "AUDIO_BACKEND=$audioBackendLabel (AA path — no exclusive AAudio)")
                 }
-                audioTrack = audioTrackBuilder.build()
-
-                // AA latency note (user 2026-07-02 request for architecture change to break 0.5s / phase dilemma):
-                // AA remote_submix is the hard limit (~247ms + buffering in logs). AAudio low-latency + specific usage (e.g. USAGE_ASSISTANCE_NAVIGATION_GUIDANCE or media) may help in non-AA paths or future, but AA integration typically forces submix for mixing.
-                // We prioritize predictive feedforward (RumblePreviewPredictor + IMU + road Wiener) over adaptive for low band in AA rumble.
-                // If not AA, lowLatency flag + AAudio would be used here for better base latency.
+                lastAudioBackendLabel = audioBackendLabel
 
                 val initialRoute = routeManager.applyPreferredDevices(
                     audioRecord = audioRecord!!,
@@ -278,7 +322,7 @@ class AudioEngine(
                     fields = latencyLogFields(
                         base = mapOf(
                             "sampleRate" to sampleRate,
-                            "bufferSize" to bufferSize,
+                            "bufferSize" to recordBufferBytes,
                             "recordBufferBytes" to recordBufferBytes,
                             "trackBufferBytes" to trackBufferBytes,
                             "recordHalSamples" to recordHalSamples,
@@ -287,7 +331,11 @@ class AudioEngine(
                             "readSize" to PROCESSING_READ_SIZE,
                             "minRecordBuffer" to minBuffer,
                             "minTrackBuffer" to minTrackBuffer,
-                            "audioSource" to audioSourceName(audioSource),
+                            "audioSource" to (route.audioSource),
+                            "audioBackend" to lastAudioBackendLabel,
+                            "wirelessAaSuspected" to route.wirelessAaSuspected,
+                            "wiredCarPathAvailable" to route.wiredCarPathAvailable,
+                            "requireWiredAa" to routeManager.requireWiredAa,
                             "tier" to currentTier.name,
                             "audioFocusMode" to "mix_no_permanent_gain",
                             "audioFocusGranted" to focusGranted,
@@ -332,7 +380,7 @@ class AudioEngine(
                 val procFactory = AncSessionFactory(sessionContext)
                 ancProcessor = procFactory.createAncProcessor(
                     sampleRate = sampleRate,
-                    bufferSize = bufferSize,
+                    bufferSize = recordBufferBytes.coerceAtLeast(PROCESSING_READ_SIZE),
                     initialTier = initialTier
                 )
                 AncSessionLogger.log(
@@ -1241,6 +1289,7 @@ class AudioEngine(
         }
 
         ancProcessor?.setRumbleAccel(speed.linearAccelMagnitude)  // IMU hybrid: rumbleAccel feeds both (1) ReferenceSignalPipeline aux ref mix (afterMedia - rumbleRef for structural FF), (2) MultiBand rumbleVibBoost on effectiveLowMu (roadMode only, tier auto). Core for Road Preview + NVH map.
+        ancProcessor?.setRoadRoughness(speed.roughness)  // #7 speed×roughness pre-learned bank
         // CYCLE3_EXTRA: classify via scoped instance from context (NoiseBandClassifier now class, wired to road ref)
         val classification = sessionContext.noiseBandClassifier.classify(
             spectrum = rawSpectrum,
@@ -1345,6 +1394,13 @@ class AudioEngine(
                         "previewHistoryAgeMs" to (ancProcessor?.getPreviewHistoryAgeMs() ?: 0f),
                         "previewHistoryCount" to (ancProcessor?.getPreviewHistoryCount() ?: 0),
                         "preLearnedBinCount" to (ancProcessor?.getPreLearnedBinCount() ?: 0),
+                        "fixedBankOut" to (ancProcessor?.getLastFixedBankOut() ?: 0f),
+                        "fdafDelayless" to (ancProcessor?.isFdafDelayless() ?: false),
+                        "fdafPartitions" to (ancProcessor?.getFdafPartitionCount() ?: 0),
+                        "audioBackend" to lastAudioBackendLabel,
+                        "wirelessAaSuspected" to (currentRoute?.wirelessAaSuspected ?: false),
+                        "wiredCarPathAvailable" to (currentRoute?.wiredCarPathAvailable ?: false),
+                        "roadRoughness" to (vehicleSpeedProvider?.currentSnapshot()?.roughness ?: 0f),
                         // debug ov for script A/B only — does NOT drive plant/maxCancel anymore
                         "debugLatencyOverrideMs" to AncTestPreferences.getDebugLatencyOverrideMs(appContext),
                         "usingLatencyOverride" to false,

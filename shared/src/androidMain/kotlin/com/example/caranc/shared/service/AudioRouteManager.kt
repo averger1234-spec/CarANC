@@ -21,7 +21,11 @@ data class AudioRouteInfo(
     val preferredInput: AudioDeviceInfo?,
     val audioSource: Int,
     val availableOutputs: List<String> = emptyList(),
-    val availableInputs: List<String> = emptyList()
+    val availableInputs: List<String> = emptyList(),
+    /** #9: true when AA projection looks wireless (no USB/BUS car sink). */
+    val wirelessAaSuspected: Boolean = false,
+    /** #9: true when a wired USB/BUS car path is available. */
+    val wiredCarPathAvailable: Boolean = false
 )
 
 data class RouteApplyResult(
@@ -46,7 +50,9 @@ data class RouteApplyResult(
         "routedInputType" to routedInputType,
         "carSinkRouted" to carSinkRouted,
         "availableOutputs" to route.availableOutputs,
-        "availableInputs" to route.availableInputs
+        "availableInputs" to route.availableInputs,
+        "wirelessAaSuspected" to route.wirelessAaSuspected,
+        "wiredCarPathAvailable" to route.wiredCarPathAvailable
     )
 }
 
@@ -77,6 +83,14 @@ class AudioRouteManager(context: Context) {
     @Volatile
     var ancOutputGain: Float = 1f
         private set
+
+    /**
+     * #9: Prefer wired USB/BUS Android Auto only. When true (default), wireless AA
+     * (BT A2DP projection / no USB car sink) is deprioritized and flagged.
+     * Garage local mode (isAaConnected=false) is unaffected.
+     */
+    @Volatile
+    var requireWiredAa: Boolean = true
 
     fun setRouteChangeListener(listener: ((RouteApplyResult) -> Unit)?) {
         routeChangeListener = listener
@@ -119,6 +133,25 @@ class AudioRouteManager(context: Context) {
         val preferredInput = pickPreferredInput(inputs, isAaConnected)
         val routeLabel = routeLabelFor(preferredOutput, isAaConnected)
 
+        val sinks = outputs.filter { it.isSink }
+        val wiredAvailable = sinks.any { isWiredCarSink(it) }
+        val wirelessSuspected = isAaConnected && !wiredAvailable && (
+            preferredOutput?.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                preferredOutput?.type == AudioDeviceInfo.TYPE_REMOTE_SUBMIX ||
+                preferredOutput == null ||
+                routeLabel.contains("bluetooth") ||
+                routeLabel.contains("android_auto_media") ||
+                routeLabel.contains("android_auto_scored")
+            )
+
+        if (isAaConnected && wirelessSuspected && requireWiredAa) {
+            Log.w(
+                TAG,
+                "WIRELESS_AA_SUSPECTED: requireWiredAa=true, no USB/BUS car sink. " +
+                    "Prefer USB Android Auto. label=$routeLabel available=${describeDevices(sinks)}"
+            )
+        }
+
         val audioSource = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.N ->
                 android.media.MediaRecorder.AudioSource.UNPROCESSED
@@ -136,8 +169,22 @@ class AudioRouteManager(context: Context) {
             preferredInput = preferredInput,
             audioSource = audioSource,
             availableOutputs = describeDevices(outputs.filter { it.isSink }),
-            availableInputs = describeDevices(inputs.filter { it.isSource })
+            availableInputs = describeDevices(inputs.filter { it.isSource }),
+            wirelessAaSuspected = wirelessSuspected,
+            wiredCarPathAvailable = wiredAvailable
         )
+    }
+
+    fun isWiredCarSink(device: AudioDeviceInfo): Boolean {
+        return when (device.type) {
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_BUS -> true
+            else -> {
+                val name = device.productName?.toString().orEmpty().lowercase()
+                "usb" in name && device.type != AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+            }
+        }
     }
 
     fun buildTrackAudioAttributes(isAaConnected: Boolean): AudioAttributes {
@@ -398,20 +445,24 @@ class AudioRouteManager(context: Context) {
 
     private fun scoreOutputDevice(device: AudioDeviceInfo, isAaConnected: Boolean): Int {
         var score = 0
+        // #9: wired USB/BUS first; BT A2DP (wireless AA / phone A2DP) heavily penalized when requireWiredAa
         score += when (device.type) {
             AudioDeviceInfo.TYPE_BUS -> 1000
-            AudioDeviceInfo.TYPE_USB_DEVICE -> 900
-            AudioDeviceInfo.TYPE_USB_HEADSET -> 850
+            AudioDeviceInfo.TYPE_USB_DEVICE -> 980
+            AudioDeviceInfo.TYPE_USB_HEADSET -> 950
             AudioDeviceInfo.TYPE_HDMI -> 800
             AudioDeviceInfo.TYPE_HDMI_ARC -> 780
-            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> 700
-            AudioDeviceInfo.TYPE_REMOTE_SUBMIX -> 650
+            AudioDeviceInfo.TYPE_REMOTE_SUBMIX -> 620  // often AA projection; keep mid if no USB enum
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> if (requireWiredAa && isAaConnected) 80 else 400
             AudioDeviceInfo.TYPE_LINE_ANALOG -> 500
             AudioDeviceInfo.TYPE_AUX_LINE -> 500
             else -> 0
         }
         if (isAaConnected && isPhoneLocalOutput(device)) {
             score -= 10_000
+        }
+        if (requireWiredAa && isAaConnected && device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP) {
+            score -= 500
         }
         score += nameHintScore(device)
         return score

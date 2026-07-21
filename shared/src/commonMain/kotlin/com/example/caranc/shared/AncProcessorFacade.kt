@@ -85,6 +85,9 @@ interface AncProcessorFacade : AudioProcessor {
     // Currently only logging in snapshots; now directly fed into ANC for feedforward boost.
     fun setRumbleAccel(mag: Float) {}
 
+    /** #7: road roughness (IMU) for PreLearned speed×roughness bank. */
+    fun setRoadRoughness(roughness: Float) {}
+
     // Pass blockRms variance based VSS scale (computed in AudioEngine from perfMetrics) into processor.
     // Allows using full block energy variance (not just per-sample pfx) for dynamic mu in VSS logic.
     fun setBlockRmsVssScale(scale: Float) {}
@@ -128,4 +131,7 @@ interface AncProcessorFacade : AudioProcessor {
     fun getPreviewHistoryAgeMs(): Float = 0f
     fun getPreviewHistoryCount(): Int = 0
     fun getPreLearnedBinCount(): Int = 0
+    fun getLastFixedBankOut(): Float = 0f
+    fun isFdafDelayless(): Boolean = false
+    fun getFdafPartitionCount(): Int = 0
 }

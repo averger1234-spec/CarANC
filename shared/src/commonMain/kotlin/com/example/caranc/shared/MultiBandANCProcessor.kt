@@ -95,7 +95,12 @@ class MultiBandANCProcessor(
     private var vehicleSpeedKmh = 0f
     private var vehicleSpeedValid = false
     private var rumbleAccelMag = 0f  // IMU linear accel mag as rumble vibration proxy (integrated into low band for boost)
+    private var roadRoughness = 0.5f  // #7: IMU roughness for PreLearned speed×rough lookup
     private var rumbleEnergyProxy = 0f  // for virtualSuppressionQuality (blend with media quality to bypass stuck quality=0 in AA)
+    // #7 fixed-filter primary ring (low ref samples) under high-lat FF
+    private val fixedBankXRing = FloatArray(256) { 0f }
+    private var fixedBankXIdx = 0
+    private var lastFixedBankOut = 0f
     private var blockRmsVssScale = 1f  // blockRms variance based scale from AudioEngine for enhanced VSS in BandFxLms
     private var useNativeLowBand = false  // switch to native low band when available (stub now, real impl when NDK active)
     private var rumbleBoostFactor = 0.05f  // per-tier strength for IMU rumble boost (set by tier in updateTier)
@@ -124,7 +129,13 @@ class MultiBandANCProcessor(
     private val roadWiener = RoadNoiseWienerBank(sampleRate, sessionContext.roadNoiseReferenceModel)
     private val virtualSensing = VirtualSensingModel(sHat)
     private val multirateLow = MultirateLowBandFxLms(decimation = 4)
-    private val fdafLow = FdafLowBandProcessor(blockSize = 64, filterLength = 64)
+    // #6: partitioned (4×64) + delayless FIR output for low band only
+    private val fdafLow = FdafLowBandProcessor(
+        blockSize = 64,
+        partitionSize = 64,
+        numPartitions = 4,
+        delaylessOutput = true
+    )
     // CYCLE3_EXTRA: native low-freq path prototype (expect/actual + JNI/C++ LMS).
     // Not yet switched into hot path (would replace multirateLow + lowBand.processSample for rumble).
     // Use: if (NativeLowBandProcessor.isNativeAvailable()) nativeLow.processLowBand(...) else ...
@@ -318,6 +329,11 @@ class MultiBandANCProcessor(
         rumblePredictor.update(rumbleAccelMag, vehicleSpeedKmh, System.currentTimeMillis().toDouble())
     }
 
+    /** #7: road surface roughness proxy from VehicleSpeedProvider (IMU variance). */
+    override fun setRoadRoughness(roughness: Float) {
+        roadRoughness = roughness.coerceIn(0f, 4f)
+    }
+
     override fun setPersonalRumbleBias(bias: Float) {
         personalRumbleBias = bias.coerceIn(0.7f, 1.3f)
     }
@@ -391,9 +407,13 @@ class MultiBandANCProcessor(
             roadLpCoeff = (2.0 * PI * cutoff / sampleRate).toFloat().coerceIn(0.005f, 0.15f)
             // Update predictor with speed (IMU already fed via setRumbleAccel)
             rumblePredictor.update(rumbleAccelMag, vehicleSpeedKmh, System.currentTimeMillis().toDouble())
-            // P1: stronger pre-learned weight blend under high lat (open-loop prior when adaptive frozen).
-            val blend = if (estimatedLatencyMs > HIGH_LATENCY_MS) 0.48f else 0.25f
-            preLearnedBank.blendedWeights(vehicleSpeedKmh)?.let { bias ->
+            // #7: speed×roughness pre-learned blend — primary under high lat, light assist otherwise
+            val blend = when {
+                estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode -> 0.72f
+                estimatedLatencyMs > HIGH_LATENCY_MS -> 0.48f
+                else -> 0.25f
+            }
+            preLearnedBank.blendedWeights(vehicleSpeedKmh, roadRoughness)?.let { bias ->
                 lowBand.applyWeightBias(bias, blend = blend)
             }
         }
@@ -516,7 +536,7 @@ class MultiBandANCProcessor(
         midBand.baseMu = baseMu
         highBand.baseMu = baseMu
         if (!learningCaptured) {
-            preLearnedBank.capture(vehicleSpeedKmh, lowBand.captureWeights())
+            preLearnedBank.capture(vehicleSpeedKmh, lowBand.captureWeights(), roadRoughness)
             learningCaptured = true
         }
     }
@@ -669,10 +689,33 @@ class MultiBandANCProcessor(
                     errorSample = lowError
                 )
             }
-            // P1: freeze FDAF weights under FF_PREVIEW_ONLY; feed preview-injected low when high lat.
+            // #6 delayless partitioned FDAF: freeze adapt under FF_PREVIEW; still emit delayless FIR.
             fdafLow.adaptEnabled = !ffPreviewOnly
-            val fdafIn = if (ffPreviewOnly) lowSampleForLowBand else lowSample
-            val fdafOut = fdafLow.push(fdafIn) * (if (ffPreviewOnly) 0.35f else 1f)
+            fdafLow.delaylessOutput = true
+            val fdafIn = if (ffPreviewOnly || lastEffectiveRumbleMode) lowSampleForLowBand else lowSample
+            val fdafScale = when {
+                ffPreviewOnly -> 0.55f  // fixed-ish low FF from delayless FIR
+                estimatedLatencyMs > HIGH_LATENCY_MS -> 0.4f
+                else -> 1f
+            }
+            val fdafOut = fdafLow.push(fdafIn) * fdafScale
+
+            // #7: fixed bank primary under FF_PREVIEW_ONLY (speed×roughness lookup FIR)
+            fixedBankXRing[fixedBankXIdx] = lowSampleForLowBand
+            fixedBankXIdx = (fixedBankXIdx + 1) % fixedBankXRing.size
+            val fixedBankOut = if (ffPreviewOnly || (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode)) {
+                preLearnedBank.fixedFilterSample(
+                    speedKmh = vehicleSpeedKmh,
+                    roughness = roadRoughness,
+                    xRing = fixedBankXRing,
+                    xWriteIndex = fixedBankXIdx
+                )
+            } else 0f
+            lastFixedBankOut = fixedBankOut
+            // Occasional online capture into 2D bank when adaptive still learning (not frozen)
+            if (!ffPreviewOnly && vehicleSpeedKmh > 25f && roadRoughness > 0.35f && (i % 512 == 0)) {
+                preLearnedBank.capture(vehicleSpeedKmh, lowBand.captureWeights(), roadRoughness)
+            }
 
             // CYCLE3_EXTRA integration point: exercise native low proto (switchable via setUseNativeLowBand)
             // Now enabled stub switching point: if flag + available, use native (even if currently stub returns 0, real impl when NDK active will contribute low band rumble cancel)
@@ -760,8 +803,11 @@ class MultiBandANCProcessor(
                 0f
             }
 
-            val adaptiveCombined = (lowOut + nativeLowOut) * bandGains.low * latencyLimits.lowGain +
-                midOut + highOut + fdafOut * 0.45f
+            // #7: under high lat, fixed bank + delayless FDAF carry more weight than long adaptive LMS
+            val fixedScale = if (ffPreviewOnly) 1.1f else if (estimatedLatencyMs > HIGH_LATENCY_MS) 0.65f else 0.2f
+            val adaptiveCombined = (lowOut + nativeLowOut) * bandGains.low * latencyLimits.lowGain *
+                (if (ffPreviewOnly) 0.35f else 1f) +
+                midOut + highOut + fdafOut * 0.45f + fixedBankOut * fixedScale
 
             val combined = when {
                 floorMode && (processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC || processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || processingMode == AncProcessingMode.MUSIC_DOMINANT_RUMBLE) && musicLowAncEnabled -> {
@@ -775,7 +821,8 @@ class MultiBandANCProcessor(
                     // Conservative anti output scale: when suppression poor (music not well removed), reduce lowAnti to avoid pushing anti that cancels music residual (artifacts).
                     // Complements the mu conservative scale. High suppression -> full anti strength.
                     val conservativeAntiScale = if (musicLowAncEnabled) musicSuppressionQuality.coerceAtLeast(0.5f) else 1f
-                    val lowAnti = (lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f) * dynamicLowBoost * conservativeAntiScale
+                    val lowAnti = (lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f + fixedBankOut * fixedScale) *
+                        dynamicLowBoost * conservativeAntiScale
                     val higherAnti = midOut + highOut
                     // Even higher road_wiener in musicLow for tire/wind (aggressive feedforward)
                     val roadMusicWeight = if (roadMode) roadWiener.blendGain() * 2.0f else 0f
@@ -1235,4 +1282,7 @@ class MultiBandANCProcessor(
     override fun getPreviewHistoryAgeMs(): Float = rumblePredictor.getHistoryAgeMs()
     override fun getPreviewHistoryCount(): Int = rumblePredictor.getHistorySampleCount()
     override fun getPreLearnedBinCount(): Int = preLearnedBank.filledBinCount()
+    override fun getLastFixedBankOut(): Float = lastFixedBankOut
+    override fun isFdafDelayless(): Boolean = fdafLow.isDelaylessEnabled()
+    override fun getFdafPartitionCount(): Int = fdafLow.getPartitionCount()
 }

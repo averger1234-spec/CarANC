@@ -20,6 +20,14 @@ import com.example.caranc.shared.service.ANCService
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
+/**
+ * #11: Android Auto / Car App Library surface (template host).
+ *
+ * This is **not** a full AAOS OEM RNC ECU app. It runs on the phone projection host
+ * (or template-compatible car head unit) and starts the phone-side ANCService.
+ * True AAOS-native exclusive audio + vehicle HAL sensors would need a separate
+ * automotive product module with OEM privileges — documented in MULTI_MACHINE_SYNC.md.
+ */
 class CarAncAutoScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycleObserver {
 
     private val sessionContext: AncSessionContext = GlobalAncSessionContext
@@ -95,10 +103,18 @@ class CarAncAutoScreen(carContext: CarContext) : Screen(carContext), DefaultLife
             .setTitle("車內主動降噪系統")
             .addText(statusText)
             .addText("原始: ${"%.1f".format(currentRawDb)} dB | 處理後: ${"%.1f".format(currentCancelledDb)} dB")
+            .addText("建議：USB 有線 AA（非無線）。AA 高延遲時走 FF_PREVIEW + 預訓 bank。")
+            .build()
+
+        val noteRow = Row.Builder()
+            .setTitle("架構說明")
+            .addText("本畫面 = Car App 投影模板，非原廠 AAOS ECU RNC。")
+            .addText("本機車庫測：手機喇叭用 AAudio-like 低延遲路徑。")
             .build()
 
         val paneBuilder = Pane.Builder()
             .addRow(row)
+            .addRow(noteRow)
             .addAction(mainAction)
 
         val actionStrip = ActionStrip.Builder()

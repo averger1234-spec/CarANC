@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <host-validators xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- #9/#11: prefer USB AA host packages; wireless DHU still listed for lab only -->
     <host-filter name="androidx.car.app">
         <package name="com.google.android.projection.gearhead" />
         <package name="com.google.android.apps.automotive.carusb" />
+        <package name="com.google.android.embedded.projection" />
+        <package name="com.google.android.apps.automotive.templates.host" />
     </host-filter>
 </host-validators>
