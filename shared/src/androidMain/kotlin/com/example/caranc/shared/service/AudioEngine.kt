@@ -24,6 +24,8 @@ import com.example.caranc.shared.commercial.CommercialFeature
 import com.example.caranc.shared.test.GuidedTestController
 import com.example.caranc.shared.latency.NativeLowBandProcessor
 import com.example.caranc.shared.latency.LatencyAwareBandLimiter
+import com.example.caranc.shared.latency.AntiNoiseDelayLine
+import com.example.caranc.shared.latency.PlantAlignedResidual
 import com.example.caranc.shared.MultiBandANCProcessor  // for cast to access extra low-band counters (fdaf/multirate)
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -132,6 +134,19 @@ class AudioEngine(
     private var lastBumpLogMs = 0L
     private var bumpLogSuppressed = 0
     private var lastDominant = com.example.caranc.shared.model.DominantNoiseBand.MIXED  // for MUSIC_BROAD force to MUSIC_DOMINANT_RUMBLE even if quality calc stuck (06-30)
+
+    // Closed-loop self-check: anti history for plant-aligned residual band KPI (not external recorder)
+    private val antiDelayLine = AntiNoiseDelayLine(16384)
+    private val visPlantResidual = ShortArray(PROCESSING_READ_SIZE)
+    private var lastRawLowBandDb = -90f
+    private var lastResidualLowBandDb = -90f
+    private var lastPlantResidualLowBandDb = -90f
+    private var lastPlantResidualReductionDb = 0f
+    private var lastBandE60 = -90f
+    private var lastBandE80 = -90f
+    private var lastBandE100 = -90f
+    private var lastBandE120 = -90f
+    private var lastOutputPathActive = false
 
     fun start() {
         if (processingJob?.isActive == true) return
@@ -1269,6 +1284,7 @@ class AudioEngine(
 
         // CYCLE3_EXTRA: Spectrum via sessionContext (class instance from context for scoping/mocks)
         val rawSpectrum = sessionContext.spectrumAnalyzer.computeMagnitudeSpectrum(visInputSlice)
+        // Same-index residual (legacy viz) — note: for large plant D this is NOT true acoustic residual
         for (i in 0 until size) {
             val mixed = (visInputSlice[i].toInt() + visOutputSlice[i].toInt())
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
@@ -1286,10 +1302,26 @@ class AudioEngine(
             rawDb
         }
 
+        // Closed-loop self-check KPI (program-side, no external recorder):
+        // push anti → plant-delay mix → low-band dB + fixed tones 60/80/100/120 Hz
+        antiDelayLine.push(visOutputSlice, size)
+        val plantD = (ancProcessor?.getPlantElectricalDelaySamples() ?: 0).coerceAtLeast(0)
+        antiDelayLine.fillPlantMixed(visInputSlice, size, plantD, visPlantResidual)
+        val sr = audioRecord?.sampleRate ?: 44100
+        val sa = sessionContext.spectrumAnalyzer
+        lastRawLowBandDb = sa.computeLowBandRmsDb(visInputSlice, sr, 150f)
+        lastResidualLowBandDb = sa.computeLowBandRmsDb(visResidualSpectrum, sr, 150f)
+        lastPlantResidualLowBandDb = sa.computeLowBandRmsDb(visPlantResidual, sr, 150f)
+        lastPlantResidualReductionDb =
+            (lastRawLowBandDb - lastPlantResidualLowBandDb).coerceIn(-30f, 40f)
+        lastBandE60 = PlantAlignedResidual.bandEnergyDb(visInputSlice, sr, 60f, 0, size)
+        lastBandE80 = PlantAlignedResidual.bandEnergyDb(visInputSlice, sr, 80f, 0, size)
+        lastBandE100 = PlantAlignedResidual.bandEnergyDb(visInputSlice, sr, 100f, 0, size)
+        lastBandE120 = PlantAlignedResidual.bandEnergyDb(visInputSlice, sr, 120f, 0, size)
+        lastOutputPathActive = antiNoiseDb > -55f
+
         // 07-02 ADD: low-band rumble specific reduction (primary target for driving rumble cancel).
-        // User's 125731.log showed overall reductionDb avg~0.22 (max5.57) but almost none in driving despite internal rumbleVibBoost/effMu high.
-        // Low band (<250Hz) reduction will now be logged separately to diagnose if IMU ref + effectiveRumble + classifier force actually cancels the rumble component.
-        val lowBandReductionDb = computeLowBandReductionDb(rawSpectrum, cancelledSpectrum, audioRecord?.sampleRate ?: 44100)
+        val lowBandReductionDb = computeLowBandReductionDb(rawSpectrum, cancelledSpectrum, sr)
 
         val speed = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
 
@@ -1361,6 +1393,17 @@ class AudioEngine(
                         // Primary KPI for driving rumble (docs C): low-band <250Hz spectral reduction
                         "lowBandRumbleReduction" to lowBandReductionDb,
                         "primaryReductionKpi" to "lowBandRumbleReduction",
+                        // Closed-loop self-check (program band energy — not external phone recorder)
+                        "rawLowBandDb" to lastRawLowBandDb,
+                        "residualLowBandDb" to lastResidualLowBandDb,
+                        "plantResidualLowBandDb" to lastPlantResidualLowBandDb,
+                        "plantResidualReductionDb" to lastPlantResidualReductionDb,
+                        "bandE60Db" to lastBandE60,
+                        "bandE80Db" to lastBandE80,
+                        "bandE100Db" to lastBandE100,
+                        "bandE120Db" to lastBandE120,
+                        "outputPathActive" to lastOutputPathActive,
+                        "plantDelayForResidual" to (ancProcessor?.getPlantElectricalDelaySamples() ?: 0),
                         "tier" to sessionContext.tierManager.currentTier.value.name,
                         "music" to audioManager.isMusicActive,
                         "call" to (audioManager.mode != AudioManager.MODE_NORMAL),

@@ -56,6 +56,24 @@ class SpectrumAnalyzer {
         return (20 * ln(rms + 1e-10) / ln(10.0)).toFloat()
     }
 
+    /**
+     * Low-band RMS dB: time-domain samples low-passed with simple 1-pole (~fcHz).
+     * Used for program-side residual KPI (40–150 Hz rumble focus) without full FFT.
+     */
+    fun computeLowBandRmsDb(samples: ShortArray, sampleRate: Int, fcHz: Float = 150f): Float {
+        if (samples.isEmpty() || sampleRate <= 0) return -90f
+        val coeff = (2.0 * PI * fcHz / sampleRate).toFloat().coerceIn(0.005f, 0.5f)
+        var lp = 0f
+        var sumSq = 0.0
+        for (s in samples) {
+            val x = s / 32768f
+            lp += coeff * (x - lp)
+            sumSq += lp * lp
+        }
+        val rms = sqrt(sumSq / samples.size)
+        return (20 * ln(rms + 1e-10) / ln(10.0)).toFloat()
+    }
+
     private fun downsampleToBins(magnitudes: FloatArray, binCount: Int): FloatArray {
         val result = FloatArray(binCount)
         if (magnitudes.isEmpty()) return result

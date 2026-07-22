@@ -815,6 +815,24 @@ shadowing bug 已修復，這次 log 反映真實行為。
 **Tests:** `LiteratureAlgTest` + `MultiBandANCProcessorTest`.  
 **GitHub:** `origin/main` includes neural + guided valid-drive (see below). Pull: `git pull origin main`.
 
+## Closed-loop self-check (program residual, not external recorder)
+
+Ideal path: **road noise → sense → compute → anti y → plant(y delayed) → residual = x + y_plant → residual energy ↓**.
+
+| Layer | What we verify | How |
+|-------|----------------|-----|
+| **3. Output path runs** | anti non-zero, gain controls it | `antiNoiseDb`, `outputPathActive`, hear change when gain>0 |
+| **2. Compute correct** | FxLMS y without D; polarity; closed-loop residual | unit tests + `ClosedLoopPlantResidualTest` |
+| **1. True cancel** | residual after **plant** quieter | real drive listen/record **or** `plantResidualReductionDb` in snapshot |
+
+**running_snapshot fields (program KPI):**
+
+- `rawLowBandDb` / `residualLowBandDb` / `plantResidualLowBandDb` / `plantResidualReductionDb`
+- `bandE60Db`…`bandE120Db`, `outputPathActive`, `plantDelayForResidual`
+
+**Do not** trust overall `reductionDb` alone — it is not a full acoustic plant mix.
+
+
 ## 2026-07-22 Guided test: valid drive seconds (not wall clock)
 
 **Problem:** wall-clock auto-advance counted red lights / idle as “data”.

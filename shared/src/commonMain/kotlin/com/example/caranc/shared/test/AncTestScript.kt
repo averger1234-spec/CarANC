@@ -348,7 +348,15 @@ object CarAncTestScript {
         "bankMatchQuality",      // neural soft-max peak 0..1
         "bankMatchCosine",       // best cell cosine −1..1
         "neuralLatentEnabled",   // true = MLP latent path on
-        "latent0", "latent1", "latent2"  // query latent dims for log plots
+        "latent0", "latent1", "latent2",  // query latent dims for log plots
+        // Closed-loop self-check (program residual / band energy — not external recorder)
+        "rawLowBandDb",
+        "residualLowBandDb",
+        "plantResidualLowBandDb",
+        "plantResidualReductionDb",
+        "bandE60Db", "bandE80Db", "bandE100Db", "bandE120Db",
+        "outputPathActive",
+        "plantDelayForResidual"
     )
 }
 
