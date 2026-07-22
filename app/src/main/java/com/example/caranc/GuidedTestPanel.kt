@@ -122,7 +122,7 @@ fun GuidedTestPanel(
         Column(modifier = Modifier.padding(16.dp)) {
             Text("路噪調校測試", style = MaterialTheme.typography.titleMedium)
             Text(
-                "含今日算法（HIGH_LAT_PRED_BANK / neural latent / coherence）。計時自動下一步，只需開始 + 存 log。",
+                "含今日算法。推進靠「有效行駛秒數」（車速達標才計）；紅燈/怠速暫停。開始 + 存 log 即可。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSecondaryContainer
             )
@@ -181,28 +181,28 @@ private fun IdleScriptView(
         color = MaterialTheme.colorScheme.primary
     )
     Text(
-        "今日變更已含：極性/FxLMS、HIGH_LAT_PRED_BANK、neural bank、imuMicCoherence、bankMatch log。",
+        "今日變更已含：極性/FxLMS、HIGH_LAT_PRED_BANK、neural bank、coherence/bankMatch log。",
         style = MaterialTheme.typography.bodySmall
     )
     Text(
-        "流程：按開始 → 自動啟動 ANC → 各步依秒數自動推進（prep 25s、#4–#7 各 75s、finish 12s）→ 結束後存 log。",
+        "流程：開始 → 自動 ANC → 各步累計「有效行駛秒」（#4–#5 車速≥40、#6≥45、#7≥50）→ 達標自動下一步 → 結束存 log。",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.primary
     )
     Text(
-        "全程約 ${approxTotalSec()} 秒。開車維持 USB AA + floor/seat + 粗糙路；可按中止。",
+        "紅燈/塞車時進度暫停（不計秒）。需約 ${approxValidSec()} 秒有效行駛 + prep/finish。可中止。",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSecondaryContainer
     )
     Spacer(modifier = Modifier.height(10.dp))
     Button(onClick = onStartTuning, modifier = Modifier.fillMaxWidth()) {
-        Text("開始（自動計時跑完）")
+        Text("開始（有效行駛自動推進）")
     }
 }
 
-private fun approxTotalSec(): Int {
-    // prep 25 + 5×75 + finish 12
-    return 25 + 75 * 5 + 12
+private fun approxValidSec(): Int {
+    // prep wall 20 + 50+50+45+50+55 valid + finish 10
+    return 50 + 50 + 45 + 50 + 55
 }
 
 @Composable
@@ -214,8 +214,8 @@ private fun ActiveScriptView(
 ) {
     val step = state.currentStep ?: return
     val progress = (state.stepIndex + 1).toFloat() / state.totalSteps.coerceAtLeast(1)
-    val stepProgress = if (state.targetDurationSec > 0) {
-        (state.elapsedSec.toFloat() / state.targetDurationSec).coerceIn(0f, 1f)
+    val stepProgress = if (state.targetValidSec > 0) {
+        (state.validSec.toFloat() / state.targetValidSec).coerceIn(0f, 1f)
     } else 0f
     val estimatedLatencyMs by sessionContext.stateManager.estimatedLatencyMs.collectAsState()
     val maxCancelHz by sessionContext.stateManager.maxCancelFrequencyHz.collectAsState()
@@ -224,7 +224,7 @@ private fun ActiveScriptView(
     val reductionDb = (rawDb - cancelledDb).coerceAtLeast(0f)
 
     Text(
-        "步驟 ${state.stepIndex + 1} / ${state.totalSteps} · 自動推進",
+        "步驟 ${state.stepIndex + 1} / ${state.totalSteps} · 有效行駛推進",
         style = MaterialTheme.typography.labelLarge
     )
     LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
@@ -233,26 +233,44 @@ private fun ActiveScriptView(
     Spacer(modifier = Modifier.height(8.dp))
 
     Text(step.title, style = MaterialTheme.typography.titleSmall)
-    // Only show first 3 instruction lines to reduce clutter while driving
-    step.instructions.take(3).forEachIndexed { index, line ->
+    step.instructions.take(2).forEachIndexed { index, line ->
         Text("${index + 1}. $line", style = MaterialTheme.typography.bodySmall)
-    }
-    if (step.instructions.size > 3) {
-        Text("…（其餘見 log / 文件）", style = MaterialTheme.typography.bodySmall)
     }
 
     Spacer(modifier = Modifier.height(8.dp))
-    Text(
-        "倒數 ${state.remainingSec} 秒 · 已 ${state.elapsedSec}/${state.targetDurationSec} 秒 → 自動下一步",
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.primary
-    )
+    if (state.wallClockOnly) {
+        Text(
+            "準備/結束：壁鐘 ${state.wallElapsedSec}/${state.targetValidSec} 秒",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+    } else {
+        Text(
+            "有效數據 ${state.validSec}/${state.targetValidSec} 秒 · 還差 ${state.remainingValidSec} 秒" +
+                " · 門檻 ≥${"%.0f".format(state.minSpeedKmh)} km/h",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Text(
+            if (state.collectingNow) {
+                "● 收集中 · 車速 ${"%.0f".format(state.currentSpeedKmh)} km/h · 壁鐘已過 ${state.wallElapsedSec}s"
+            } else {
+                "○ 暫停 · ${state.pauseReason.ifBlank { "等待達標車速" }} · 壁鐘 ${state.wallElapsedSec}s"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (state.collectingNow) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.error
+            }
+        )
+    }
 
     if (ancRunning && estimatedLatencyMs > 0f) {
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             "即時：延遲 ${"%.0f".format(estimatedLatencyMs)} ms · ≤${"%.0f".format(maxCancelHz)} Hz · " +
-                "reduction ${"%.1f".format(reductionDb)} dB · ANC ${if (ancRunning) "ON" else "OFF"}",
+                "reduction ${"%.1f".format(reductionDb)} dB",
             style = MaterialTheme.typography.bodySmall
         )
     } else if (!ancRunning) {
@@ -267,7 +285,7 @@ private fun ActiveScriptView(
 
 @Composable
 private fun FinishedScriptView(onExport: () -> Unit, onSaveToDownloads: () -> Unit, onRestart: () -> Unit) {
-    Text("腳本已跑完（計時自動結束）。請存 log。", style = MaterialTheme.typography.bodyMedium)
+    Text("腳本已跑完（有效行駛秒數達標自動結束）。請存 log。", style = MaterialTheme.typography.bodyMedium)
     Spacer(modifier = Modifier.height(8.dp))
     Text(
         "建議立即「儲存到下載 / CarANC_Logs」。",

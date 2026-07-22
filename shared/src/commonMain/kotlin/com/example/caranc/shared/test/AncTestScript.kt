@@ -6,6 +6,11 @@ data class TestScriptStep(
     val id: String,
     val title: String,
     val instructions: List<String>,
+    /**
+     * For drive steps: required **valid** seconds (speed≥minSpeedKmh) before auto-next.
+     * For prep/finish (wallClockOnly): wall-clock seconds.
+     * Red light / idle does NOT count toward valid seconds.
+     */
     val durationSec: Int = 0,
     val suggestedTier: UserTier? = null,
     val requiresAncRunning: Boolean = true,
@@ -14,11 +19,13 @@ data class TestScriptStep(
     // For automatic application in tuning scripts (e.g. car_road_tuning_v1)
     // Keys: "lmsMuMultiplier", "freezeThreshold", "freezeConsec", "latencyOverrideMs",
     //       "forceNormalMode", "musicLowAncEnabled", "userAncGain", "tier"
-    // NOTE: TIER ONLY MANUAL (per user req): User only flips LIGHT/STANDARD/PRO (light/medium/heavy UI).
-    // All else (Leaky leakage, VSS from blockRms var, IMU rumbleBoost, native switch) AUTO via processor.updateTier + tier* funcs (sim_iter.ps1 tuned values).
-    // Legacy manual debugLeakage etc deprecated/hidden in UI; display "effective*FromTier" read-only in snapshots/TestLogPanel.
-    // script uses suggestedTier + "tier" in presets; controller applies setTier which triggers auto config.
-    val debugPresets: Map<String, Any> = emptyMap()
+    val debugPresets: Map<String, Any> = emptyMap(),
+    /** Min speed (km/h) for a second to count as valid data. */
+    val minSpeedKmh: Float = 40f,
+    /** true = only wall clock (prep/finish); false = accumulate only while driving valid. */
+    val wallClockOnly: Boolean = false,
+    /** Safety: max wall seconds on this step before force-advance (avoid infinite wait). */
+    val maxWallSec: Int = 720
 )
 
 object CarAncTestScript {
@@ -355,7 +362,7 @@ object CarRoadTuningScript {
     // - 驗證 KPI：lowBandRumbleReduction 主；imuMicCoherence / bankMatchQuality / neuralLatentEnabled
     // - 實測請 USB 有線 AA；無線 projection 更差
     // 驗證：latencyStrategy / imuMicCoherence / bankMatch* / fixedBankOut / lowBandRumbleReduction / 聽感無靜電
-    const val SCRIPT_NAME = "路噪自動調校（計時自動下一步；HIGH_LAT_PRED_BANK+neural bank）"
+    const val SCRIPT_NAME = "路噪自動調校（有效行駛秒數推進；紅燈不計）"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -410,10 +417,12 @@ object CarRoadTuningScript {
                 "同一條粗糙路 50–70km/h、嚴格低音樂（<20% 或 off）",
                 "每步「完成這步」套用 debug presets（ov 僅 log）",
                 "本腳本驗證 HIGH_LAT_PRED_BANK + neural latent bank + #6 FDAF；#4b=A/B。高 lat mid 關閉=正常",
-                "★ 計時自動下一步：prep 約 25s 後自動進入 #4…#7…finish，無需按「完成這步」"
+                "★ 推進方式：行駛步只累計「有效秒」（車速達標）；紅燈/怠速暫停不計，達標後自動下一步"
             ),
-            durationSec = 25,
+            durationSec = 20,
             requiresAncRunning = false,
+            wallClockOnly = true,
+            maxWallSec = 90,
             checklist = listOf(
                 "USB有線AA",
                 "wirelessAaSuspected=false",
@@ -432,12 +441,13 @@ object CarRoadTuningScript {
             id = "tuning_4",
             title = "#4 musicLow 對比（mu=1.7, freeze=11）— ov 僅 log 標記，plant=measured",
             instructions = listOf(
-                "系統已自動套用（mu=1.7 / freeze=11 / c=2；ov=120 僅 log，plant=measured）",
-                "同一段粗糙路 60–90 秒",
-                "AA 高 lat：maxCancel~45–110Hz（文獻限頻）；看 latencyStrategy、lowBandRumbleReduction、imuMicCoherence",
-                "neuralLatentEnabled=true；bankMatchQuality 有值；記錄 musicLow=ON + placement + strategy"
+                "系統已自動套用（mu=1.7…）；需累計約 50 秒「車速≥40」有效數據（紅燈不計）",
+                "AA 高 lat：看 latencyStrategy、lowBandRumbleReduction、imuMicCoherence",
+                "neuralLatentEnabled=true；bankMatchQuality 有值"
             ),
-            durationSec = 75,
+            durationSec = 50,
+            minSpeedKmh = 40f,
+            maxWallSec = 600,
             suggestedTier = UserTier.STANDARD,
             checklist = listOf(
                 "muMult=1.7", "ov=log-only", "musicLow=ON",
@@ -456,11 +466,12 @@ object CarRoadTuningScript {
             id = "tuning_4b_Skoda",
             title = "#4b musicLow 延伸（mu=1.6）— stable A/B baseline，ov 僅 log",
             instructions = listOf(
-                "系統已自動套用參數（mu=1.6 / freeze=12 / c=2；ov=150 僅 log 標記）",
-                "同一段粗糙路 60-90 秒",
-                "此步作 old control A/B：與後續 #6/#7 比 red / previewRumble / effectiveRumbleMode。記錄 \"#4b A/B, musicLow=ON\""
+                "系統已自動套用（mu=1.6…）；需 50 秒有效行駛（車速≥40，紅燈不計）",
+                "A/B baseline：與後續 #6/#7 比 lowBandRumbleReduction"
             ),
-            durationSec = 75,
+            durationSec = 50,
+            minSpeedKmh = 40f,
+            maxWallSec = 600,
             suggestedTier = UserTier.STANDARD,
             checklist = listOf("muMult=1.6", "freezeTh=12", "ov=log-only", "musicLow=ON", "A/B baseline", "tier=STANDARD"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
@@ -477,12 +488,13 @@ object CarRoadTuningScript {
             id = "tuning_5_contrast",
             title = "#5 musicLow OFF 對比（mu=2.2, freeze=9, c=2, override=0） - 證明 musicLow 重要",
             instructions = listOf(
-                "系統已自動套用參數（mu=2.2 / freeze=9 / c=2 / override=0） - musicLow OFF 對比",
-                "同一段路 60-90 秒",
-                "預期觀察重點：anti 更強但注意 artifact；比較前 step（尤其是#4/#4b的低延遲 musicLow）有無 musicLow 時 rumble 降低（記錄 scenario musicLow=OFF）。基於#4經驗，注意 mid band 是否因 OFF 而掉。快速對比用，不需多次重複。"
+                "musicLow OFF 對比；需 45 秒有效行駛（車速≥40）",
+                "比較 #4/#4b：有無 musicLow 時 rumble 差異"
             ),
-            durationSec = 75,
-            suggestedTier = UserTier.LIGHT,  // use LIGHT tier for contrast step (conservative auto params); demonstrates only tier flip
+            durationSec = 45,
+            minSpeedKmh = 40f,
+            maxWallSec = 600,
+            suggestedTier = UserTier.LIGHT,
             checklist = listOf("muMult=2.2", "freezeTh=9", "consec=2", "override=0", "musicLow=OFF", "tier=LIGHT (conservative auto)"),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
@@ -501,13 +513,13 @@ object CarRoadTuningScript {
             id = "tuning_6_midforce",
             title = "#6 road+FDAF 對比（mu=1.8；ov僅log；驗 fdafDelayless + mid 若啟用）",
             instructions = listOf(
-                "系統已自動套用（mu=1.8 / freeze=10 / ov=110 僅 log / musicLow=ON / forceNormal=false）",
-                "粗糙路 speed 50+、低音樂 60–90 秒",
-                "★ #6：fdafDelayless=true、fdafPartitions=4；高 lat mid 關=正常（勿強求 effectiveMidMu>0）",
-                "A/B vs #4b：lowBandRumbleReduction + fixedBankOut + bankMatchQuality",
-                "聽感：不應比 #4b 更沙沙／更像靜電；記錄 strategy=XX fdaf=XX lowBandRed=XX"
+                "需 50 秒有效行駛（車速≥45）；#6 FDAF",
+                "fdafDelayless=true；高 lat mid 關=正常",
+                "A/B vs #4b：lowBandRumbleReduction + fixedBankOut"
             ),
-            durationSec = 75,
+            durationSec = 50,
+            minSpeedKmh = 45f,
+            maxWallSec = 600,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
                 "muMult=1.8", "fdafDelayless=true", "speed>50",
@@ -532,20 +544,14 @@ object CarRoadTuningScript {
             id = "tuning_7_strong_road",
             title = "#7 HIGH_LAT_PRED_BANK+neural bank 主驗（mu=2.05；USB AA）",
             instructions = listOf(
-                "系統已自動套用（mu=2.05 / freeze=9 / ov=80 僅 log / musicLow=ON / forceNormal=false / tier=PRO）",
-                "**USB 有線 AA** + 粗糙路 55+ km/h 60–90 秒 + 低音樂；phone floor/seat",
-                "★ 策略：latencyStrategy=HIGH_LAT_PRED_BANK 或 HIGH_LAT_CONSERVATIVE（不再是 FF_PREVIEW_ONLY）",
-                "★ 延遲：measuredLatencyMs~150–250、usingLatencyOverride=false、maxCancel~45–110、plantElectricalDelaySamples 大",
-                "★ 文獻 path：neuralLatentEnabled=true；imuMicCoherence 行駛宜 >0.35；bankMatchQuality 有尖峰；bankMatchCosine 有值；latent0/1/2 非全 0",
-                "★ #6：fdafDelayless=true、fdafPartitions=4",
-                "★ #7 bank：fixedBankOut 行駛非零；learnedBinCount 可升；roadRoughness 有值",
-                "★ #9：aaLinkType=projection_submix|wired_usb；wirelessAaSuspected 僅 BT 時 true",
-                "★ KPI：主看 lowBandRumbleReduction（可正）；reductionDb 可負=anti 變大聲風險；antiNoiseDb 有能量但聽感不應像電台靜電",
-                "★ 聽感 PASS：怠速安靜；行駛低頻悶/沙沙↓；FAIL：開 ANC 更吵或靜電感",
-                "A/B vs #4b：lowBandRumbleReduction + 主觀 rumble 0–10；高 lat effectiveMidMu≈0 正常",
-                "記錄 \"#7 strategy=XX coh=XX bankQ=XX fixedBank=XX lowBandRed=XX hiss?=N placement=floor\""
+                "主驗：需 55 秒有效行駛（車速≥50；紅燈不計）",
+                "latencyStrategy=HIGH_LAT_PRED_BANK；neuralLatent / bankMatch / imuMicCoherence",
+                "KPI：lowBandRumbleReduction；聽感無電台靜電",
+                "A/B vs #4b；fixedBankOut 行駛應非零"
             ),
-            durationSec = 75,
+            durationSec = 55,
+            minSpeedKmh = 50f,
+            maxWallSec = 720,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
                 "USB有線AA",
@@ -583,11 +589,13 @@ object CarRoadTuningScript {
                 "必查欄位：latencyStrategy, imuMicCoherence, bankMatchQuality, bankMatchCosine, neuralLatentEnabled, latent0/1/2, fixedBankOut, learnedBinCount, fdafDelayless, plantElectricalDelaySamples, lowBandRumbleReduction, reductionDb, antiNoiseDb",
                 "PASS 條件：#7 無電台靜電 + lowBandRumbleReduction 常≥0 或主觀低頻有改善；FAIL：anti 大但 red 大負",
                 "A/B：#4b vs #6 vs #7 的 lowBandRumbleReduction + 主觀",
-                "下一輪：固定 USB AA + floor；wireless 問題先排除再比算法",
-                "★ 此步約 12 秒後自動結束腳本 → 請按「儲存到下載 / CarANC_Logs」"
+                "下一輪：固定 USB AA + floor",
+                "★ 約 10 秒壁鐘後自動結束 → 請存 log"
             ),
-            durationSec = 12,
+            durationSec = 10,
             requiresAncRunning = false,
+            wallClockOnly = true,
+            maxWallSec = 30,
             checklist = listOf(
                 "腳本將自動結束",
                 "結束後儲存 Log",
