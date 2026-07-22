@@ -98,17 +98,20 @@ fun GuidedTestPanel(
         }
     }
 
-    // Auto-start ANC when script begins
-    LaunchedEffect(guidedState.active, guidedState.finished, ancRunning) {
-        if (guidedState.active && !guidedState.finished && !ancRunning) {
+    // Auto-start ANC when script begins (not on finish step)
+    LaunchedEffect(guidedState.active, guidedState.finished, guidedState.currentStep?.id, ancRunning) {
+        val onFinish = guidedState.currentStep?.id.orEmpty().contains("finish", ignoreCase = true)
+        if (guidedState.active && !guidedState.finished && !onFinish && !ancRunning) {
             onRequestStartAnc()
         }
     }
 
-    // Auto-stop ANC on finish step (collect settle) then script ends
-    LaunchedEffect(guidedState.currentStep?.id, ancRunning) {
-        val id = guidedState.currentStep?.id.orEmpty()
-        if (guidedState.active && id.contains("finish", ignoreCase = true) && ancRunning) {
+    // IMPORTANT: do NOT stop ANC when finish step *starts* — that destroyed the service
+    // (session_end service_destroyed) and cut the log before test_script_complete.
+    // Stop only after the whole script is finished (finish wall seconds completed).
+    LaunchedEffect(guidedState.finished, ancRunning) {
+        if (guidedState.finished && ancRunning) {
+            delay(800) // allow test_script_complete + last snapshot to flush
             onRequestStopAnc()
         }
     }
