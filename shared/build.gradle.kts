@@ -67,6 +67,11 @@ android {
         // Combined with app/proguard-rules.pro aggressive keeps + @Keep annotations.
         consumerProguardFiles("consumer-rules.pro")
     }
+    // JVM unit tests call android.util.Log / Audio* without full framework — return defaults
+    // instead of "Method e in android.util.Log not mocked" (breaks AudioEngineTest).
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
