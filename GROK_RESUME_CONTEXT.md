@@ -677,3 +677,9 @@ Mapped industry RNC + patents into code (not UI):
 
 Tests: `LiteratureAlgTest` + full `MultiBandANCProcessorTest`.
 
+### Neural latent encoder + running_snapshot fields
+
+- `RoadConditionLatentEncoder`: features(8)→Dense(16)+ReLU→Dense(8)+L2 (US2025-style on-device, no TFLite)
+- `PreLearnedAncBank`: soft-max cosine match on cell latent EMA; capture stores latent with FIR
+- `running_snapshot` fields: `imuMicCoherence`, `bankMatchQuality`, `bankMatchCosine`, `neuralLatentEnabled`, `latent0/1/2`
+

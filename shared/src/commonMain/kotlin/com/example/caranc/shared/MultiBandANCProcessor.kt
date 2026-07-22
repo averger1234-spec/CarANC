@@ -424,7 +424,10 @@ class MultiBandANCProcessor(
                 estimatedLatencyMs > HIGH_LATENCY_MS -> 0.48f
                 else -> 0.25f
             }
-            preLearnedBank.blendedWeights(vehicleSpeedKmh, roadRoughness, rumbleEnergyProxy)?.let { bias ->
+            preLearnedBank.blendedWeights(
+                vehicleSpeedKmh, roadRoughness, rumbleEnergyProxy,
+                coherence = lastCoherenceQuality, latencyMs = estimatedLatencyMs
+            )?.let { bias ->
                 lowBand.applyWeightBias(bias, blend = blend)
             }
         }
@@ -723,17 +726,21 @@ class MultiBandANCProcessor(
                     roughness = roadRoughness.coerceAtLeast(0.3f),
                     xRing = fixedBankXRing,
                     xWriteIndex = fixedBankXIdx,
-                    energyProxy = rumbleEnergyProxy
+                    energyProxy = rumbleEnergyProxy,
+                    coherence = lastCoherenceQuality,
+                    latencyMs = estimatedLatencyMs
                 ) * bankScale
             } else 0f
             lastFixedBankOut = fixedBankOut
-            // Online capture with energy latent for faster road-condition reload
+            // Online capture: store FIR + neural latent of road condition (patent-style)
             if (vehicleSpeedKmh > 20f && (i % 256 == 0) && freezeWeightUpdates == 0) {
                 preLearnedBank.capture(
                     vehicleSpeedKmh,
                     lowBand.captureWeights(),
                     roadRoughness.coerceAtLeast(0.25f),
-                    energyProxy = rumbleEnergyProxy
+                    energyProxy = rumbleEnergyProxy,
+                    coherence = lastCoherenceQuality,
+                    latencyMs = estimatedLatencyMs
                 )
             }
 
@@ -1340,9 +1347,13 @@ class MultiBandANCProcessor(
 
     override fun getRumbleEnergyProxy(): Float = rumbleEnergyProxy
 
-    /** Literature coherence proxy (0..1); exposed for snapshots / log. */
-    fun getImuMicCoherenceQuality(): Float = lastCoherenceQuality
-    fun getBankMatchQuality(): Float = preLearnedBank.lastMatchQuality
+    override fun getImuMicCoherenceQuality(): Float = lastCoherenceQuality
+    override fun getBankMatchQuality(): Float = preLearnedBank.lastMatchQuality
+    override fun getBankMatchCosine(): Float = preLearnedBank.lastMatchCosine
+    override fun isNeuralLatentEnabled(): Boolean = preLearnedBank.neuralLatentEnabled
+    override fun getLatentDim0(): Float = preLearnedBank.lastQueryLatent.getOrElse(0) { 0f }
+    override fun getLatentDim1(): Float = preLearnedBank.lastQueryLatent.getOrElse(1) { 0f }
+    override fun getLatentDim2(): Float = preLearnedBank.lastQueryLatent.getOrElse(2) { 0f }
 
     // P1: preview / plant diagnostics for FF_PREVIEW_ONLY log validation
     override fun getPreviewRumble(): Float = lastPreviewRumble

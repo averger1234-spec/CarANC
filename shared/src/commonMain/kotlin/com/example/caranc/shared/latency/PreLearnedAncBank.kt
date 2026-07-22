@@ -5,24 +5,21 @@ import kotlin.math.abs
 import kotlin.math.exp
 
 /**
- * Fixed-filter / pre-trained low-band weight bank.
+ * Fixed-filter / pre-trained low-band weight bank with **neural latent** matching.
  *
- * #7: 2D lookup **speed × roughness** as primary under high latency;
- * adaptive LMS is secondary (blend / residual only).
+ * #7 + patent US20250069581A1 / EP4513360A1:
+ * road condition → encoder latent → soft-max match historical controller FIR weights.
  *
- * Literature / patent alignment (US20250069581A1 / EP4513360A1):
- * road condition → latent → match historical controller params.
- * We use a cheap 3-D latent (speed, roughness, rumbleEnergy) distance to blend cells
- * (no neural encoder on-device yet) so high-lat AA reloads nearest past weights fast.
+ * Fallback: if encoder path disabled, L1 on speed×rough×energy (legacy 3-D).
  *
- * B-fix: always has a **default rumble FIR prior** so FF_PREVIEW never gets fixedBankOut=0
- * when bins are empty; capture is EMA into nearest cell; finishLearning seeds neighbors.
+ * B-fix: default rumble FIR prior so fixedBankOut never stays 0 when bins empty.
  */
 @Keep
 class PreLearnedAncBank(
     private val filterLength: Int,
     private val speedBinsKmh: FloatArray = floatArrayOf(0f, 30f, 50f, 70f, 90f, 120f),
-    private val roughnessBins: FloatArray = floatArrayOf(0.25f, 0.6f, 1.0f, 1.4f, 2.0f)
+    private val roughnessBins: FloatArray = floatArrayOf(0.25f, 0.6f, 1.0f, 1.4f, 2.0f),
+    private val useNeuralLatent: Boolean = true
 ) {
     private val nSpeed = speedBinsKmh.size
     private val nRough = roughnessBins.size
@@ -31,15 +28,31 @@ class PreLearnedAncBank(
     private val snapshots = Array(cellCount) { FloatArray(filterLength) }
     private val filled = BooleanArray(cellCount)
     private val hitCount = IntArray(cellCount)
-    /** Per-cell latent energy proxy at last capture (0..1.5), for 3-D match. */
+    /** Per-cell energy proxy EMA (legacy + logging). */
     private val cellEnergy = FloatArray(cellCount) { 0.5f }
-    /** Last match quality 0..1 (1 = exact learned cell). */
+    /** Per-cell latent EMA from [RoadConditionLatentEncoder]. */
+    private val cellLatent = Array(cellCount) { FloatArray(RoadConditionLatentEncoder.LATENT_DIM) }
+    private val cellLatentValid = BooleanArray(cellCount)
+
+    private val encoder = RoadConditionLatentEncoder()
+
+    /** Last match quality 0..1 (peak soft-max mass). */
     var lastMatchQuality: Float = 0.5f
         private set
+    /** Last best cosine similarity (−1..1). */
+    var lastMatchCosine: Float = 0f
+        private set
+    /** Last query latent (copy for logs). */
+    var lastQueryLatent: FloatArray = FloatArray(RoadConditionLatentEncoder.LATENT_DIM)
+        private set
+    var lastLatencyMsUsed: Float = 150f
+        private set
+    var lastCoherenceUsed: Float = 0.5f
+        private set
+    val neuralLatentEnabled: Boolean get() = useNeuralLatent
+    val latentDim: Int get() = RoadConditionLatentEncoder.LATENT_DIM
 
-    /** Soft low-rumble prior (decaying taps) — used when no cell learned yet. */
     private val defaultPrior = FloatArray(filterLength) { i ->
-        // Mild causal FIR ~ low-frequency emphasis (not identity white-noise)
         val t = i.toFloat()
         val env = exp(-t / (filterLength * 0.22f).coerceAtLeast(4f))
         (0.12f * env * if (i % 2 == 0) 1f else -0.35f).coerceIn(-0.25f, 0.25f)
@@ -51,12 +64,23 @@ class PreLearnedAncBank(
 
     init {
         seedDefaultPriorIntoAllCells(force = false)
+        // Seed cell latents at bin centers so empty cells still match sensibly
+        for (si in 0 until nSpeed) {
+            for (ri in 0 until nRough) {
+                val idx = cellIndex(si, ri)
+                val z = encoder.encodeRoad(
+                    speedKmh = speedBinsKmh[si],
+                    roughness = roughnessBins[ri],
+                    energyProxy = 0.5f,
+                    coherence = 0.55f,
+                    latencyMs = 150f
+                )
+                for (k in z.indices) cellLatent[idx][k] = z[k]
+                cellLatentValid[idx] = true
+            }
+        }
     }
 
-    /**
-     * Fill empty cells with default prior so fixedFilterSample always has weights.
-     * Does not overwrite cells that already have real captures (hitCount>0) unless [force].
-     */
     @Keep
     fun seedDefaultPriorIntoAllCells(force: Boolean = false) {
         for (idx in 0 until cellCount) {
@@ -65,18 +89,16 @@ class PreLearnedAncBank(
                 snapshots[idx][i] = defaultPrior[i]
             }
             filled[idx] = true
-            if (hitCount[idx] == 0) hitCount[idx] = 0 // keep 0 = still "prior only"
+            if (hitCount[idx] == 0) hitCount[idx] = 0
         }
         defaultsSeeded = true
     }
 
-    /** After learning: write weights into current cell + soft-seed neighbors. */
     @Keep
     fun seedFromLearning(speedKmh: Float, weights: FloatArray, roughness: Float = 0.5f) {
         capture(speedKmh, weights, roughness, forceAlpha = 1f)
         val si = nearestSpeedBin(speedKmh)
         val ri = nearestRoughBin(roughness)
-        // Soft-seed adjacent speed bins so 50–90 km/h band is not empty
         for (ds in -1..1) {
             for (dr in -1..1) {
                 if (ds == 0 && dr == 0) continue
@@ -101,7 +123,9 @@ class PreLearnedAncBank(
         weights: FloatArray,
         roughness: Float = 0.5f,
         forceAlpha: Float? = null,
-        energyProxy: Float = 0.5f
+        energyProxy: Float = 0.5f,
+        coherence: Float = 0.55f,
+        latencyMs: Float = 150f
     ) {
         val si = nearestSpeedBin(speedKmh)
         val ri = nearestRoughBin(roughness)
@@ -116,22 +140,103 @@ class PreLearnedAncBank(
         hitCount[index] = (n + 1).coerceAtMost(1000)
         val e = energyProxy.coerceIn(0f, 1.5f)
         cellEnergy[index] = cellEnergy[index] * (1f - alpha) + e * alpha
+
+        // Update cell latent EMA (patent: store compressed road condition with params)
+        val z = encoder.encodeRoad(speedKmh, roughness, e, coherence, latencyMs)
+        val lat = cellLatent[index]
+        if (!cellLatentValid[index]) {
+            for (k in z.indices) lat[k] = z[k]
+            cellLatentValid[index] = true
+        } else {
+            for (k in z.indices) lat[k] = lat[k] * (1f - alpha) + z[k] * alpha
+            // re-normalize
+            var n2 = 0f
+            for (k in lat.indices) n2 += lat[k] * lat[k]
+            val inv = 1f / kotlin.math.sqrt(n2.coerceAtLeast(1e-8f))
+            for (k in lat.indices) lat[k] *= inv
+        }
     }
 
     @Keep
     fun capture(speedKmh: Float, weights: FloatArray) = capture(speedKmh, weights, roughness = 0.5f)
 
     /**
-     * Latent distance blend: speed + roughness + optional rumble energy (patent-style match).
-     * [energyProxy] 0..1.5 from IMU/mic low energy; omit (~0.5) for legacy 2-D only.
+     * Neural latent soft-max blend (preferred) or legacy 3-D L1.
      */
     @Keep
-    fun blendedWeights(speedKmh: Float, roughness: Float = 0.5f, energyProxy: Float = 0.5f): FloatArray? {
+    fun blendedWeights(
+        speedKmh: Float,
+        roughness: Float = 0.5f,
+        energyProxy: Float = 0.5f,
+        coherence: Float = 0.55f,
+        latencyMs: Float = 150f
+    ): FloatArray? {
         if (!defaultsSeeded) seedDefaultPriorIntoAllCells()
+        lastLatencyMsUsed = latencyMs
+        lastCoherenceUsed = coherence
         if (!filled.any { it }) {
             lastMatchQuality = 0.2f
+            lastMatchCosine = 0f
             return defaultPrior.copyOf()
         }
+
+        if (useNeuralLatent) {
+            return blendNeural(speedKmh, roughness, energyProxy, coherence, latencyMs)
+        }
+        return blendLegacy3d(speedKmh, roughness, energyProxy)
+    }
+
+    private fun blendNeural(
+        speedKmh: Float,
+        roughness: Float,
+        energyProxy: Float,
+        coherence: Float,
+        latencyMs: Float
+    ): FloatArray {
+        val q = encoder.encodeRoad(speedKmh, roughness, energyProxy, coherence, latencyMs)
+        for (i in q.indices) lastQueryLatent[i] = q[i]
+
+        val cos = FloatArray(cellCount)
+        var bestCos = -1f
+        for (idx in 0 until cellCount) {
+            if (!filled[idx] || !cellLatentValid[idx]) {
+                cos[idx] = -1f
+                continue
+            }
+            val c = encoder.cosine(q, cellLatent[idx])
+            // Prefer learned cells slightly
+            val cAdj = if (hitCount[idx] > 0) c + 0.04f else c - 0.02f
+            cos[idx] = cAdj.coerceIn(-1f, 1f)
+            if (cAdj > bestCos) bestCos = cAdj
+        }
+        lastMatchCosine = bestCos.coerceIn(-1f, 1f)
+
+        val sm = LatentSoftmax.weights(cos, temperature = 0.22f)
+        val result = FloatArray(filterLength)
+        var peak = 0f
+        for (idx in 0 until cellCount) {
+            val w = sm[idx]
+            if (w > peak) peak = w
+            if (w < 1e-6f) continue
+            val snap = snapshots[idx]
+            val learnedBoost = if (hitCount[idx] > 0) 1.12f else 0.92f
+            val ww = w * learnedBoost
+            for (j in result.indices) {
+                result[j] += snap[j] * ww
+            }
+        }
+        var sumW = 0f
+        for (idx in 0 until cellCount) {
+            sumW += sm[idx] * (if (hitCount[idx] > 0) 1.12f else 0.92f)
+        }
+        if (sumW > 1e-8f) {
+            for (j in result.indices) result[j] /= sumW
+        }
+        lastMatchQuality = peak.coerceIn(0.1f, 1f)
+        return result
+    }
+
+    private fun blendLegacy3d(speedKmh: Float, roughness: Float, energyProxy: Float): FloatArray {
         val eQuery = energyProxy.coerceIn(0f, 1.5f)
         val result = FloatArray(filterLength)
         var weightSum = 0f
@@ -143,17 +248,13 @@ class PreLearnedAncBank(
                 val dSpeed = abs(speedKmh - speedBinsKmh[si]) / 25f
                 val dRough = abs(roughness - roughnessBins[ri]) / 0.5f
                 val dEnergy = abs(eQuery - cellEnergy[idx]) / 0.6f
-                // Latent L1 (US2025-style nearest historical params)
                 val dist = dSpeed + dRough + 0.65f * dEnergy
                 val learnedBoost = if (hitCount[idx] > 0) 1.55f else 0.75f
-                // Sharper kernel → faster road-condition switch (less smear across bins)
                 val w = learnedBoost / (1f + dist * dist)
                 if (w > bestW) bestW = w
                 weightSum += w
                 val snap = snapshots[idx]
-                for (j in result.indices) {
-                    result[j] += snap[j] * w
-                }
+                for (j in result.indices) result[j] += snap[j] * w
             }
         }
         if (weightSum <= 0f) {
@@ -161,8 +262,8 @@ class PreLearnedAncBank(
             return defaultPrior.copyOf()
         }
         for (j in result.indices) result[j] /= weightSum
-        // Quality: how peaked the best cell is vs uniform
         lastMatchQuality = (bestW / weightSum * cellCount * 0.15f).coerceIn(0.15f, 1f)
+        lastMatchCosine = 0f
         return result
     }
 
@@ -179,19 +280,17 @@ class PreLearnedAncBank(
         }
     }
 
-    /**
-     * Direct fixed FIR sample (primary under FF_PREVIEW_ONLY).
-     * Always returns a value (default prior if needed) — never silent under B-fix.
-     */
     @Keep
     fun fixedFilterSample(
         speedKmh: Float,
         roughness: Float,
         xRing: FloatArray,
         xWriteIndex: Int,
-        energyProxy: Float = 0.5f
+        energyProxy: Float = 0.5f,
+        coherence: Float = 0.55f,
+        latencyMs: Float = 150f
     ): Float {
-        val w = blendedWeights(speedKmh, roughness, energyProxy) ?: defaultPrior
+        val w = blendedWeights(speedKmh, roughness, energyProxy, coherence, latencyMs) ?: defaultPrior
         val n = filterLength.coerceAtMost(w.size).coerceAtMost(xRing.size)
         if (n <= 0) return 0f
         var y = 0f
@@ -200,14 +299,12 @@ class PreLearnedAncBank(
             y += w[k] * xRing[idx]
             idx = if (idx == 0) xRing.size - 1 else idx - 1
         }
-        // Scale with speed so idle stays quiet, drive gets more FF; match quality scales confidence
         val speedScale = ((speedKmh - 15f) / 55f).coerceIn(0.15f, 1.35f)
         val roughScale = (0.55f + roughness * 0.35f).coerceIn(0.5f, 1.6f)
         val conf = (0.55f + 0.45f * lastMatchQuality).coerceIn(0.5f, 1.1f)
         return (-y * speedScale * roughScale * conf).coerceIn(-0.65f, 0.65f)
     }
 
-    /** Cells with at least one real capture (not only default prior). */
     @Keep
     fun learnedBinCount(): Int = hitCount.count { it > 0 }
 

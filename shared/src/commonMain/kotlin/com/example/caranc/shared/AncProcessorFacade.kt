@@ -135,4 +135,16 @@ interface AncProcessorFacade : AudioProcessor {
     fun getLastFixedBankOut(): Float = 0f
     fun isFdafDelayless(): Boolean = false
     fun getFdafPartitionCount(): Int = 0
+
+    /** IMU↔mic low coherence proxy 0..1 (literature multi-coherence gate). */
+    fun getImuMicCoherenceQuality(): Float = 0.5f
+    /** Bank latent soft-max peak mass 0..1 (US2025-style match quality). */
+    fun getBankMatchQuality(): Float = 0.5f
+    /** Best cosine to cell latent (−1..1). */
+    fun getBankMatchCosine(): Float = 0f
+    fun isNeuralLatentEnabled(): Boolean = false
+    /** First 3 latent dims for running_snapshot (unit vector). */
+    fun getLatentDim0(): Float = 0f
+    fun getLatentDim1(): Float = 0f
+    fun getLatentDim2(): Float = 0f
 }

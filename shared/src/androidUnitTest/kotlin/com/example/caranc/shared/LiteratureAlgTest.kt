@@ -4,6 +4,7 @@ import com.example.caranc.shared.latency.ImuMicCoherenceGate
 import com.example.caranc.shared.latency.LatencyAwareBandLimiter
 import com.example.caranc.shared.latency.PredictiveReferenceAligner
 import com.example.caranc.shared.latency.PreLearnedAncBank
+import com.example.caranc.shared.latency.RoadConditionLatentEncoder
 import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.test.Test
@@ -63,21 +64,32 @@ class LiteratureAlgTest {
     }
 
     @Test
-    fun latentBank_energyMatch_prefersNearbyCell() {
-        val bank = PreLearnedAncBank(filterLength = 32)
+    fun latentBank_neuralMatch_prefersNearbyCell() {
+        val bank2 = PreLearnedAncBank(filterLength = 32, useNeuralLatent = true)
         val wA = FloatArray(32) { if (it == 0) 0.4f else 0f }
         val wB = FloatArray(32) { if (it == 0) -0.4f else 0f }
-        bank.capture(70f, wA, roughness = 1.0f, forceAlpha = 1f, energyProxy = 0.2f)
-        bank.capture(70f, wB, roughness = 1.0f, forceAlpha = 1f, energyProxy = 1.2f)
-        // Last capture overwrites same cell — use different roughness bins
-        val bank2 = PreLearnedAncBank(filterLength = 32)
-        bank2.capture(50f, wA, roughness = 0.25f, forceAlpha = 1f, energyProxy = 0.2f)
-        bank2.capture(90f, wB, roughness = 2.0f, forceAlpha = 1f, energyProxy = 1.2f)
-        val nearSmooth = bank2.blendedWeights(52f, 0.3f, 0.25f)!!
-        val nearRough = bank2.blendedWeights(88f, 1.9f, 1.15f)!!
-        assertTrue(nearSmooth[0] > 0f, "smooth/low-energy should pull positive prior cell")
-        assertTrue(nearRough[0] < 0f, "rough/high-energy should pull negative cell")
-        assertTrue(bank2.lastMatchQuality in 0.15f..1f)
+        bank2.capture(50f, wA, roughness = 0.25f, forceAlpha = 1f, energyProxy = 0.2f, coherence = 0.8f, latencyMs = 80f)
+        bank2.capture(90f, wB, roughness = 2.0f, forceAlpha = 1f, energyProxy = 1.2f, coherence = 0.4f, latencyMs = 220f)
+        val nearSmooth = bank2.blendedWeights(52f, 0.3f, 0.25f, coherence = 0.8f, latencyMs = 80f)!!
+        val nearRough = bank2.blendedWeights(88f, 1.9f, 1.15f, coherence = 0.4f, latencyMs = 220f)!!
+        assertTrue(nearSmooth[0] > nearRough[0], "neural latent should separate smooth vs rough road weights (s=${nearSmooth[0]} r=${nearRough[0]})")
+        assertTrue(bank2.neuralLatentEnabled)
+        assertTrue(bank2.lastMatchQuality in 0.1f..1f)
+        assertTrue(bank2.lastQueryLatent.any { abs(it) > 1e-4f })
+    }
+
+    @Test
+    fun neuralEncoder_unitLatentAndCosine() {
+        val enc = RoadConditionLatentEncoder()
+        val z1 = enc.encodeRoad(60f, 1.0f, 0.5f, 0.7f, 150f)
+        val z2 = enc.encodeRoad(62f, 1.05f, 0.52f, 0.68f, 155f)
+        val zFar = enc.encodeRoad(20f, 0.2f, 0.1f, 0.9f, 40f)
+        var n2 = 0f
+        for (v in z1) n2 += v * v
+        assertTrue(abs(n2 - 1f) < 1e-3f, "latent must be unit L2 (n2=$n2)")
+        val cosNear = enc.cosine(z1, z2)
+        val cosFar = enc.cosine(z1, zFar)
+        assertTrue(cosNear > cosFar, "similar road conditions closer in latent (near=$cosNear far=$cosFar)")
     }
 
     @Test
@@ -99,5 +111,7 @@ class LiteratureAlgTest {
         assertTrue(rmsOut > 1e-5, "literature high-lat path must still emit anti (rms=$rmsOut)")
         assertTrue(proc.getLatencyStrategy().contains("HIGH_LAT") || proc.getMeasuredLatencyMs() > 180f)
         assertTrue(proc.getImuMicCoherenceQuality() in 0f..1f)
+        assertTrue(proc.getBankMatchQuality() in 0f..1f)
+        assertTrue(proc.isNeuralLatentEnabled())
     }
 }
