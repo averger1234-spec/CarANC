@@ -20,6 +20,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.example.caranc.shared.*
 import com.example.caranc.shared.commercial.CommercialFeature
+import com.example.caranc.shared.test.GuidedTestController
 
 class ANCService : LifecycleService() {
 
@@ -76,9 +77,21 @@ class ANCService : LifecycleService() {
                 )
             } else {
                 if (isAAConnected) {
-                    Log.w("ANCService", "🚫 Android Auto 已斷開 -> 執行自動停止")
-                    AncSessionLogger.log(phase = "aa_disconnected")
-                    stopSelf()
+                    isAAConnected = false
+                    // During guided road test: do NOT kill service immediately — that truncated
+                    // logs mid-script (user incomplete tests). Log disconnect; keep session writing.
+                    val guidedActive = GuidedTestController.state.value.active
+                    Log.w("ANCService", "🚫 Android Auto 已斷開 guidedActive=$guidedActive")
+                    AncSessionLogger.log(
+                        phase = "aa_disconnected",
+                        fields = mapOf(
+                            "guidedTestActive" to guidedActive,
+                            "action" to if (guidedActive) "keep_service_for_log" else "stop_self"
+                        )
+                    )
+                    if (!guidedActive) {
+                        stopSelf()
+                    }
                 }
             }
         }

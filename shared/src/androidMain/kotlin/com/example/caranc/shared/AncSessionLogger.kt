@@ -50,6 +50,11 @@ object AncSessionLogger {
         val context = appContext ?: return
         if (!isEnabled()) return
 
+        // Close prior session cleanly (avoid overlapping channels / lost end markers)
+        if (sessionActive.get()) {
+            endSession("superseded_by_new_session")
+        }
+
         val logDir = getLogDirectory(context) ?: return
         logDir.mkdirs()
 
@@ -57,11 +62,9 @@ object AncSessionLogger {
         currentLogFile = File(logDir, fileName)
         sessionActive.set(true)
 
-        // launch single bg writer coroutine (lifecycle tied to session)
-        logChannel = Channel<String>(Channel.UNLIMITED)
+        logChannel = Channel(Channel.UNLIMITED)
         launchWriterIfNeeded()
 
-        // send header via channel (non-blocking); writer does writeText
         val header = buildString {
             appendLine("# CarANC Session Log")
             appendLine("# format=jsonl")
@@ -87,27 +90,25 @@ object AncSessionLogger {
                 "productName" to ProductCatalog.PRODUCT_NAME,
                 "subscriptionPlan" to EntitlementManager.currentPlan.id,
                 "subscriptionLabel" to EntitlementManager.currentPlan.displayName,
-                "safetyConsentAccepted" to EntitlementManager.snapshot.value.safetyConsentAccepted
+                "safetyConsentAccepted" to EntitlementManager.snapshot.value.safetyConsentAccepted,
+                "logFileName" to fileName
             )
         )
     }
 
     private fun launchWriterIfNeeded() {
-        if (writerJob?.isActive != true) {
-            writerJob = loggerScope.launch {
-                for (content in logChannel) {
-                    val file = currentLogFile ?: continue
-                    try {
-                        if (content.startsWith("# CarANC Session Log")) {
-                            // header for new session: use writeText (replaces content)
-                            file.writeText(content)
-                        } else {
-                            // regular log line (pre-formatted + separator)
-                            file.appendText(content)
-                        }
-                    } catch (_: Exception) {
-                        // swallow: logger must never impact real-time audio path
+        if (writerJob?.isActive == true) return
+        writerJob = loggerScope.launch {
+            for (content in logChannel) {
+                val file = currentLogFile ?: continue
+                try {
+                    if (content.startsWith("# CarANC Session Log")) {
+                        file.writeText(content)
+                    } else {
+                        file.appendText(content)
                     }
+                } catch (_: Exception) {
+                    // never crash audio path
                 }
             }
         }
@@ -115,29 +116,41 @@ object AncSessionLogger {
 
     fun log(phase: String, fields: Map<String, Any?> = emptyMap()) {
         if (!sessionActive.get() || !isEnabled()) return
-        val file = currentLogFile ?: return
+        if (currentLogFile == null) return
 
         val line = AncSessionLogFormatter.formatLine(
             phase = phase,
             timestampMs = System.currentTimeMillis(),
             fields = fields
         )
-
-        // NON-BLOCKING: send to channel (trySend never blocks). Writer on IO does append.
         logChannel.trySend(line + System.lineSeparator())
     }
 
+    /**
+     * End session and **drain** the writer so disk has session_end before service dies.
+     * Previous cancel() dropped the queue → incomplete logs.
+     */
     fun endSession(reason: String) {
         if (!sessionActive.get()) return
         log(phase = "session_end", fields = mapOf("reason" to reason))
         sessionActive.set(false)
-
-        // proper close handling on endSession
         logChannel.close()
-        writerJob?.cancel()
+        // Drain writer off main/service destroy path without blocking UI forever
+        val job = writerJob
         writerJob = null
-        // channel + writer recreated on next startSession
+        if (job != null) {
+            loggerScope.launch {
+                try {
+                    withTimeoutOrNull(2000L) { job.join() }
+                } catch (_: Exception) {
+                    job.cancel()
+                }
+            }
+        }
     }
+
+    /** Absolute path of active or preferred log (for auto-save). */
+    fun currentOrBestLogPath(): String? = getLatestLogFile()?.absolutePath
 
     /**
      * Prefer a **substantive** session log, not a 1KB restart stub that is merely newer.

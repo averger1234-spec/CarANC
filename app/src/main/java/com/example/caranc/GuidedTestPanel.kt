@@ -19,7 +19,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -33,6 +35,13 @@ import com.example.caranc.shared.test.GuidedTestController
 import com.example.caranc.shared.test.GuidedTestState
 import kotlinx.coroutines.delay
 
+/**
+ * Road-test guided flow hardened for complete captures:
+ * - Force logging ON before start
+ * - Preflight readiness shown on idle
+ * - Auto-save fat log to Download when script completes (before stop ANC)
+ * - Never stop ANC on finish step start
+ */
 @Composable
 fun GuidedTestPanel(
     modifier: Modifier = Modifier,
@@ -46,6 +55,8 @@ fun GuidedTestPanel(
     val guidedState by GuidedTestController.state.collectAsState()
     val ancState by sessionContext.stateManager.state.collectAsState()
     val ancRunning = ancState !is AncState.Stopped
+    var autoSavedPath by remember { mutableStateOf<String?>(null) }
+    var lastAutoSaveError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         GuidedTestController.eventSink = { phase, fields ->
@@ -80,7 +91,7 @@ fun GuidedTestPanel(
         }
     }
 
-    // 1 Hz tick → timed auto-advance
+    // 1 Hz tick → valid-drive auto-advance
     LaunchedEffect(guidedState.active, guidedState.finished) {
         if (!guidedState.active || guidedState.finished) return@LaunchedEffect
         while (GuidedTestController.state.value.active && !GuidedTestController.state.value.finished) {
@@ -89,7 +100,6 @@ fun GuidedTestPanel(
         }
     }
 
-    // Snapshot every 5s while running
     LaunchedEffect(guidedState.active, guidedState.finished, guidedState.stepIndex) {
         if (!guidedState.active || guidedState.finished) return@LaunchedEffect
         while (GuidedTestController.state.value.active && !GuidedTestController.state.value.finished) {
@@ -98,7 +108,7 @@ fun GuidedTestPanel(
         }
     }
 
-    // Auto-start ANC when script begins (not on finish step)
+    // Auto-start ANC when script begins (not on finish)
     LaunchedEffect(guidedState.active, guidedState.finished, guidedState.currentStep?.id, ancRunning) {
         val onFinish = guidedState.currentStep?.id.orEmpty().contains("finish", ignoreCase = true)
         if (guidedState.active && !guidedState.finished && !onFinish && !ancRunning) {
@@ -106,12 +116,26 @@ fun GuidedTestPanel(
         }
     }
 
-    // IMPORTANT: do NOT stop ANC when finish step *starts* — that destroyed the service
-    // (session_end service_destroyed) and cut the log before test_script_complete.
-    // Stop only after the whole script is finished (finish wall seconds completed).
-    LaunchedEffect(guidedState.finished, ancRunning) {
-        if (guidedState.finished && ancRunning) {
-            delay(800) // allow test_script_complete + last snapshot to flush
+    // On script complete: AUTO-SAVE first (while service still up), then stop ANC.
+    LaunchedEffect(guidedState.finished) {
+        if (!guidedState.finished) return@LaunchedEffect
+        autoSavedPath = null
+        lastAutoSaveError = null
+        delay(1200) // let test_script_complete + writer flush
+        val path = TestLogExporter.saveLatestLogToDownloads(context)
+        if (path != null) {
+            autoSavedPath = path
+            AncSessionLogger.log(
+                phase = "test_log_auto_saved",
+                fields = mapOf("path" to path, "bytes" to (TestLogExporter.listSessionLogs(context).firstOrNull()?.length() ?: 0))
+            )
+            Toast.makeText(context, "已自動儲存 log：\n$path", Toast.LENGTH_LONG).show()
+        } else {
+            lastAutoSaveError = "自動存檔失敗 — 請手動按儲存"
+            Toast.makeText(context, lastAutoSaveError, Toast.LENGTH_LONG).show()
+        }
+        delay(1500)
+        if (sessionContext.stateManager.state.value !is AncState.Stopped) {
             onRequestStopAnc()
         }
     }
@@ -123,9 +147,9 @@ fun GuidedTestPanel(
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("路噪調校測試", style = MaterialTheme.typography.titleMedium)
+            Text("路噪調校測試（完整擷取）", style = MaterialTheme.typography.titleMedium)
             Text(
-                "含今日算法。推進靠「有效行駛秒數」（車速達標才計）；紅燈/怠速暫停。開始 + 存 log 即可。",
+                "有效行駛推進 · 結束自動存 MB log · 不中途砍 service",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSecondaryContainer
             )
@@ -134,28 +158,29 @@ fun GuidedTestPanel(
 
             when {
                 guidedState.finished -> FinishedScriptView(
+                    autoSavedPath = autoSavedPath,
+                    autoSaveError = lastAutoSaveError,
                     onExport = {
                         val exported = TestLogExporter.shareLatestLog(context)
-                        val msg = if (exported) "已開啟分享選單" else "沒有可匯出的 log"
-                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            if (exported) "已開啟分享" else "沒有可匯出的 log",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     },
                     onSaveToDownloads = {
                         val path = TestLogExporter.saveLatestLogToDownloads(context)
                         val n = TestLogExporter.listSessionLogs(context).size
-                        val msg = if (path != null) {
-                            "已儲存到：$path\n（App 內 session 共 $n 份；下載夾每次存成獨立檔名）"
-                        } else {
-                            "儲存失敗（可能尚無 session log）"
-                        }
-                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            context,
+                            if (path != null) "已儲存：$path\n(App 內 $n 份 session)" else "儲存失敗",
+                            Toast.LENGTH_LONG
+                        ).show()
                     },
                     onRestart = {
-                        GuidedTestController.start(
-                            CarRoadTuningScript.steps,
-                            CarRoadTuningScript.SCRIPT_ID,
-                            CarRoadTuningScript.SCRIPT_NAME,
-                            autoAdvance = true
-                        )
+                        autoSavedPath = null
+                        lastAutoSaveError = null
+                        startRoadTest(context, onRequestStartAnc)
                     }
                 )
                 guidedState.active -> ActiveScriptView(
@@ -165,13 +190,11 @@ fun GuidedTestPanel(
                     onAbort = { GuidedTestController.abort() }
                 )
                 else -> IdleScriptView(
+                    sessionContext = sessionContext,
+                    loggingOn = AncTestPreferences.isLoggingEnabled(context),
+                    consentOk = !sessionContext.entitlementManager.requiresSafetyConsent(),
                     onStartTuning = {
-                        GuidedTestController.start(
-                            CarRoadTuningScript.steps,
-                            CarRoadTuningScript.SCRIPT_ID,
-                            CarRoadTuningScript.SCRIPT_NAME,
-                            autoAdvance = true
-                        )
+                        startRoadTest(context, onRequestStartAnc)
                     }
                 )
             }
@@ -179,38 +202,66 @@ fun GuidedTestPanel(
     }
 }
 
+private fun startRoadTest(context: android.content.Context, onRequestStartAnc: () -> Unit) {
+    // Hard guarantees before any drive time is spent
+    AncTestPreferences.setLoggingEnabled(context, true)
+    AncSessionLogger.init(context)
+    if (GlobalAncSessionContext.entitlementManager.requiresSafetyConsent()) {
+        Toast.makeText(context, "請先接受安全聲明，再開始測試", Toast.LENGTH_LONG).show()
+        return
+    }
+    onRequestStartAnc()
+    GuidedTestController.start(
+        CarRoadTuningScript.steps,
+        CarRoadTuningScript.SCRIPT_ID,
+        CarRoadTuningScript.SCRIPT_NAME,
+        autoAdvance = true
+    )
+}
+
 @Composable
 private fun IdleScriptView(
+    sessionContext: AncSessionContext,
+    loggingOn: Boolean,
+    consentOk: Boolean,
     onStartTuning: () -> Unit
 ) {
+    val ready = loggingOn && consentOk
     Text(
         CarRoadTuningScript.SCRIPT_NAME,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary
     )
+    Text("路測前檢查（不通過不要出發）：", style = MaterialTheme.typography.labelLarge)
     Text(
-        "今日變更已含：極性/FxLMS、HIGH_LAT_PRED_BANK、neural bank、coherence/bankMatch log。",
+        "• Log 記錄：${if (loggingOn) "ON ✓" else "OFF ✗（開始會強制開啟）"}",
         style = MaterialTheme.typography.bodySmall
     )
     Text(
-        "流程：開始 → 自動 ANC → 各步累計「有效行駛秒」（#4–#5 車速≥40、#6≥45、#7≥50）→ 達標自動下一步 → 結束存 log。",
+        "• 安全聲明：${if (consentOk) "已接受 ✓" else "未接受 ✗"}",
         style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.primary
+        color = if (consentOk) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.error
     )
     Text(
-        "紅燈/塞車時進度暫停（不計秒）。需約 ${approxValidSec()} 秒有效行駛 + prep/finish。可中止。",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSecondaryContainer
+        "• USB Android Auto 連上車後再按開始（否則可能無喇叭輸出）",
+        style = MaterialTheme.typography.bodySmall
+    )
+    Text(
+        "• 手機固定 floor/seat；進度只計車速達標秒數（紅燈不計）",
+        style = MaterialTheme.typography.bodySmall
+    )
+    Text(
+        "• 結束會自動存 Download/CarANC_Logs（獨立檔名）；無需手動也可再按一次",
+        style = MaterialTheme.typography.bodySmall
     )
     Spacer(modifier = Modifier.height(10.dp))
-    Button(onClick = onStartTuning, modifier = Modifier.fillMaxWidth()) {
-        Text("開始（有效行駛自動推進）")
+    Button(
+        onClick = onStartTuning,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = consentOk
+    ) {
+        Text(if (ready) "開始完整路測" else "開始（請先接受安全聲明）")
     }
-}
-
-private fun approxValidSec(): Int {
-    // prep wall 20 + 50+50+45+50+55 valid + finish 10
-    return 50 + 50 + 45 + 50 + 55
 }
 
 @Composable
@@ -232,7 +283,7 @@ private fun ActiveScriptView(
     val reductionDb = (rawDb - cancelledDb).coerceAtLeast(0f)
 
     Text(
-        "步驟 ${state.stepIndex + 1} / ${state.totalSteps} · 有效行駛推進",
+        "步驟 ${state.stepIndex + 1} / ${state.totalSteps}",
         style = MaterialTheme.typography.labelLarge
     )
     LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
@@ -241,48 +292,37 @@ private fun ActiveScriptView(
     Spacer(modifier = Modifier.height(8.dp))
 
     Text(step.title, style = MaterialTheme.typography.titleSmall)
-    step.instructions.take(2).forEachIndexed { index, line ->
-        Text("${index + 1}. $line", style = MaterialTheme.typography.bodySmall)
-    }
 
-    Spacer(modifier = Modifier.height(8.dp))
     if (state.wallClockOnly) {
         Text(
-            "準備/結束：壁鐘 ${state.wallElapsedSec}/${state.targetValidSec} 秒",
+            "準備/結束：${state.wallElapsedSec}/${state.targetValidSec} 秒",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.primary
         )
     } else {
         Text(
-            "有效數據 ${state.validSec}/${state.targetValidSec} 秒 · 還差 ${state.remainingValidSec} 秒" +
-                " · 門檻 ≥${"%.0f".format(state.minSpeedKmh)} km/h",
+            "有效 ${state.validSec}/${state.targetValidSec}s · 還差 ${state.remainingValidSec}s · ≥${"%.0f".format(state.minSpeedKmh)} km/h",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.primary
         )
         Text(
             if (state.collectingNow) {
-                "● 收集中 · 車速 ${"%.0f".format(state.currentSpeedKmh)} km/h · 壁鐘已過 ${state.wallElapsedSec}s"
+                "● 收集中 ${"%.0f".format(state.currentSpeedKmh)} km/h"
             } else {
-                "○ 暫停 · ${state.pauseReason.ifBlank { "等待達標車速" }} · 壁鐘 ${state.wallElapsedSec}s"
+                "○ 暫停：${state.pauseReason.ifBlank { "等待車速" }}"
             },
             style = MaterialTheme.typography.bodySmall,
-            color = if (state.collectingNow) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.error
-            }
+            color = if (state.collectingNow) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
         )
     }
 
-    if (ancRunning && estimatedLatencyMs > 0f) {
-        Spacer(modifier = Modifier.height(6.dp))
+    if (!ancRunning) {
+        Text("⚠ ANC 未運行 — 正在重試啟動（喇叭可能無聲）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    } else if (estimatedLatencyMs > 0f) {
         Text(
-            "即時：延遲 ${"%.0f".format(estimatedLatencyMs)} ms · ≤${"%.0f".format(maxCancelHz)} Hz · " +
-                "reduction ${"%.1f".format(reductionDb)} dB",
+            "ANC ON · 延遲 ${"%.0f".format(estimatedLatencyMs)} ms · ≤${"%.0f".format(maxCancelHz)} Hz · red ${"%.1f".format(reductionDb)}",
             style = MaterialTheme.typography.bodySmall
         )
-    } else if (!ancRunning) {
-        Text("正在啟動 ANC…", style = MaterialTheme.typography.bodySmall)
     }
 
     Spacer(modifier = Modifier.height(12.dp))
@@ -292,21 +332,35 @@ private fun ActiveScriptView(
 }
 
 @Composable
-private fun FinishedScriptView(onExport: () -> Unit, onSaveToDownloads: () -> Unit, onRestart: () -> Unit) {
-    Text("腳本已跑完（有效行駛秒數達標自動結束）。請存 log。", style = MaterialTheme.typography.bodyMedium)
-    Spacer(modifier = Modifier.height(8.dp))
-    Text(
-        "建議立即「儲存到下載 / CarANC_Logs」。",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+private fun FinishedScriptView(
+    autoSavedPath: String?,
+    autoSaveError: String?,
+    onExport: () -> Unit,
+    onSaveToDownloads: () -> Unit,
+    onRestart: () -> Unit
+) {
+    Text("腳本已完整結束。", style = MaterialTheme.typography.bodyMedium)
+    Spacer(modifier = Modifier.height(6.dp))
+    when {
+        autoSavedPath != null -> Text(
+            "已自動存檔：\n$autoSavedPath",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+        autoSaveError != null -> Text(
+            autoSaveError,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error
+        )
+        else -> Text("正在自動存檔…", style = MaterialTheme.typography.bodySmall)
+    }
     Spacer(modifier = Modifier.height(12.dp))
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = onExport, modifier = Modifier.weight(1f)) {
             Text("分享 Log")
         }
         Button(onClick = onSaveToDownloads, modifier = Modifier.weight(1f)) {
-            Text("儲存到下載 / CarANC_Logs")
+            Text("再存一份")
         }
     }
     Spacer(modifier = Modifier.height(8.dp))

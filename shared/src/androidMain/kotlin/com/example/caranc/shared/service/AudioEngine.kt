@@ -129,6 +129,8 @@ class AudioEngine(
     private var lastSessionLogUpdate = 0L
     private var lastBlockRms = 0f  // for idle telegraph diagnostic in running_snapshot (protocol)
     private var lastBlockRmsVssScale = 1f  // VSS scale passed to processor based on blockRms + pfx variance for dynamic mu
+    private var lastBumpLogMs = 0L
+    private var bumpLogSuppressed = 0
     private var lastDominant = com.example.caranc.shared.model.DominantNoiseBand.MIXED  // for MUSIC_BROAD force to MUSIC_DOMINANT_RUMBLE even if quality calc stuck (06-30)
 
     fun start() {
@@ -776,15 +778,29 @@ class AudioEngine(
                         val freezeTriggered = ancProcessor?.registerBlockEnergy(blockRms) == true
                         val freezeRemaining = ancProcessor?.getCurrentFreezeBlocksRemaining() ?: 0
                         if (freezeTriggered) {
-                            AncSessionLogger.log(
-                                phase = "bump_detected",
-                                fields = mapOf(
-                                    "blockRms" to blockRms,
-                                    "frozen" to true,
-                                    "freezeRemaining" to freezeRemaining
+                            // Rate-limit: 24k bump lines per drive drowned real events & bloated logs
+                            val nowBump = System.currentTimeMillis()
+                            if (nowBump - lastBumpLogMs >= 2000L) {
+                                lastBumpLogMs = nowBump
+                                bumpLogSuppressed = 0
+                                AncSessionLogger.log(
+                                    phase = "bump_detected",
+                                    fields = mapOf(
+                                        "blockRms" to blockRms,
+                                        "frozen" to true,
+                                        "freezeRemaining" to freezeRemaining,
+                                        "suppressedSinceLastLog" to 0
+                                    )
                                 )
-                            )
-                            Log.d("ANCService", "bump_detected: blockRms=${"%.4f".format(blockRms)} -> freeze set, remaining=$freezeRemaining (lms may pause)")
+                            } else {
+                                bumpLogSuppressed++
+                                if (bumpLogSuppressed == 1 || bumpLogSuppressed % 50 == 0) {
+                                    Log.d(
+                                        "ANCService",
+                                        "bump_detected (throttled x$bumpLogSuppressed) rms=${"%.4f".format(blockRms)}"
+                                    )
+                                }
+                            }
                         }
 
                         // always expose current freeze state in perf for diagnosis (even if not newly triggered)
