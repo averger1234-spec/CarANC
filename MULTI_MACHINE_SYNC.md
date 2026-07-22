@@ -6,43 +6,47 @@
 
 ---
 
-## 另一台電腦現在請這樣拉（2026-07-21）
+## 另一台電腦現在請這樣拉（2026-07-22）
 
 在第二台（或任何機器）的專案根目錄：
 
 ```powershell
 cd <你的路徑>\CarANC
 git pull origin main
-git log -3 --oneline
-# 應看到 f624ad0（或更新）: #6-#9 + #11
-# 以及 dafbcac / b9e135c 等 P0/P1
+git log -5 --oneline
+# 應至少看到：
+# 1d8eb1a fix(anc): A/B/C wireless+bank+reduction KPI and driving hiss
+# （以及更早的 f624ad0 / b9e135c / dafbcac 等）
 ```
 
 Android Studio：
 
 1. **File → Reload All from Disk**
 2. **Sync Project with Gradle Files**
-3. 可選：`.\scripts\install-debug.ps1` 裝到手機
+3. 可選：`.\scripts\install-debug.ps1` 裝到手機（簽章不符時先 `adb uninstall com.example.caranc`）
 
-讀文件恢復上下文：
+讀文件恢復上下文（**三份 .md 已對齊**）：
 
-1. 開 `GROK_RESUME_CONTEXT.md` 最上方「最新進度（2026-07-21）」
-2. 開 `README.md` 同標題段落
-3. 把 GROK 那段貼給新 Grok 對話當開場
+1. `GROK_RESUME_CONTEXT.md` 最上方「最新進度（2026-07-22）」
+2. `README.md` 同標題段落
+3. 本檔（`MULTI_MACHINE_SYNC.md`）本節 + 文末 2026-07-22 章
+4. 把 GROK 那段貼給新 Grok 對話當開場
 
-### 本次已 push 的架構變更（摘要）
+### 架構變更摘要（含 07-22 A/B/C）
 
 | # | 內容 | 主要檔案 |
 |---|------|----------|
-| P0 | `FF_PREVIEW_ONLY`、plant=measured | `MultiBandANCProcessor`、`LatencyAwareBandLimiter`、`AudioEngine` |
-| P1 | Preview EMA + 診斷 log | `RumblePreviewPredictor` |
-| #6 | Delayless/partitioned FDAF | `FdafLowBandProcessor.kt` |
-| #7 | speed×roughness bank | `PreLearnedAncBank.kt` + `setRoadRoughness` |
-| #8 | 本機 AAudio-like | `LocalLowLatencyAudio.kt`（僅非 AA） |
-| #9 | 有線 AA 優先 | `AudioRouteManager.kt` |
-| #11 | Car App scaffold | `CarAncAutoScreen.kt`、manifest automotive optional |
+| **A** | wireless 誤判修正：`remote_submix`+AA+非BT → `aaLinkType=projection_submix` | `AudioRouteManager.kt` |
+| **B** | bank 真輸出：default prior + seed + capture；`fixedBankOut` / `learnedBinCount` | `PreLearnedAncBank.kt`、`MultiBandANCProcessor.kt` |
+| **C** | 誠實 `reductionDb`（可負）；主 KPI=`lowBandRumbleReduction`；`reductionDbLegacy` | `AudioEngine.kt` |
+| **行駛白噪** | FF 關 mid/high、final lowpass、減 preview/FDAF、bank 為主 | `MultiBandANCProcessor.kt` |
+| P0 | `FF_PREVIEW_ONLY`、plant=measured | processor / limiter / engine |
+| P1 | Preview EMA + 診斷 | `RumblePreviewPredictor` |
+| #6–#9 | delayless FDAF、2D bank、本機 AAudio-like、有線偏好 | 見 07-21 節 |
+| #11 | Car App scaffold（非 OEM ECU） | `CarAncAutoScreen` 等 |
 
-**路測**：優先 **USB 有線 Android Auto**；無線 AA 會有 `wireless_aa_warning` / `wirelessAaSuspected=true`。
+**路測**：USB 有線 AA 優先；`aaLinkType` 常見 `projection_submix`（**不是** wireless 誤報）。  
+**聽感**：怠速應靜；行駛沙沙應比舊版少；log 看 `fixedBankOut` / `lowBandRumbleReduction` / `effectiveMidMu≈0`（高 lat）。
 
 ---
 
@@ -1043,4 +1047,58 @@ git log -5 --oneline
 ### 給新 Grok 的一句話
 
 「專案 CarANC，已 pull main（含 f624ad0）。先讀 GROK_RESUME_CONTEXT.md 與 README 最新進度 2026-07-21，繼續 AA 高延遲 rumble / log 分析。」
+
+
+---
+
+## 2026-07-22 跨機器同步：A/B/C + 行駛白噪（已 push main）
+
+**目的**：第二台 `git pull` 後立刻知道 07-22 修了什麼、怎麼驗。
+
+### Git
+
+```powershell
+git pull origin main
+git log -3 --oneline
+# 1d8eb1a fix(anc): A/B/C wireless+bank+reduction KPI and driving hiss
+```
+
+### 三份 .md 對齊
+
+| 檔案 | 內容 |
+|------|------|
+| `GROK_RESUME_CONTEXT.md` | 最新進度 2026-07-22 A/B/C + 白噪 |
+| `README.md` | 同上 + 路測 KPI |
+| `MULTI_MACHINE_SYNC.md` | 開頭拉碼步驟 + 本節 |
+
+### A/B/C + 白噪白話
+
+| 代號 | 一句話 | Log 驗收 |
+|------|--------|----------|
+| **A** | USB 投影 submix 不要標成無線 | `aaLinkType=projection_submix`；`wirelessAaSuspected` 僅 BT 為 true |
+| **B** | 預訓 bank 行駛要出聲 | `fixedBankOut` 非 0；`learnedBinCount` 可隨時間升 |
+| **C** | 降噪 dB 別被假 3dB 騙 | 主看 `lowBandRumbleReduction`；`reductionDb` 可為負（anti 變大聲） |
+| **白噪** | 行駛少沙沙 | 高 lat 時 `effectiveMidMu≈0`；主觀沙沙下降、怠速仍靜 |
+| **D**（操作） | 路測仍 USB AA | 不必因舊 log 的 wireless 旗標去改無線 |
+
+### 為何 reductionDb 以前常貼 ~3？
+
+舊公式用「anti 很大時把 raw 估高」再 `coerceAtLeast(0)`，容易讓整體 red 看起來卡在某區間。  
+07-22：`reductionDb = rawDb - residualDb`（誠實）；`reductionDbLegacy` 保留對照；**主 KPI = lowBandRumbleReduction**（<250Hz）。
+
+### 裝機與拉 log
+
+```powershell
+.\scripts\install-debug.ps1
+# 簽章不符：
+adb uninstall com.example.caranc
+adb install -r app\build\outputs\apk\debug\app-debug.apk
+
+.\scripts\pull-latest-log.ps1
+# 或：python scripts\_analyze_latest_log.py log\anc_session_XXXX.log
+```
+
+### 給新 Grok 的一句話
+
+「專案 CarANC，已 pull main（含 1d8eb1a A/B/C 白噪）。先讀 GROK/README/MULTI 2026-07-22，繼續路測 log：aaLinkType、fixedBankOut、lowBandRumbleReduction、行駛沙沙。」
 

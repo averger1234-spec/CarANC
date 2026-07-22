@@ -16,6 +16,7 @@
 - **C** `reductionDb` 誠實（可負）；主 KPI=`lowBandRumbleReduction`；`reductionDbLegacy` 對照
 - **行駛白噪**：FF 關 mid/high、final lowpass、減 preview/FDAF、bank 為主；`effectiveMidMu` 不再 stale
 - install：`.\scripts\install-debug.ps1`；第二台 `git pull origin main`
+- **三份 .md 已對齊**：`GROK_RESUME_CONTEXT.md` + `README.md` + `MULTI_MACHINE_SYNC.md`（含 2026-07-22 A/B/C）
 - **無車測真 AA**：`.\scripts\start-dhu.ps1`（DHU=電腦當車機）。**不要**假 `isAAConnected`
 - 路測聽感：怠速靜；行駛沙沙應↓；log 看 `aaLinkType` / `fixedBankOut` / `lowBandRumbleReduction`
 
