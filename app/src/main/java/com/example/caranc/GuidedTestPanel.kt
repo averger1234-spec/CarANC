@@ -141,7 +141,12 @@ fun GuidedTestPanel(
                     },
                     onSaveToDownloads = {
                         val path = TestLogExporter.saveLatestLogToDownloads(context)
-                        val msg = if (path != null) "已儲存到：$path" else "儲存失敗"
+                        val n = TestLogExporter.listSessionLogs(context).size
+                        val msg = if (path != null) {
+                            "已儲存到：$path\n（App 內 session 共 $n 份；下載夾每次存成獨立檔名）"
+                        } else {
+                            "儲存失敗（可能尚無 session log）"
+                        }
                         Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                     },
                     onRestart = {

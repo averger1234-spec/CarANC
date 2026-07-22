@@ -8,8 +8,13 @@ import com.example.caranc.shared.AncSessionLogger
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 object TestLogExporter {
+
+    private val copyStamp = SimpleDateFormat("HHmmss", Locale.US)
 
     fun shareLatestLog(context: Context): Boolean {
         val logFile = AncSessionLogger.getLatestLogFile() ?: return false
@@ -38,17 +43,15 @@ object TestLogExporter {
     }
 
     /**
-     * 儲存最新 log 到公開可見的「下載 / CarANC_Logs」資料夾。
-     * 這樣可以用手機檔案總管或 Google Drive App 直接找到並上傳，減少手動挑選步驟。
-     * 路徑通常是 /storage/emulated/0/Download/CarANC_Logs/anc_session_....log
-     * （或 Android/data/.../Download 視 Android 版本與權限而定）
+     * 儲存最新 log 到「下載 / CarANC_Logs」。
+     * 每次儲存用 **獨立檔名**（原名 + _saved_HHmmss），避免第二次覆蓋第一次、
+     * 或檔案總管只注意到一筆。App 內部 files/anc_logs 仍依 session 各一份。
      */
     fun saveLatestLogToDownloads(context: Context): String? {
         AncSessionLogger.init(context)
         val logFile = AncSessionLogger.getLatestLogFile() ?: return null
         if (!logFile.exists() || logFile.length() == 0L) return null
 
-        // 優先嘗試公開 Downloads（方便 Drive 同步與檔案總管）
         val baseDir = try {
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         } catch (_: Exception) {
@@ -56,7 +59,10 @@ object TestLogExporter {
         } ?: context.getExternalFilesDir(null) ?: return null
 
         val targetDir = File(baseDir, "CarANC_Logs").apply { mkdirs() }
-        val destFile = File(targetDir, logFile.name)
+        // Unique dest so repeated saves never overwrite a previous copy
+        val baseName = logFile.nameWithoutExtension
+        val destName = "${baseName}_saved_${copyStamp.format(Date())}.log"
+        val destFile = File(targetDir, destName)
 
         return try {
             FileInputStream(logFile).use { input ->
@@ -65,10 +71,10 @@ object TestLogExporter {
                 }
             }
             destFile.absolutePath
-        } catch (e: Exception) {
-            // fallback: 複製到 app 外部 files/Download
-            val fallbackDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.apply { mkdirs() } ?: return null
-            val fallbackFile = File(fallbackDir, logFile.name)
+        } catch (_: Exception) {
+            val fallbackDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.apply { mkdirs() }
+                ?: return null
+            val fallbackFile = File(fallbackDir, destName)
             FileInputStream(logFile).use { input ->
                 FileOutputStream(fallbackFile).use { output -> input.copyTo(output) }
             }
@@ -79,5 +85,15 @@ object TestLogExporter {
     fun latestLogFileName(context: Context): String? {
         AncSessionLogger.init(context)
         return AncSessionLogger.getLatestLogFile()?.name
+    }
+
+    /** All session logs in app sandbox, newest first (for UI list / debug). */
+    fun listSessionLogs(context: Context): List<File> {
+        AncSessionLogger.init(context)
+        val dir = AncSessionLogger.getLogDirectory(context) ?: return emptyList()
+        return dir.listFiles()
+            ?.filter { it.isFile && it.name.startsWith("anc_session_") && it.name.endsWith(".log") }
+            ?.sortedByDescending { it.lastModified() }
+            .orEmpty()
     }
 }
