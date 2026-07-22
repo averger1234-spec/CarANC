@@ -1171,3 +1171,20 @@ git log -5 --oneline   # expect 7f8107f or later
 adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
+## 2026-07-22 Closed-loop plant residual (`b4e80b6`)
+
+**Must see on `git log -3`:** `b4e80b6` (or later)
+
+**running_snapshot 路測必看：**
+- `outputPathActive` = true → 反向輸出有執行
+- `plantResidualReductionDb` > 0（行駛）→ plant 意義下低頻 residual 變小
+- `rawLowBandDb` / `plantResidualLowBandDb` / `bandE60–120Db`
+- 不要只信 `reductionDb`
+
+**Tests after pull:**
+```powershell
+.\gradlew.bat :shared:testDebugUnitTest --tests com.example.caranc.shared.ClosedLoopPlantResidualTest
+```
+
+**腳本 #7 / finish：** 必查上述 plant residual 欄位（見 AncTestScript monitored + step 文案）
+

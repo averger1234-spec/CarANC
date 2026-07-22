@@ -553,9 +553,9 @@ object CarRoadTuningScript {
             title = "#7 HIGH_LAT_PRED_BANK+neural bank 主驗（mu=2.05；USB AA）",
             instructions = listOf(
                 "主驗：需 55 秒有效行駛（車速≥50；紅燈不計）",
-                "latencyStrategy=HIGH_LAT_PRED_BANK；neuralLatent / bankMatch / imuMicCoherence",
-                "KPI：lowBandRumbleReduction；聽感無電台靜電",
-                "A/B vs #4b；fixedBankOut 行駛應非零"
+                "閉環 KPI：outputPathActive=true；plantResidualReductionDb 行駛宜>0（plant 混合 residual↓）",
+                "另記：rawLowBandDb / plantResidualLowBandDb / bandE60–120；neuralLatent / bankMatch / imuMicCoherence",
+                "聽感：低頻悶、無電台靜電；A/B vs #4b；fixedBankOut 行駛宜非零"
             ),
             durationSec = 55,
             minSpeedKmh = 50f,
@@ -563,14 +563,13 @@ object CarRoadTuningScript {
             suggestedTier = UserTier.PRO,
             checklist = listOf(
                 "USB有線AA",
-                "HIGH_LAT_PRED_BANK 或 CONSERVATIVE",
+                "outputPathActive",
+                "plantResidualReductionDb 已記錄",
+                "rawLowBandDb 已記錄",
                 "neuralLatentEnabled=true",
                 "imuMicCoherence 已記錄",
-                "bankMatchQuality 已記錄",
-                "fixedBankOut 非零(行駛)",
-                "fdafDelayless",
+                "fixedBankOut 行駛",
                 "無電台靜電",
-                "lowBandRumble 主 KPI",
                 "speed>55 rough low-music",
                 "tier=PRO",
                 "vs #4b A/B"
@@ -594,8 +593,8 @@ object CarRoadTuningScript {
                 "用 GuidedTest finish「儲存到下載 / CarANC_Logs」或測試平台匯出",
                 "把完整 log 傳回分析（或 pull-latest-log.ps1）",
                 "scenario 註：tier / USB-AA / placement / speed / musicLow / 主觀靜電? / 主觀 rumble 0–10",
-                "必查欄位：latencyStrategy, imuMicCoherence, bankMatchQuality, bankMatchCosine, neuralLatentEnabled, latent0/1/2, fixedBankOut, learnedBinCount, fdafDelayless, plantElectricalDelaySamples, lowBandRumbleReduction, reductionDb, antiNoiseDb",
-                "PASS 條件：#7 無電台靜電 + lowBandRumbleReduction 常≥0 或主觀低頻有改善；FAIL：anti 大但 red 大負",
+                "必查欄位：outputPathActive, plantResidualReductionDb, rawLowBandDb, plantResidualLowBandDb, bandE60–120, imuMicCoherence, bankMatchQuality, neuralLatentEnabled, fixedBankOut, lowBandRumbleReduction, antiNoiseDb",
+                "PASS：outputPathActive + plantResidualReductionDb 行駛常>0 + 聽感低頻改善無雜訊；FAIL：有 anti 但 plantRed≤0 且聽感變吵",
                 "A/B：#4b vs #6 vs #7 的 lowBandRumbleReduction + 主觀",
                 "下一輪：固定 USB AA + floor",
                 "★ 約 10 秒壁鐘後自動結束 → 請存 log"

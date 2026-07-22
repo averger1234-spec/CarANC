@@ -690,3 +690,16 @@ Tests: `LiteratureAlgTest` + full `MultiBandANCProcessorTest`.
 - User flow: Start → auto ANC → auto step when validSec met → Save log
 - Log fields on step complete: `validSec`, `wallElapsedSec`, `advanceMode=valid_drive_sec`
 
+### Closed-loop plant residual KPI (`b4e80b6`)
+
+Correct validation path (not formula sim only):
+
+`x → process → y → plant delay D → residual = x + y(n-D) → residual energy must drop`
+
+- Code: `PlantAlignedResidual` + `AntiNoiseDelayLine` in AudioEngine viz path
+- Unit: `ClosedLoopPlantResidualTest`
+- **running_snapshot** (program self-check, not external recorder):
+  - `rawLowBandDb`, `residualLowBandDb`, `plantResidualLowBandDb`, `plantResidualReductionDb` (**>0 = cancel under plant**)
+  - `bandE60/80/100/120Db`, `outputPathActive`, `plantDelayForResidual`
+- Three questions: (3) output runs = `outputPathActive`; (2) compute OK = unit tests; (1) true cancel = plant residual ↓ + listen
+
