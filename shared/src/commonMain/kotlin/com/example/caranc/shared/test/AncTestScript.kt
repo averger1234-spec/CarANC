@@ -355,7 +355,7 @@ object CarRoadTuningScript {
     // - 驗證 KPI：lowBandRumbleReduction 主；imuMicCoherence / bankMatchQuality / neuralLatentEnabled
     // - 實測請 USB 有線 AA；無線 projection 更差
     // 驗證：latencyStrategy / imuMicCoherence / bankMatch* / fixedBankOut / lowBandRumbleReduction / 聽感無靜電
-    const val SCRIPT_NAME = "路噪快速迭代（HIGH_LAT_PRED_BANK+neural bank+#6 FDAF；USB AA；#4b A/B）"
+    const val SCRIPT_NAME = "路噪自動調校（計時自動下一步；HIGH_LAT_PRED_BANK+neural bank）"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -409,9 +409,10 @@ object CarRoadTuningScript {
                 "點「開始降噪」完成校正；開 ANC 應「安靜或低頻悶」而非電台靜電（極性/plant 已修）",
                 "同一條粗糙路 50–70km/h、嚴格低音樂（<20% 或 off）",
                 "每步「完成這步」套用 debug presets（ov 僅 log）",
-                "本腳本驗證 HIGH_LAT_PRED_BANK + neural latent bank + #6 FDAF；#4b=A/B。高 lat mid 關閉=正常"
+                "本腳本驗證 HIGH_LAT_PRED_BANK + neural latent bank + #6 FDAF；#4b=A/B。高 lat mid 關閉=正常",
+                "★ 計時自動下一步：prep 約 25s 後自動進入 #4…#7…finish，無需按「完成這步」"
             ),
-            durationSec = 0,
+            durationSec = 25,
             requiresAncRunning = false,
             checklist = listOf(
                 "USB有線AA",
@@ -582,15 +583,15 @@ object CarRoadTuningScript {
                 "必查欄位：latencyStrategy, imuMicCoherence, bankMatchQuality, bankMatchCosine, neuralLatentEnabled, latent0/1/2, fixedBankOut, learnedBinCount, fdafDelayless, plantElectricalDelaySamples, lowBandRumbleReduction, reductionDb, antiNoiseDb",
                 "PASS 條件：#7 無電台靜電 + lowBandRumbleReduction 常≥0 或主觀低頻有改善；FAIL：anti 大但 red 大負",
                 "A/B：#4b vs #6 vs #7 的 lowBandRumbleReduction + 主觀",
-                "下一輪：固定 USB AA + floor；wireless 問題先排除再比算法"
+                "下一輪：固定 USB AA + floor；wireless 問題先排除再比算法",
+                "★ 此步約 12 秒後自動結束腳本 → 請按「儲存到下載 / CarANC_Logs」"
             ),
-            durationSec = 0,
+            durationSec = 12,
             requiresAncRunning = false,
             checklist = listOf(
-                "Log已匯出",
-                "含 imuMicCoherence/bankMatch/neuralLatent",
-                "含 #7 聽感註記",
-                "scenario 註記"
+                "腳本將自動結束",
+                "結束後儲存 Log",
+                "含 imuMicCoherence/bankMatch/neuralLatent"
             ),
             logPhases = listOf("test_script_complete")
         )

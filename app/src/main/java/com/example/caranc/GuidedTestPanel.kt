@@ -14,25 +14,22 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.caranc.shared.AncSessionContext
 import com.example.caranc.shared.AncSessionLogger
 import com.example.caranc.shared.AncState
+import com.example.caranc.shared.AncTestPreferences
 import com.example.caranc.shared.GlobalAncSessionContext
 import com.example.caranc.shared.test.CarRoadTuningScript
 import com.example.caranc.shared.test.GuidedTestController
-import com.example.caranc.shared.AncTestPreferences
 import com.example.caranc.shared.test.GuidedTestState
 import kotlinx.coroutines.delay
 
@@ -43,21 +40,18 @@ fun GuidedTestPanel(
     onRequestStopAnc: () -> Unit
 ) {
     val context = LocalContext.current
-    // Obtain from provided context for test panel (instead of direct singletons).
-    // Configures the controller too. Scoped context recommended for testing/multi-session.
     val sessionContext = remember { GlobalAncSessionContext }
     GuidedTestController.configure(sessionContext)
 
     val guidedState by GuidedTestController.state.collectAsState()
     val ancState by sessionContext.stateManager.state.collectAsState()
-    var note by remember { mutableStateOf("") }
+    val ancRunning = ancState !is AncState.Stopped
 
     LaunchedEffect(Unit) {
         GuidedTestController.eventSink = { phase, fields ->
             AncSessionLogger.log(phase = phase, fields = fields)
 
             if (phase == "debug_presets_apply") {
-                // 自動套用調校參數，使用者只需按「下一步」與最後匯出 log
                 fields["forceNormalMode"]?.let { v ->
                     if (v is Boolean) AncTestPreferences.setForceNormalMode(context, v)
                 }
@@ -79,16 +73,14 @@ fun GuidedTestPanel(
                 fields["latencyOverrideMs"]?.let { v ->
                     if (v is Number) AncTestPreferences.setDebugLatencyOverrideMs(context, v.toFloat())
                 }
-                // TIER support: if "tier" in debug_presets, record for log; actual setTier done via TestScriptStep.suggestedTier in GuidedTestController.enterCurrentStep (which calls tierManager -> updateTier auto leakage etc)
-                // No direct set here needed; "tier" field just augments log for sim validation.
                 fields["debugLeakage"]?.let { v ->
-                    if (v is Number) AncTestPreferences.setDebugLeakage(context, v.toFloat())  // legacy support only; tier now drives auto (processor updateTier)
+                    if (v is Number) AncTestPreferences.setDebugLeakage(context, v.toFloat())
                 }
-                // native etc now auto by tier; no manual set needed. "tier" in preset just for log.
             }
         }
     }
 
+    // 1 Hz tick → timed auto-advance
     LaunchedEffect(guidedState.active, guidedState.finished) {
         if (!guidedState.active || guidedState.finished) return@LaunchedEffect
         while (GuidedTestController.state.value.active && !GuidedTestController.state.value.finished) {
@@ -97,11 +89,27 @@ fun GuidedTestPanel(
         }
     }
 
+    // Snapshot every 5s while running
     LaunchedEffect(guidedState.active, guidedState.finished, guidedState.stepIndex) {
         if (!guidedState.active || guidedState.finished) return@LaunchedEffect
         while (GuidedTestController.state.value.active && !GuidedTestController.state.value.finished) {
             delay(5000)
             GuidedTestController.logStepSnapshot()
+        }
+    }
+
+    // Auto-start ANC when script begins
+    LaunchedEffect(guidedState.active, guidedState.finished, ancRunning) {
+        if (guidedState.active && !guidedState.finished && !ancRunning) {
+            onRequestStartAnc()
+        }
+    }
+
+    // Auto-stop ANC on finish step (collect settle) then script ends
+    LaunchedEffect(guidedState.currentStep?.id, ancRunning) {
+        val id = guidedState.currentStep?.id.orEmpty()
+        if (guidedState.active && id.contains("finish", ignoreCase = true) && ancRunning) {
+            onRequestStopAnc()
         }
     }
 
@@ -114,7 +122,7 @@ fun GuidedTestPanel(
         Column(modifier = Modifier.padding(16.dp)) {
             Text("路噪調校測試", style = MaterialTheme.typography.titleMedium)
             Text(
-                "唯一引導腳本 car_road_tuning_v1。手動步進：完成後按「完成這步」。",
+                "含今日算法（HIGH_LAT_PRED_BANK / neural latent / coherence）。計時自動下一步，只需開始 + 存 log。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSecondaryContainer
             )
@@ -134,29 +142,27 @@ fun GuidedTestPanel(
                         Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                     },
                     onRestart = {
-                        note = ""
-                        GuidedTestController.start(CarRoadTuningScript.steps, CarRoadTuningScript.SCRIPT_ID, CarRoadTuningScript.SCRIPT_NAME)
+                        GuidedTestController.start(
+                            CarRoadTuningScript.steps,
+                            CarRoadTuningScript.SCRIPT_ID,
+                            CarRoadTuningScript.SCRIPT_NAME,
+                            autoAdvance = true
+                        )
                     }
                 )
                 guidedState.active -> ActiveScriptView(
                     state = guidedState,
                     sessionContext = sessionContext,
-                    ancRunning = ancState !is AncState.Stopped,
-                    note = note,
-                    onNoteChange = { note = it },
-                    onRequestStartAnc = onRequestStartAnc,
-                    onRequestStopAnc = onRequestStopAnc,
-                    onComplete = { GuidedTestController.completeCurrentStep(userNote = note).also { note = "" } },
-                    onSkip = { GuidedTestController.skipCurrentStep() },
+                    ancRunning = ancRunning,
                     onAbort = { GuidedTestController.abort() }
                 )
                 else -> IdleScriptView(
                     onStartTuning = {
-                        note = ""
                         GuidedTestController.start(
                             CarRoadTuningScript.steps,
                             CarRoadTuningScript.SCRIPT_ID,
-                            CarRoadTuningScript.SCRIPT_NAME
+                            CarRoadTuningScript.SCRIPT_NAME,
+                            autoAdvance = true
                         )
                     }
                 )
@@ -175,23 +181,28 @@ private fun IdleScriptView(
         color = MaterialTheme.colorScheme.primary
     )
     Text(
-        "唯一實車腳本：路噪調校（HIGH_LAT_PRED_BANK / neural bank / #4b A/B / #6 FDAF / #7 主驗）。USB AA + floor/seat + 粗糙路。",
+        "今日變更已含：極性/FxLMS、HIGH_LAT_PRED_BANK、neural bank、imuMicCoherence、bankMatch log。",
         style = MaterialTheme.typography.bodySmall
     )
     Text(
-        "每步自動套用調校參數；你只需開車、按「完成這步」、最後匯出 log。聽感 PASS＝無電台靜電 + 低頻有感。",
+        "流程：按開始 → 自動啟動 ANC → 各步依秒數自動推進（prep 25s、#4–#7 各 75s、finish 12s）→ 結束後存 log。",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.primary
     )
     Text(
-        "監控 ${CarRoadTuningScript.monitoredLogPhases.size} 種 log phase、${CarRoadTuningScript.monitoredSnapshotFields.size} 個 snapshot 欄位（含 imuMicCoherence / bankMatch* / neuralLatent / lowBandRumbleReduction）",
+        "全程約 ${approxTotalSec()} 秒。開車維持 USB AA + floor/seat + 粗糙路；可按中止。",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSecondaryContainer
     )
     Spacer(modifier = Modifier.height(10.dp))
     Button(onClick = onStartTuning, modifier = Modifier.fillMaxWidth()) {
-        Text("開始路噪調校測試")
+        Text("開始（自動計時跑完）")
     }
+}
+
+private fun approxTotalSec(): Int {
+    // prep 25 + 5×75 + finish 12
+    return 25 + 75 * 5 + 12
 }
 
 @Composable
@@ -199,106 +210,56 @@ private fun ActiveScriptView(
     state: GuidedTestState,
     sessionContext: AncSessionContext,
     ancRunning: Boolean,
-    note: String,
-    onNoteChange: (String) -> Unit,
-    onRequestStartAnc: () -> Unit,
-    onRequestStopAnc: () -> Unit,
-    onComplete: () -> Unit,
-    onSkip: () -> Unit,
     onAbort: () -> Unit
 ) {
     val step = state.currentStep ?: return
     val progress = (state.stepIndex + 1).toFloat() / state.totalSteps.coerceAtLeast(1)
+    val stepProgress = if (state.targetDurationSec > 0) {
+        (state.elapsedSec.toFloat() / state.targetDurationSec).coerceIn(0f, 1f)
+    } else 0f
     val estimatedLatencyMs by sessionContext.stateManager.estimatedLatencyMs.collectAsState()
     val maxCancelHz by sessionContext.stateManager.maxCancelFrequencyHz.collectAsState()
-    val latencyMidEnabled by sessionContext.stateManager.latencyMidEnabled.collectAsState()
-    val latencyHighEnabled by sessionContext.stateManager.latencyHighEnabled.collectAsState()
     val rawDb by sessionContext.stateManager.rawDb.collectAsState()
     val cancelledDb by sessionContext.stateManager.cancelledDb.collectAsState()
     val reductionDb = (rawDb - cancelledDb).coerceAtLeast(0f)
 
     Text(
-        "步驟 ${state.stepIndex + 1} / ${state.totalSteps}",
+        "步驟 ${state.stepIndex + 1} / ${state.totalSteps} · 自動推進",
         style = MaterialTheme.typography.labelLarge
     )
     LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
+    Spacer(modifier = Modifier.height(4.dp))
+    LinearProgressIndicator(progress = stepProgress, modifier = Modifier.fillMaxWidth())
     Spacer(modifier = Modifier.height(8.dp))
 
     Text(step.title, style = MaterialTheme.typography.titleSmall)
-    step.instructions.forEachIndexed { index, line ->
+    // Only show first 3 instruction lines to reduce clutter while driving
+    step.instructions.take(3).forEachIndexed { index, line ->
         Text("${index + 1}. $line", style = MaterialTheme.typography.bodySmall)
     }
-
-    if (step.checklist.isNotEmpty()) {
-        Spacer(modifier = Modifier.height(6.dp))
-        Text("確認：${step.checklist.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall)
+    if (step.instructions.size > 3) {
+        Text("…（其餘見 log / 文件）", style = MaterialTheme.typography.bodySmall)
     }
 
-    if (step.logPhases.isNotEmpty()) {
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            "監控 phase：${step.logPhases.joinToString(", ")}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-    }
+    Spacer(modifier = Modifier.height(8.dp))
+    Text(
+        "倒數 ${state.remainingSec} 秒 · 已 ${state.elapsedSec}/${state.targetDurationSec} 秒 → 自動下一步",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.primary
+    )
 
     if (ancRunning && estimatedLatencyMs > 0f) {
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             "即時：延遲 ${"%.0f".format(estimatedLatencyMs)} ms · ≤${"%.0f".format(maxCancelHz)} Hz · " +
-                "reduction ${"%.1f".format(reductionDb)} dB · " +
-                "band[${if (latencyMidEnabled) "中" else "中×"}/${if (latencyHighEnabled) "高" else "高×"}]",
+                "reduction ${"%.1f".format(reductionDb)} dB · ANC ${if (ancRunning) "ON" else "OFF"}",
             style = MaterialTheme.typography.bodySmall
         )
+    } else if (!ancRunning) {
+        Text("正在啟動 ANC…", style = MaterialTheme.typography.bodySmall)
     }
 
-    Spacer(modifier = Modifier.height(8.dp))
-    Text(
-        if (step.durationSec > 0) {
-            "已進行 ${state.elapsedSec} 秒 · 建議觀察 ${step.durationSec} 秒（完成後按「完成這步」）"
-        } else {
-            "已進行 ${state.elapsedSec} 秒 · 完成後按「完成這步」"
-        },
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.primary
-    )
-
-    Spacer(modifier = Modifier.height(8.dp))
-    OutlinedTextField(
-        value = note,
-        onValueChange = onNoteChange,
-        modifier = Modifier.fillMaxWidth(),
-        label = { Text("備註（可選）") },
-        placeholder = { Text("例：副駕前座椅下、有風噪") },
-        singleLine = true
-    )
-
-    Spacer(modifier = Modifier.height(8.dp))
-
-    if (step.requiresAncRunning && !ancRunning) {
-        Button(onClick = onRequestStartAnc, modifier = Modifier.fillMaxWidth()) {
-            Text("啟動降噪（此步驟需要）")
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-    }
-
-    if (!step.requiresAncRunning && step.id == "finish" && ancRunning) {
-        OutlinedButton(onClick = onRequestStopAnc, modifier = Modifier.fillMaxWidth()) {
-            Text("停止降噪（此步驟需要）")
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-    }
-
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = onComplete, modifier = Modifier.weight(1f)) {
-            Text("完成這步")
-        }
-        OutlinedButton(onClick = onSkip, modifier = Modifier.weight(1f)) {
-            Text("跳過")
-        }
-    }
-    Spacer(modifier = Modifier.height(8.dp))
+    Spacer(modifier = Modifier.height(12.dp))
     OutlinedButton(onClick = onAbort, modifier = Modifier.fillMaxWidth()) {
         Text("中止測試")
     }
@@ -306,9 +267,13 @@ private fun ActiveScriptView(
 
 @Composable
 private fun FinishedScriptView(onExport: () -> Unit, onSaveToDownloads: () -> Unit, onRestart: () -> Unit) {
-    Text("測試腳本已完成，log 已寫入 session。", style = MaterialTheme.typography.bodyMedium)
+    Text("腳本已跑完（計時自動結束）。請存 log。", style = MaterialTheme.typography.bodyMedium)
     Spacer(modifier = Modifier.height(8.dp))
-    Text("建議：測試完立即儲存 log 到 CarANC_Logs（方便 Google Drive 上傳），不用切到測試平台分頁。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(
+        "建議立即「儲存到下載 / CarANC_Logs」。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
     Spacer(modifier = Modifier.height(12.dp))
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = onExport, modifier = Modifier.weight(1f)) {

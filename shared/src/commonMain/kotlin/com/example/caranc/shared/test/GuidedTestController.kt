@@ -15,6 +15,12 @@ data class GuidedTestState(
     val totalSteps: Int = 0,
     val currentStep: TestScriptStep? = null,
     val elapsedSec: Int = 0,
+    /** Target seconds for this step (timed auto-advance). */
+    val targetDurationSec: Int = 0,
+    /** Seconds left before auto next step (target − elapsed). */
+    val remainingSec: Int = 0,
+    /** When true, tickSecond advances steps when remaining hits 0. */
+    val autoAdvance: Boolean = true,
     val completedStepIds: List<String> = emptyList(),
     val finished: Boolean = false,
     val userNote: String = ""
@@ -38,24 +44,48 @@ object GuidedTestController {
     }
 
     private var stepStartedAtMs: Long = 0L
-    private var currentSteps: List<TestScriptStep> = CarAncTestScript.steps
-    private var currentMonitoredPhases: List<String> = CarAncTestScript.monitoredLogPhases
-    private var currentMonitoredFields: List<String> = CarAncTestScript.monitoredSnapshotFields
+    private var currentSteps: List<TestScriptStep> = CarRoadTuningScript.steps
+    private var currentMonitoredPhases: List<String> = CarRoadTuningScript.monitoredLogPhases
+    private var currentMonitoredFields: List<String> = CarRoadTuningScript.monitoredSnapshotFields
+    private var autoAdvanceEnabled: Boolean = true
 
-    fun start(script: List<TestScriptStep> = CarAncTestScript.steps, scriptId: String = CarAncTestScript.SCRIPT_ID, scriptName: String = CarAncTestScript.SCRIPT_NAME) {
+    /**
+     * Start script. [autoAdvance]=true (default): each step runs for durationSec then auto-next;
+     * user only needs Start + Save log (Abort optional).
+     */
+    fun start(
+        script: List<TestScriptStep> = CarRoadTuningScript.steps,
+        scriptId: String = CarRoadTuningScript.SCRIPT_ID,
+        scriptName: String = CarRoadTuningScript.SCRIPT_NAME,
+        autoAdvance: Boolean = true
+    ) {
         if (script.isEmpty()) return
         currentSteps = script
-        currentMonitoredPhases = if (scriptId == CarRoadTuningScript.SCRIPT_ID) CarRoadTuningScript.monitoredLogPhases else CarAncTestScript.monitoredLogPhases
-        currentMonitoredFields = if (scriptId == CarRoadTuningScript.SCRIPT_ID) CarRoadTuningScript.monitoredSnapshotFields else CarAncTestScript.monitoredSnapshotFields
+        autoAdvanceEnabled = autoAdvance
+        currentMonitoredPhases = if (scriptId == CarRoadTuningScript.SCRIPT_ID) {
+            CarRoadTuningScript.monitoredLogPhases
+        } else {
+            CarAncTestScript.monitoredLogPhases
+        }
+        currentMonitoredFields = if (scriptId == CarRoadTuningScript.SCRIPT_ID) {
+            CarRoadTuningScript.monitoredSnapshotFields
+        } else {
+            CarAncTestScript.monitoredSnapshotFields
+        }
         stepStartedAtMs = currentTimeMs()
+        val first = script.first()
+        val target = effectiveDurationSec(first)
         _state.value = GuidedTestState(
             active = true,
             scriptId = scriptId,
             scriptName = scriptName,
             stepIndex = 0,
             totalSteps = script.size,
-            currentStep = script.first(),
+            currentStep = first,
             elapsedSec = 0,
+            targetDurationSec = target,
+            remainingSec = target,
+            autoAdvance = autoAdvance,
             finished = false
         )
         emit(
@@ -63,7 +93,7 @@ object GuidedTestController {
             fields = mapOf(
                 "scriptId" to scriptId,
                 "scriptName" to scriptName,
-                "advanceMode" to "manual",
+                "advanceMode" to if (autoAdvance) "timed_auto" else "manual",
                 "totalSteps" to script.size,
                 "stepIds" to script.map { it.id },
                 "monitoredLogPhases" to currentMonitoredPhases,
@@ -79,7 +109,24 @@ object GuidedTestController {
     fun tickSecond() {
         val state = _state.value
         if (!state.active || state.finished || state.currentStep == null) return
-        _state.value = state.copy(elapsedSec = state.elapsedSec + 1)
+        val elapsed = state.elapsedSec + 1
+        val target = state.targetDurationSec.coerceAtLeast(0)
+        val remaining = if (target > 0) (target - elapsed).coerceAtLeast(0) else 0
+        _state.value = state.copy(elapsedSec = elapsed, remainingSec = remaining)
+        // Timed auto-advance: no need to press 「完成這步」
+        if (state.autoAdvance && target > 0 && elapsed >= target) {
+            completeCurrentStep(userNote = "auto_timed", autoAdvanced = true)
+        }
+    }
+
+    /** Effective timed duration: step.durationSec if set, else sensible defaults for prep/finish. */
+    private fun effectiveDurationSec(step: TestScriptStep): Int {
+        if (step.durationSec > 0) return step.durationSec
+        return when {
+            step.id.contains("prep", ignoreCase = true) -> 25
+            step.id.contains("finish", ignoreCase = true) -> 12
+            else -> 30
+        }
     }
 
     fun completeCurrentStep(userNote: String = "", autoAdvanced: Boolean = false) {
@@ -122,10 +169,14 @@ object GuidedTestController {
         }
 
         val nextStep = script[nextIndex]
+        val target = effectiveDurationSec(nextStep)
         _state.value = state.copy(
             stepIndex = nextIndex,
             currentStep = nextStep,
             elapsedSec = 0,
+            targetDurationSec = target,
+            remainingSec = target,
+            autoAdvance = autoAdvanceEnabled,
             completedStepIds = completed,
             userNote = userNote
         )
@@ -171,13 +222,21 @@ object GuidedTestController {
     private fun enterCurrentStep() {
         val step = _state.value.currentStep ?: return
         stepStartedAtMs = currentTimeMs()
+        val target = effectiveDurationSec(step)
+        _state.value = _state.value.copy(
+            targetDurationSec = target,
+            remainingSec = target,
+            elapsedSec = 0,
+            autoAdvance = autoAdvanceEnabled
+        )
         step.suggestedTier?.let { sessionContext.tierManager.setTier(it) }
         emit(
             phase = "test_step_start",
             fields = stepLogFields(step) + mapOf(
                 "durationSec" to step.durationSec,
-                "suggestedObserveSec" to step.durationSec,
-                "advanceMode" to "manual",
+                "effectiveDurationSec" to target,
+                "suggestedObserveSec" to target,
+                "advanceMode" to if (autoAdvanceEnabled) "timed_auto" else "manual",
                 "requiresAncRunning" to step.requiresAncRunning,
                 "suggestedTier" to (step.suggestedTier?.name ?: "unchanged"),
                 "expectedLogPhases" to step.logPhases
