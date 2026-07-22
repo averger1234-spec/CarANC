@@ -1143,6 +1143,11 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 **running_snapshot fields to check in logs:**
 `imuMicCoherence`, `bankMatchQuality`, `bankMatchCosine`, `neuralLatentEnabled`, `latent0`, `latent1`, `latent2`
 
+**Test scripts (AncTestScript.kt) updated for post-3c0016b:**
+- `monitoredSnapshotFields` includes coherence/bankMatch/latent*
+- `car_road_tuning_v1` #7 expects `HIGH_LAT_PRED_BANK` (not FF_PREVIEW_ONLY), neural bank, no radio-static listen pass
+- `car_field_v3` prep/idle checklist: no radio static
+
 **Verify:**
 ```powershell
 git pull origin main

@@ -31,15 +31,16 @@ object CarAncTestScript {
             title = "準備與啟動",
             instructions = listOf(
                 "確認手機已 USB 連接 Android Auto（或記錄本機模式）",
-                "填寫上方「實車測試 Log」的車型、手機位置",
+                "填寫上方「實車測試 Log」的車型、手機位置（建議 floor/seat）",
                 "（可選）在測試設定填入手動 RPM（用於引擎諧波測試，怠速約 800）",
                 "點主畫面「開始降噪」，允許麥克風、定位權限",
                 "等待校正完成，狀態顯示「降噪中」",
+                "開 ANC 後聽感應安靜或低頻悶，不應像電台收訊不良（core polarity 已修）",
                 "每步需手動按「完成這步」才會往下（適合上下班分段測）"
             ),
             durationSec = 0,
             requiresAncRunning = false,
-            checklist = listOf("AA 已連接", "ANC 已啟動", "校正已完成"),
+            checklist = listOf("AA 已連接", "ANC 已啟動", "校正已完成", "開ANC無電台靜電"),
             logPhases = listOf(
                 "audio_init",
                 "calibration",
@@ -88,11 +89,12 @@ object CarAncTestScript {
                 "車輛靜止、冷氣維持平常設定",
                 "選擇降噪等級「輕度」",
                 "保持安靜 30 秒，不要播放音樂",
-                "觀察 latencyMidEnabled 是否依延遲自動開啟"
+                "觀察 latencyMidEnabled 是否依延遲自動開啟",
+                "確認無持續嘶嘶／電台雜訊（怠速 hard-zero 已改為只抑微 hiss）"
             ),
             durationSec = 30,
             suggestedTier = UserTier.LIGHT,
-            checklist = listOf("車輛靜止", "無音樂", "reductionDb 有記錄"),
+            checklist = listOf("車輛靜止", "無音樂", "無電台靜電", "reductionDb 有記錄"),
             logPhases = listOf("running_snapshot", "test_step_snapshot")
         ),
         TestScriptStep(
@@ -269,25 +271,23 @@ object CarAncTestScript {
         "mediaAdaptationActive",
         "musicSuppressionQuality",  // P1: track when conservative mode kicks in during music dominant tests
         "musicRoadEnergyRatio",  // music vs road energy ratio guard
-        "musicDominantRumbleMode",  // direction C: IMU-dominant rumble when music (07-01: stronger multipliers 2.8x+3.5x, EMA for stability, micFactor 0.18, lower clear threshold 0.25)
-        "rumbleVibBoost",  // actual applied (stronger base + dynamic; EMA smoothed for less flicker)
-        "effectiveLowMu",  // = baseLowMu * rumbleVibBoost (verify stronger/more stable IMU effect in music)
-        "couplingQuality",  // IMU coupling (accelMag baseline / 0.3); <0.5 dampens boost in dominant mode
-        "virtualSuppressionQuality",  // 混合 media quality + IMU rumble energy proxy；virtual quality 改善 quality 卡 0 時仍能依 rumble 能量 aggressive low band
-        "rumbleEnergyProxy",  // raw accel-derived (0-1) to correlate with virtualQ, boost activation, and when IMU takes over vs music q=0
-        "musicStreamVolume", "musicStreamMax", "musicVolNorm",  // for volume adjust experiments + music bleed/conflict diagnosis (correlate vol up with blockRms/reduction/freeze/sonif)
+        "musicDominantRumbleMode",
+        "rumbleVibBoost",
+        "effectiveLowMu",
+        "virtualSuppressionQuality",
+        "rumbleEnergyProxy",
+        "musicStreamVolume", "musicStreamMax", "musicVolNorm",
 
         "sirenOverride",
-        "sonificationOverride",  // notification / sonification 事件保護（最高優先修復 choppy + echo 問題）
+        "sonificationOverride",
         "sonificationGainScale",
-        // 新增：LMS 調校實驗關鍵欄位（mu/freeze/latency override + band muScale + dominant）
         "dominantNoiseBand",
         "debugLmsMuMultiplier",
         "debugFreezeThreshold",
         "debugFreezeConsec",
         "debugLatencyOverrideMs",
         "usingLatencyOverride",
-        // P0/P1 AA high-lat FF path
+        // High-lat path (post-2026-07-22: HIGH_LAT_PRED_BANK, not FF_PREVIEW magnitude inject)
         "latencyStrategy",
         "measuredLatencyMs",
         "plantElectricalDelaySamples",
@@ -297,7 +297,7 @@ object CarAncTestScript {
         "previewHistoryCount",
         "preLearnedBinCount",
         "effectiveRumbleMode",
-        // #6–#9 (2026-07-21 medium-term)
+        // #6–#9
         "fdafDelayless",
         "fdafPartitions",
         "fixedBankOut",
@@ -314,13 +314,12 @@ object CarAncTestScript {
         "lowBandMuScale",
         "midBandMuScale",
         "highBandMuScale",
-        "effectiveMidMu",  // Iter2+: tracks actual midMu post road/music boost for rumble contrib diagnosis
+        "effectiveMidMu",
         "antiNoiseDb",
         "lmsUpdateCount",
         "lowBandLmsUpdateCount",
         "freezeBlocksRemaining",
         "processingMode",
-        // Added for EMA variance logging of lastLmsPfx (item2) + IMU accel (item3) + leakage verification in tuning runs
         "lmsPfxEma",
         "lmsPfxVarEma",
         "accelMag",
@@ -330,25 +329,33 @@ object CarAncTestScript {
         "roughness",
         "speedKmh",
         "speedValid",
-        // C8: crowd vision / IMU hybrid Road Preview / NVH predictive preload (1.5x on agg coarse/rough from prior #7)
         "crowdsourcedPreloadBoost",
         "rumbleAuxFactor",
         "crowdsourcedNVHPreload",
         "rumbleAuxPreviewFactor",
         "imuHybridImprove",
         "hasClusterMatch",
-        "clusterHash"
+        "clusterHash",
+        // 2026-07-22 literature / patent diagnostics (must appear in running_snapshot)
+        "imuMicCoherence",       // IMU↔mic low coupling 0..1; low = damp boost
+        "bankMatchQuality",      // neural soft-max peak 0..1
+        "bankMatchCosine",       // best cell cosine −1..1
+        "neuralLatentEnabled",   // true = MLP latent path on
+        "latent0", "latent1", "latent2"  // query latent dims for log plots
     )
 }
 
 object CarRoadTuningScript {
     const val SCRIPT_ID = "car_road_tuning_v1"
-    // P0/P1 + #6–#9 (2026-07-21):
+    // 2026-07-22 core + literature (3c0016b / 73ba9bb / 67a77a0):
     // - plant/maxCancel = measured only；latencyOverrideMs 僅 log A/B 標記
-    // - 高 lat + rumble → FF_PREVIEW_ONLY + delayless FDAF (#6) + speed×rough fixed bank (#7)
-    // - 實測請 USB 有線 AA (#9)；audioBackend 在 AA 應為 AUDIOTRACK_AA_SUBMIX
-    // 驗證：latencyStrategy / previewRumble / fdafDelayless / fixedBankOut / wirelessAaSuspected=false
-    const val SCRIPT_NAME = "Skoda rumble 快速迭代（FF_PREVIEW+#6 FDAF+#7 bank；USB有線AA；ov僅log；#4b A/B vs #6/#7）"
+    // - 高 lat + rumble → HIGH_LAT_PRED_BANK（predictive bipolar ref + neural latent bank + low FxLMS）
+    //   舊名 FF_PREVIEW_ONLY / magnitude→喇叭 已廢止（會出電台雜訊）
+    // - #6 delayless FDAF + #7 bank；bank 現為 soft-max cosine on neural latent
+    // - 驗證 KPI：lowBandRumbleReduction 主；imuMicCoherence / bankMatchQuality / neuralLatentEnabled
+    // - 實測請 USB 有線 AA；無線 projection 更差
+    // 驗證：latencyStrategy / imuMicCoherence / bankMatch* / fixedBankOut / lowBandRumbleReduction / 聽感無靜電
+    const val SCRIPT_NAME = "路噪快速迭代（HIGH_LAT_PRED_BANK+neural bank+#6 FDAF；USB AA；#4b A/B）"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -395,18 +402,24 @@ object CarRoadTuningScript {
             id = "tuning_prep",
             title = "調校準備（快速）",
             instructions = listOf(
-                "★ #9 建議 USB 有線 Android Auto（BT 無線更差）。A-fix：remote_submix 會標 aaLinkType=projection_submix，不是 wireless",
-                "USB AA 後啟動 ANC；audio_init：audioBackend=AUDIOTRACK_AA_SUBMIX；aaLinkType 多為 projection_submix 或 wired_usb",
+                "★ #9 建議 USB 有線 Android Auto（BT 無線更差）。A-fix：remote_submix → aaLinkType=projection_submix，不是 wireless",
+                "USB AA 後啟動 ANC；audio_init：audioBackend=AUDIOTRACK_AA_SUBMIX",
                 "車型/手機位置/情境填清楚（例：「Pixel + USB AA + 粗糙國道」）",
-                "★ placement：phone 放 floor/seat（勿中控下方）。accelMag>0.5 + roughness>0.5 + rumbleEnergyProxy>0.3 才算好 coupling",
-                "點「開始降噪」完成校正，狀態「降噪中」",
+                "★ placement：phone 放 floor/seat（勿中控/手上）。好 coupling：accelMag>0.5 + roughness>0.5 + imuMicCoherence>0.4",
+                "點「開始降噪」完成校正；開 ANC 應「安靜或低頻悶」而非電台靜電（極性/plant 已修）",
                 "同一條粗糙路 50–70km/h、嚴格低音樂（<20% 或 off）",
-                "每步「完成這步」會自動套用 debug presets（含 ov 僅 log 標記）",
-                "本腳本驗證 P0 FF_PREVIEW + #6 delayless FDAF + #7 speed×rough bank；#4b 作 A/B baseline。mid 在高 lat 可能關閉（正常，能量在 low FF）"
+                "每步「完成這步」套用 debug presets（ov 僅 log）",
+                "本腳本驗證 HIGH_LAT_PRED_BANK + neural latent bank + #6 FDAF；#4b=A/B。高 lat mid 關閉=正常"
             ),
             durationSec = 0,
             requiresAncRunning = false,
-            checklist = listOf("USB有線AA", "wirelessAaSuspected=false", "ANC已跑", "placement=floor/seat"),
+            checklist = listOf(
+                "USB有線AA",
+                "wirelessAaSuspected=false",
+                "ANC已跑",
+                "placement=floor/seat",
+                "開ANC無電台靜電"
+            ),
             logPhases = listOf("audio_init", "calibration", "rpm_config", "running_snapshot", "wireless_aa_warning"),
             debugPresets = mapOf(
                 "forceNormalMode" to true,
@@ -418,14 +431,17 @@ object CarRoadTuningScript {
             id = "tuning_4",
             title = "#4 musicLow 對比（mu=1.7, freeze=11）— ov 僅 log 標記，plant=measured",
             instructions = listOf(
-                "系統已自動套用參數（mu=1.7 / freeze=11 / c=2；latencyOverride=120 僅寫入 log 作 A/B 標記，不再假降 plant/maxCancel）",
-                "同一段粗糙路 60-90 秒",
-                "P0/P1：AA ~247ms 時 maxCancel 由 measured 決定（約 60–120Hz class）；重點改看 latencyStrategy、previewRumble、predictionHorizonMs",
-                "預期：musicLow ON 下 low-band / rumble 有感；記錄 scenario musicLow=ON + placement + latencyStrategy"
+                "系統已自動套用（mu=1.7 / freeze=11 / c=2；ov=120 僅 log，plant=measured）",
+                "同一段粗糙路 60–90 秒",
+                "AA 高 lat：maxCancel~45–110Hz（文獻限頻）；看 latencyStrategy、lowBandRumbleReduction、imuMicCoherence",
+                "neuralLatentEnabled=true；bankMatchQuality 有值；記錄 musicLow=ON + placement + strategy"
             ),
             durationSec = 75,
-            suggestedTier = UserTier.STANDARD,  // tier switch here auto-applies conservative leakage=0.9998 / vss=0.85 etc for STANDARD (no manual debugLeakage needed)
-            checklist = listOf("muMult=1.7", "freezeTh=11", "consec=2", "ov=log-only", "musicLow=ON", "check latencyStrategy", "tier=STANDARD"),
+            suggestedTier = UserTier.STANDARD,
+            checklist = listOf(
+                "muMult=1.7", "ov=log-only", "musicLow=ON",
+                "latencyStrategy 已記錄", "neuralLatentEnabled=true", "tier=STANDARD"
+            ),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.7f,
@@ -486,13 +502,16 @@ object CarRoadTuningScript {
             instructions = listOf(
                 "系統已自動套用（mu=1.8 / freeze=10 / ov=110 僅 log / musicLow=ON / forceNormal=false）",
                 "粗糙路 speed 50+、低音樂 60–90 秒",
-                "★ #6 驗證：fdafDelayless=true、fdafPartitions=4；高 lat 時 mid 可能仍關閉（正常）",
-                "與 #4b A/B：red / previewRumble / fixedBankOut（若已有 pre-learned bins）",
-                "記錄 scenario \"#6 FDAF, fdafDelayless=XX partitions=XX strategy=XX red=XX\""
+                "★ #6：fdafDelayless=true、fdafPartitions=4；高 lat mid 關=正常（勿強求 effectiveMidMu>0）",
+                "A/B vs #4b：lowBandRumbleReduction + fixedBankOut + bankMatchQuality",
+                "聽感：不應比 #4b 更沙沙／更像靜電；記錄 strategy=XX fdaf=XX lowBandRed=XX"
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("muMult=1.8", "ov=log-only", "musicLow=ON", "fdafDelayless=true", "speed>50", "tier=PRO"),
+            checklist = listOf(
+                "muMult=1.8", "fdafDelayless=true", "speed>50",
+                "lowBandRumble 有記錄", "無電台靜電", "tier=PRO"
+            ),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing", "debug_presets_apply"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.8f,
@@ -510,28 +529,33 @@ object CarRoadTuningScript {
         // All changes minimal+guarded (roadMode + speed>28 + energy + musicLow).
         TestScriptStep(
             id = "tuning_7_strong_road",
-            title = "#7 FF_PREVIEW+#6+#7 bank 主驗（mu=2.05；USB AA；ov僅log）",
+            title = "#7 HIGH_LAT_PRED_BANK+neural bank 主驗（mu=2.05；USB AA）",
             instructions = listOf(
                 "系統已自動套用（mu=2.05 / freeze=9 / ov=80 僅 log / musicLow=ON / forceNormal=false / tier=PRO）",
                 "**USB 有線 AA** + 粗糙路 55+ km/h 60–90 秒 + 低音樂；phone floor/seat",
-                "★ P0 驗證：latencyStrategy=FF_PREVIEW_ONLY、measuredLatencyMs~200–250、usingLatencyOverride=false、maxCancel~60–120、plantElectricalDelaySamples 大",
-                "★ P1 驗證：previewRumble>0、predictionHorizonMs~140–160（≈ measured−100）",
-                "★ #6 驗證：fdafDelayless=true、fdafPartitions=4",
-                "★ #7 驗證：fixedBankOut 應非零（default prior + seed）；learnedBinCount 隨路況增加；roadRoughness 有值",
-                "★ #9 驗證：aaLinkType=projection_submix 或 wired_usb；wirelessAaSuspected 僅 BT 時 true；audioBackend=AUDIOTRACK_AA_SUBMIX",
-                "★ C KPI：主看 lowBandRumbleReduction（非 reductionDb）；reductionDb 可為負（anti 變大聲=白噪風險）",
-                "★ 聽感：行駛沙沙應比舊版少；怠速仍安靜；主觀低頻 rumble 悶一點即可",
-                "比較 vs #4b：lowBandRumbleReduction + 主觀 rumble；effectiveMidMu 高 lat 應≈0",
-                "記錄 scenario \"#7, strategy=XX fixedBank=XX lowBandRed=XX aaLink=XX hiss?=low placement=floor\""
+                "★ 策略：latencyStrategy=HIGH_LAT_PRED_BANK 或 HIGH_LAT_CONSERVATIVE（不再是 FF_PREVIEW_ONLY）",
+                "★ 延遲：measuredLatencyMs~150–250、usingLatencyOverride=false、maxCancel~45–110、plantElectricalDelaySamples 大",
+                "★ 文獻 path：neuralLatentEnabled=true；imuMicCoherence 行駛宜 >0.35；bankMatchQuality 有尖峰；bankMatchCosine 有值；latent0/1/2 非全 0",
+                "★ #6：fdafDelayless=true、fdafPartitions=4",
+                "★ #7 bank：fixedBankOut 行駛非零；learnedBinCount 可升；roadRoughness 有值",
+                "★ #9：aaLinkType=projection_submix|wired_usb；wirelessAaSuspected 僅 BT 時 true",
+                "★ KPI：主看 lowBandRumbleReduction（可正）；reductionDb 可負=anti 變大聲風險；antiNoiseDb 有能量但聽感不應像電台靜電",
+                "★ 聽感 PASS：怠速安靜；行駛低頻悶/沙沙↓；FAIL：開 ANC 更吵或靜電感",
+                "A/B vs #4b：lowBandRumbleReduction + 主觀 rumble 0–10；高 lat effectiveMidMu≈0 正常",
+                "記錄 \"#7 strategy=XX coh=XX bankQ=XX fixedBank=XX lowBandRed=XX hiss?=N placement=floor\""
             ),
             durationSec = 75,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
                 "USB有線AA",
-                "FF_PREVIEW_ONLY",
+                "HIGH_LAT_PRED_BANK 或 CONSERVATIVE",
+                "neuralLatentEnabled=true",
+                "imuMicCoherence 已記錄",
+                "bankMatchQuality 已記錄",
+                "fixedBankOut 非零(行駛)",
                 "fdafDelayless",
-                "previewRumble>0",
-                "wireless=false",
+                "無電台靜電",
+                "lowBandRumble 主 KPI",
                 "speed>55 rough low-music",
                 "tier=PRO",
                 "vs #4b A/B"
@@ -554,15 +578,20 @@ object CarRoadTuningScript {
                 "停止降噪",
                 "用 GuidedTest finish「儲存到下載 / CarANC_Logs」或測試平台匯出",
                 "把完整 log 傳回分析（或 pull-latest-log.ps1）",
-                "scenario 註：tier / USB-AA / placement / speed / musicLow ON/OFF",
-                "必查欄位：latencyStrategy, previewRumble, fdafDelayless, fdafPartitions, fixedBankOut, preLearnedBinCount, audioBackend, wirelessAaSuspected, plantElectricalDelaySamples, reductionDb / lowBand",
-                "A/B：#4b baseline vs #6 vs #7 的 red + 主觀 rumble（0–10）",
-                "配外部錄音 + spectrum 重點 50–250Hz（尤其 200–350 若 mid 有開）",
-                "下一輪：固定 USB AA + floor placement；若 wirelessAaSuspected=true 先排除連線問題再比 DSP"
+                "scenario 註：tier / USB-AA / placement / speed / musicLow / 主觀靜電? / 主觀 rumble 0–10",
+                "必查欄位：latencyStrategy, imuMicCoherence, bankMatchQuality, bankMatchCosine, neuralLatentEnabled, latent0/1/2, fixedBankOut, learnedBinCount, fdafDelayless, plantElectricalDelaySamples, lowBandRumbleReduction, reductionDb, antiNoiseDb",
+                "PASS 條件：#7 無電台靜電 + lowBandRumbleReduction 常≥0 或主觀低頻有改善；FAIL：anti 大但 red 大負",
+                "A/B：#4b vs #6 vs #7 的 lowBandRumbleReduction + 主觀",
+                "下一輪：固定 USB AA + floor；wireless 問題先排除再比算法"
             ),
             durationSec = 0,
             requiresAncRunning = false,
-            checklist = listOf("Log已匯出", "含 FF_PREVIEW 與 #6/#7 欄位", "scenario 註記"),
+            checklist = listOf(
+                "Log已匯出",
+                "含 imuMicCoherence/bankMatch/neuralLatent",
+                "含 #7 聽感註記",
+                "scenario 註記"
+            ),
             logPhases = listOf("test_script_complete")
         )
     )
