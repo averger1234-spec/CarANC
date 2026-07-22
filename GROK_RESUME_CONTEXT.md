@@ -629,3 +629,26 @@ shadowing bug 已修復，這次 log 反映真實行為。
 
 所有改動已 commit/push + build + install-debug 到手機（最新 APK）。
 
+
+## 2026-07-22 CORE ANC FIX (user: speakers output noise, not cancellation — want real ANC)
+
+**Root causes found in MultiBandANCProcessor (not mute-as-fix):**
+
+1. **FxLMS y used plant delay** (y = w·x(n-D-j)). Standard: y = w·x(n) only; plant delay D belongs **only** on filtered-x for adaptation. Pre-delaying y by AA ~100–250ms then plant delays again → anti uncorrelated with cabin noise → **hiss/static**, not interference/tinnitus.
+
+2. **IMU magnitude envelope injected as audio**: RumblePreviewPredictor returns non-negative accel envelope (0..14), then code did previewAnti = -preview*0.75 into speaker and lowSample += preview*1.8. That is **not a bipolar acoustic waveform** → pure noise/bias on speakers.
+
+3. **Low-band multirate delay not scaled**: plant delay applied at full-rate sample count inside decimation-4 BandFxLms → ~4× wrong Fx alignment.
+
+4. **Extreme boost (6–11×) + freeze LMS under FF** → open-loop garbage, no learning.
+
+**Fixes:**
+- BandFxLms: y without D; filtered-x with D; mu/weight clip tighter.
+- recomputeFxDelay: lowBand.delay = fullPlant/4.
+- Remove magnitude→speaker and magnitude→ref inject; IMU only scales real low-band mic/road audio ref (≤1.35×).
+- Keep adaptive FxLMS under high lat (weaker mu); do not freeze for FF_PREVIEW_ONLY.
+- Cap rumbleVibBoost ≤2.2; milder fixed bank; no direct preview anti.
+- Strategy rename HIGH_LAT_LOW_FXLMS.
+
+**Expected listen test:** Stop ANC → no static; Start ANC with gain → should reduce low rumble or stay clean, NOT radio static. If still static, check route/USB AA and placement for coupling.
+
