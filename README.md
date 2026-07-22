@@ -788,3 +788,28 @@ shadowing bug 已修復，這次 log 反映真實行為。
 
 **Phone:** re-install after this follow-up (Pixel 57191FDCG002KH).
 
+## 2026-07-22 Literature / patent algorithms + neural latent
+
+**Commits:** `73ba9bb` (predictive ref, coherence, bank) → `3c0016b` (neural encoder + snapshot fields).
+
+| Direction | Code |
+|-----------|------|
+| Secondary-path BW limit ~1/(6τ) | `LatencyAwareBandLimiter` hybrid; AA high-lat maxCancel ~45–110 Hz |
+| Predictive / delay-compensated FxLMS | `PredictiveReferenceAligner` (bipolar low ref, not IMU magnitude) |
+| US20250069581 latent → load params | `RoadConditionLatentEncoder` MLP 8→16→8 + `PreLearnedAncBank` soft-max cosine |
+| Multi-coherence accel select | `ImuMicCoherenceGate` |
+| High-lat strategy | `HIGH_LAT_PRED_BANK` |
+
+### `running_snapshot` diagnostics (every ~2s)
+
+| Field | Meaning |
+|-------|---------|
+| `imuMicCoherence` | IMU↔cabin low coupling 0..1 |
+| `bankMatchQuality` | soft-max peak mass 0..1 |
+| `bankMatchCosine` | best cell cosine −1..1 |
+| `neuralLatentEnabled` | true when MLP path on |
+| `latent0` / `latent1` / `latent2` | query latent dims |
+
+**Tests:** `LiteratureAlgTest` + `MultiBandANCProcessorTest`.  
+**GitHub:** `origin/main` includes `3c0016b`. Pull: `git pull origin main`.
+

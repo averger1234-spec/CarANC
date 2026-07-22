@@ -1129,3 +1129,24 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 
 **Phone:** re-install after this follow-up (Pixel 57191FDCG002KH).
 
+## 2026-07-22 Literature / neural latent (sync checklist)
+
+**Must see on `git log -5`:**
+```
+3c0016b feat(anc): neural road latent encoder + coherence/bankMatch in snapshot
+73ba9bb feat(anc): literature-aligned predictive ref, latent bank, coherence gate
+67a77a0 fix(anc): polarity + residual path so unit cancel tests pass
+```
+
+**New modules:** `RoadConditionLatentEncoder`, `PredictiveReferenceAligner`, `ImuMicCoherenceGate`.
+
+**running_snapshot fields to check in logs:**
+`imuMicCoherence`, `bankMatchQuality`, `bankMatchCosine`, `neuralLatentEnabled`, `latent0`, `latent1`, `latent2`
+
+**Verify:**
+```powershell
+git pull origin main
+.\gradlew.bat :shared:testDebugUnitTest --tests com.example.caranc.shared.LiteratureAlgTest --tests com.example.caranc.shared.MultiBandANCProcessorTest
+.\scripts\install-debug.ps1   # or adb install -r app\build\outputs\apk\debug\app-debug.apk
+```
+

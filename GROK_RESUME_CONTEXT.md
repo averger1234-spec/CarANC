@@ -670,7 +670,7 @@ Mapped industry RNC + patents into code (not UI):
 |---------------------|----------------|
 | Secondary-path delay limits cancel BW (~1/(6τ)) | `LatencyAwareBandLimiter` hybrid lit+FF bound; AA 200ms+ → maxCancel ~45–110 Hz; mid/high off |
 | Predictive / delay-compensated FxLMS | `PredictiveReferenceAligner` bipolar low-ref plant delay + mild predict (NOT IMU magnitude) |
-| US20250069581 latent road → load params | `PreLearnedAncBank` 3-D match speed×rough×energy, sharper kernel, `lastMatchQuality` |
+| US20250069581 latent road → load params | `RoadConditionLatentEncoder` MLP 8→16→8 + bank soft-max cosine (`3c0016b`); legacy 3-D fallback |
 | Multi-coherence accel channel select | `ImuMicCoherenceGate` damps IMU boost / bank trust when vibration≠cabin low |
 | Impact / switching FxLMS | freeze → `impactMuDamp=0.25`; no capture while frozen |
 | High-lat strategy | `HIGH_LAT_PRED_BANK`: bank heavier + adaptive low μ lighter |
