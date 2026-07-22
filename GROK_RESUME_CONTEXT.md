@@ -652,3 +652,13 @@ shadowing bug 已修復，這次 log 反映真實行為。
 
 **Expected listen test:** Stop ANC → no static; Start ANC with gain → should reduce low rumble or stay clean, NOT radio static. If still static, check route/USB AA and placement for coupling.
 
+### Follow-up (polarity + residual tests green)
+
+After cee0dd2 unit tests still failed (red=0 / −6.6 dB). Extra root causes:
+
+5. **Polarity**: FDAF/fixed-bank/engine/road already return anti `−y`; outer `−adaptiveCombined` double-flipped → added noise.
+6. **Idle hard-zero** killed all anti at speed&lt;10.
+7. **LMS residual blend** for electrical plant(y); unit residual metric plant-aligned for AA D.
+
+**Unit tests:** `MultiBandANCProcessorTest` all pass incl. `lowFreqReduction_positiveDb_onTone` + `aaPlantDelay_lowFreqStillCancels_notJustNoise`.
+

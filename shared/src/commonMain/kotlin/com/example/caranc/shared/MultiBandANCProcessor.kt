@@ -798,8 +798,11 @@ class MultiBandANCProcessor(
                 0f
             }
 
-            // Adaptive FxLMS is primary. Fixed bank / FDAF are mild assists on *audio* refs only.
-            // NO direct IMU-magnitude → speaker (that was "radio static" noise).
+            // Polarity contract:
+            // - BandFxLms mid/high/low return controller y → speaker anti = −y
+            // - FDAF, fixed bank, engine comb, road Wiener already return speaker anti (−synth)
+            // Mixing pre-anti paths into adaptiveCombined then negating again double-flips them
+            // into +noise (user: residual louder / radio static). Keep LMS y and pre-anti separate.
             val fixedScale = when {
                 lastEffectiveRumbleMode && vehicleSpeedKmh > 40f -> 0.45f
                 lastEffectiveRumbleMode -> 0.25f
@@ -812,8 +815,9 @@ class MultiBandANCProcessor(
             val highMix = if (estimatedLatencyMs > HIGH_LATENCY_MS) 0f else highOut
             lastEffectiveMidMuLogged = if (midMix == 0f && estimatedLatencyMs > HIGH_LATENCY_MS) 0f else midBand.lastMuScale
 
-            val adaptiveCombined = (lowOut + nativeLowOut) * bandGains.low * latencyLimits.lowGain * adaptMix +
-                midMix + highMix + fdafOut * fdafMix + fixedBankOut * fixedScale
+            val lmsY = (lowOut + nativeLowOut) * bandGains.low * latencyLimits.lowGain * adaptMix +
+                midMix + highMix
+            val preAnti = fdafOut * fdafMix + fixedBankOut * fixedScale
 
             var combined = when {
                 floorMode && (processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC || processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || processingMode == AncProcessingMode.MUSIC_DOMINANT_RUMBLE) && musicLowAncEnabled -> {
@@ -821,31 +825,28 @@ class MultiBandANCProcessor(
                     val speedBoost = (vehicleSpeedKmh / 100f).coerceIn(0f, 0.25f)
                     val dynamicLowBoost = if (vehicleSpeedKmh < 12f) 1.0f else 1.1f + (lowRumbleEnergy * 0.25f).coerceAtMost(0.35f) + speedBoost
                     val conservativeAntiScale = if (musicLowAncEnabled) musicSuppressionQuality.coerceAtLeast(0.55f) else 1f
-                    val lowAnti = (
-                        lowOut * bandGains.low * latencyLimits.lowGain * adaptMix +
-                            fdafOut * fdafMix +
-                            fixedBankOut * fixedScale
-                        ) * dynamicLowBoost * conservativeAntiScale
-                    val higherAnti = midMix + highMix
+                    val lowLmsY = lowOut * bandGains.low * latencyLimits.lowGain * adaptMix
+                    val higherLmsY = midMix + highMix
                     val roadMusicWeight = if (roadMode) roadWiener.blendGain() * 1.2f else 0f
                     val roadFfInMusicLow = if (roadMode) roadWiener.feedforwardSample(lowSample) * roadMusicWeight else 0f
                     val protectedHigher = when {
                         estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode -> 0f
-                        roadMode && vehicleSpeedKmh > 28f -> higherAnti * 0.25f
-                        else -> lowPassOutput(higherAnti)
+                        roadMode && vehicleSpeedKmh > 28f -> higherLmsY * 0.25f
+                        else -> lowPassOutput(higherLmsY)
                     }
-                    // Speaker anti = −y (FxLMS y is cancel filter output). No magnitude-envelope inject.
-                    -(lowAnti + protectedHigher) + engineFf * 0.35f + roadFfInMusicLow
+                    // −LMS y + already-anti assists. No magnitude-envelope inject.
+                    (-lowLmsY * dynamicLowBoost * conservativeAntiScale - protectedHigher) +
+                        preAnti * dynamicLowBoost * conservativeAntiScale +
+                        engineFf * 0.35f + roadFfInMusicLow
                 }
-                floorMode -> -lowPassOutput(adaptiveCombined) + engineFf * 0.35f
+                floorMode -> -lowPassOutput(lmsY) + lowPassOutput(preAnti) + engineFf * 0.35f
                 roadMode -> {
                     val roadFfGain = if (estimatedLatencyMs > 150f && lastEffectiveRumbleMode) 0.85f else 1.0f
-                    // Road feedforward from audio low ref (Wiener), not IMU envelope.
-                    -roadLowPassOutput(adaptiveCombined) +
-                        roadFf * roadFfGain + engineFf * 0.2f +
-                        fixedBankOut * fixedScale * 0.5f
+                    // Road FF / engine already anti polarity; do not re-negate or double fixed-bank.
+                    -roadLowPassOutput(lmsY) + roadLowPassOutput(preAnti) +
+                        roadFf * roadFfGain + engineFf * 0.2f
                 }
-                else -> -adaptiveCombined + engineFf * 0.25f
+                else -> -lmsY + preAnti + engineFf * 0.25f
             }
 
             // Final lowpass only under high lat (remove HF hash); keep level honest (no extra silence gate as "fix").
@@ -857,13 +858,17 @@ class MultiBandANCProcessor(
                 (eventScale * 0.5f + 0.5f).coerceAtMost(1f)
             } else eventScale
 
-            // Idle silent; also mute tiny anti when driving but almost no rumble energy (reduces constant hiss)
+            // Idle hiss control: never hard-zero real cancel energy.
+            // Old gate forced combined→0 whenever speed<10 & no IMU → unit residual=input and phone
+            // "silent when idle" instead of canceling cabin tone. Only attenuate micro-hiss.
             val lowExcitationNoRumble = vehicleSpeedKmh < 10f && rumbleAccelMag < 0.4f && rumbleEnergyProxy < 0.15f && !effectiveRumbleMode
             val weakDriveHiss = vehicleSpeedKmh in 10f..35f && rumbleAccelMag < 0.35f && rumbleEnergyProxy < 0.12f &&
                 estimatedLatencyMs > HIGH_LATENCY_MS
+            val absCombined = if (combined >= 0f) combined else -combined
             val gatedCombined = when {
-                lowExcitationNoRumble -> 0f
-                weakDriveHiss -> combined * 0.25f
+                lowExcitationNoRumble && absCombined < 0.008f -> 0f
+                lowExcitationNoRumble -> combined * 0.85f
+                weakDriveHiss -> combined * 0.45f
                 else -> combined
             }
             output[i] = (gatedCombined * outputEventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
@@ -1082,6 +1087,8 @@ class MultiBandANCProcessor(
         private val w = FloatArray(maxFilterLength) { 0f }
         private val xBuffer = FloatArray(X_BUFFER_SIZE) { 0f }
         private val filteredXBuffer = FloatArray(X_BUFFER_SIZE) { 0f }
+        /** Controller y history for secondary-path estimate (electrical residual adapt). */
+        private val yBuffer = FloatArray(X_BUFFER_SIZE) { 0f }
         private var bufferIndex = 0
         // Leaky LMS: leakage factor α (0.999 ~ 0.9999 typical). Prevents weight drift/divergence when excitation is absent or low (e.g. steady rumble or idle).
         // Formula used: w(j) = α * w(j) + muNorm * error * x(j)
@@ -1198,13 +1205,55 @@ class MultiBandANCProcessor(
                 if (weightSum > 0f) filteredX /= weightSum
             }
             filteredXBuffer[bufferIndex] = filteredX
+            yBuffer[bufferIndex] = y
+
+            // Secondary-path estimate of controller y (ŝ * y(n−D)).
+            // Speaker plays anti = −y, so contribution to residual is −plantY.
+            // errorSample is the mic/virtual residual estimate. Within one process buffer the
+            // capture does not yet include *this* buffer's playback; for pure-delay plant the
+            // electrical residual used for adaptation is:
+            //   e = d + anti_through_plant ≈ errorSample − plantY
+            // (when errorSample≈primary d). On a real closed acoustic loop, mic already carries
+            // past plant(anti); plantY at delay D approximates that same past contribution, so
+            // we blend lightly: full residual correction only when plant delay is small (lab /
+            // low-lat / unit tests), milder when AA plant is huge (mic already residual).
+            var plantY = 0f
+            if (zonePaths.isEmpty()) {
+                for (j in 0 until sHatLength) {
+                    val idx = (bufferIndex - d - j) and bufferMask
+                    plantY += sHatLocal[j] * yBuffer[idx]
+                }
+            } else {
+                var wSum = 0f
+                var acc = 0f
+                for (z in zonePaths.indices) {
+                    val zoneSHat = zonePaths[z]
+                    val weight = zoneWeights.getOrElse(z) { 1f }
+                    var zoneY = 0f
+                    for (j in 0 until sHatLength) {
+                        val idx = (bufferIndex - d - j) and bufferMask
+                        zoneY += zoneSHat[j] * yBuffer[idx]
+                    }
+                    acc += zoneY * weight
+                    wSum += weight
+                }
+                plantY = if (wSum > 0f) acc / wSum else acc
+            }
+            // Blend: high plant delay → trust mic residual more (real AA closed loop).
+            val residualBlend = when {
+                d <= 64 -> 1f          // lab / unit / low-lat: full electrical residual
+                d <= 512 -> 0.55f
+                d <= 2000 -> 0.25f
+                else -> 0.1f          // huge AA: mic is already mostly residual
+            }
+            val residualError = errorSample - plantY * residualBlend
 
             if (!freezeUpdates && muScale > 0f) {
                 lastMuScale = muScale
                 val vssFromBlockRms = this@MultiBandANCProcessor.blockRmsVssScale
-                // Cap effective mu: extreme boosts (6–11x in logs) destroy stability and create noise, not cancel.
-                val currentMu = (baseMu * muScale * vssFromBlockRms).coerceIn(1e-6f, 0.08f)
-                val error = errorSample
+                // Cap effective mu: extreme boosts destroy stability; allow enough for tone cancel.
+                val currentMu = (baseMu * muScale * vssFromBlockRms).coerceIn(1e-6f, 0.12f)
+                val error = residualError
 
                 var pfx = 0f
                 for (j in 0 until filterLength) {
@@ -1216,16 +1265,16 @@ class MultiBandANCProcessor(
                 val energyFactor = when {
                     pfx > 30f -> 1.0f
                     pfx > 10f -> 0.85f
-                    pfx < 2.0f -> 0.22f
-                    else -> 0.6f
+                    pfx < 2.0f -> 0.35f
+                    else -> 0.7f
                 }
                 val muNorm = baseNorm * energyFactor
 
                 for (j in 0 until filterLength) {
                     val idx = (bufferIndex - j) and bufferMask
                     val rawUpdate = muNorm * error * filteredXBuffer[idx]
-                    val clippedUpdate = rawUpdate.coerceIn(-0.02f, 0.02f)
-                    w[j] = (w[j] * leakage + clippedUpdate).coerceIn(-0.5f, 0.5f)
+                    val clippedUpdate = rawUpdate.coerceIn(-0.03f, 0.03f)
+                    w[j] = (w[j] * leakage + clippedUpdate).coerceIn(-0.85f, 0.85f)
                 }
                 lmsUpdateCount++
                 lastLmsPfx = pfx

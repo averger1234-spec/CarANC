@@ -1102,3 +1102,30 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 
 「專案 CarANC，已 pull main（含 1d8eb1a A/B/C 白噪）。先讀 GROK/README/MULTI 2026-07-22，繼續路測 log：aaLinkType、fixedBankOut、lowBandRumbleReduction、行駛沙沙。」
 
+
+## 2026-07-22 CORE ANC FIX (user: speakers output noise, not cancellation — want real ANC)
+
+**Root causes found in MultiBandANCProcessor (not mute-as-fix):**
+
+1. **FxLMS y used plant delay** (y = w·x(n-D-j)). Standard: y = w·x(n) only; plant delay D belongs **only** on filtered-x for adaptation. Pre-delaying y by AA ~100–250ms then plant delays again → anti uncorrelated with cabin noise → **hiss/static**, not interference/tinnitus.
+
+2. **IMU magnitude envelope injected as audio**: RumblePreviewPredictor returns non-negative accel envelope (0..14), then code did previewAnti = -preview*0.75 into speaker and lowSample += preview*1.8. That is **not a bipolar audio waveform** → pure noise/bias on speakers.
+
+3. **Low-band multirate delay not scaled**: plant delay applied at full-rate sample count inside decimation-4 BandFxLms → ~4× wrong Fx alignment.
+
+4. **Extreme boost (6–11×) + freeze LMS under FF** → open-loop garbage, no learning.
+
+**Fixes (commit cee0dd2):** BandFxLms y without D; filtered-x with D; lowBand.delay = fullPlant/4; no magnitude→speaker/ref; adaptive keeps learning under high lat; rumbleVibBoost cap ≤2.2; strategy HIGH_LAT_LOW_FXLMS.
+
+### Follow-up (polarity + unit residual PASS)
+
+5. FDAF/fixed-bank/engine/road already anti; do not outer-negate again (was residual louder ~−6.6 dB).
+6. Idle hard-zero gate removed (was residual=input).
+7. LMS residual blend + plant-aligned AA residual metric in tests.
+
+**Verify after pull:** `.\gradlew.bat :shared:testDebugUnitTest --tests com.example.caranc.shared.MultiBandANCProcessorTest` → all green.
+
+**Sim gap:** sim_iter.ps1 is formula-level only — never caught structural/polarity bugs. Use unit residual tests.
+
+**Phone:** re-install after this follow-up (Pixel 57191FDCG002KH).
+

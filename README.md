@@ -759,3 +759,32 @@ shadowing bug 已修復，這次 log 反映真實行為。
 
 所有改動已 commit/push + build + install-debug 到手機（最新 APK）。
 
+
+## 2026-07-22 CORE ANC FIX (user: speakers output noise, not cancellation — want real ANC)
+
+**Root causes found in MultiBandANCProcessor (not mute-as-fix):**
+
+1. **FxLMS y used plant delay** (y = w·x(n-D-j)). Standard: y = w·x(n) only; plant delay D belongs **only** on filtered-x for adaptation. Pre-delaying y by AA ~100–250ms then plant delays again → anti uncorrelated with cabin noise → **hiss/static**, not interference/tinnitus.
+
+2. **IMU magnitude envelope injected as audio**: RumblePreviewPredictor returns non-negative accel envelope (0..14), then code did previewAnti = -preview*0.75 into speaker and lowSample += preview*1.8. That is **not a bipolar audio waveform** → pure noise/bias on speakers.
+
+3. **Low-band multirate delay not scaled**: plant delay applied at full-rate sample count inside decimation-4 BandFxLms → ~4× wrong Fx alignment.
+
+4. **Extreme boost (6–11×) + freeze LMS under FF** → open-loop garbage, no learning.
+
+**Fixes (commit cee0dd2):** BandFxLms y without D; filtered-x with D; lowBand.delay = fullPlant/4; no magnitude→speaker/ref; adaptive keeps learning under high lat; rumbleVibBoost cap ≤2.2; strategy HIGH_LAT_LOW_FXLMS.
+
+### Follow-up (same day — real cancel proven in unit tests)
+
+5. **Polarity double-negate**: FDAF / fixed-bank / engine / road Wiener already return **speaker anti** (`−y`). Outer `combined = −adaptiveCombined` flipped them again → **+noise** (residual louder, e.g. red≈−6.6 dB). Fix: LMS `y` negated once; pre-anti paths added without second negate.
+
+6. **Idle hard-zero gate**: `lowExcitationNoRumble → 0` killed all anti at speed&lt;10 even when mic had energy → residual=input (fake silence). Now only attenuates micro-hiss.
+
+7. **LMS residual blend**: electrical residual `e = d − plant(y)` for low plant-D (lab/unit); lighter blend at huge AA D where mic is already residual.
+
+8. **Unit tests (sample-accurate):** `lowFreqReduction_positiveDb_onTone` and `aaPlantDelay_lowFreqStillCancels_notJustNoise` **PASS** (plant-aligned residual for AA). Full `MultiBandANCProcessorTest` green.
+
+**Sim gap:** sim_iter.ps1 is formula-level (effMid/red proxies), NOT sample-accurate FxLMS. That is why prior sims never caught y-path delay, IMU-envelope inject, or polarity double-negate. Always use unit residual tests for core path.
+
+**Phone:** re-install after this follow-up (Pixel 57191FDCG002KH).
+
