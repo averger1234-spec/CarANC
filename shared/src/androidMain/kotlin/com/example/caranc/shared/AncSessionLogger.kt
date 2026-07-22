@@ -139,13 +139,34 @@ object AncSessionLogger {
         // channel + writer recreated on next startSession
     }
 
+    /**
+     * Prefer a **substantive** session log, not a 1KB restart stub that is merely newer.
+     * Bug: brief AA reconnects create tiny anc_session_*.log after a long drive; save/share
+     * used lastModified-only and exported the empty file — user only saw one "evening" log.
+     */
     fun getLatestLogFile(): File? {
         val context = appContext ?: return currentLogFile
         val logs = getLogDirectory(context)?.listFiles()
             ?.filter { it.isFile && it.name.startsWith("anc_session_") && it.name.endsWith(".log") }
-            ?.sortedByDescending { it.lastModified() }
             .orEmpty()
-        return logs.firstOrNull() ?: currentLogFile
+        if (logs.isEmpty()) return currentLogFile
+
+        // 1) Active session file if still open and non-empty
+        currentLogFile?.takeIf { it.exists() && it.length() > 2048L }?.let { return it }
+
+        // 2) Among recent files (last 24h), pick largest with content (>50KB = real drive)
+        val dayAgo = System.currentTimeMillis() - 24L * 3600_000L
+        val recentFat = logs
+            .filter { it.lastModified() >= dayAgo && it.length() >= 50_000L }
+            .sortedWith(compareByDescending<File> { it.length() }.thenByDescending { it.lastModified() })
+        if (recentFat.isNotEmpty()) return recentFat.first()
+
+        // 3) Any fat log
+        val anyFat = logs.filter { it.length() >= 50_000L }.maxByOrNull { it.lastModified() }
+        if (anyFat != null) return anyFat
+
+        // 4) Fallback: newest by time (tiny stubs)
+        return logs.maxByOrNull { it.lastModified() } ?: currentLogFile
     }
 
     fun getLogDirectory(context: Context? = appContext): File? {
