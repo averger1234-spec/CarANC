@@ -51,7 +51,16 @@ class MainActivity : ComponentActivity() {
 
     private val requestLocationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { startAncService() }
+    ) { granted ->
+        if (!granted) {
+            Toast.makeText(
+                this,
+                "未授權定位：GPS 路噪模式與「有效行駛秒數」腳本可能無法推進（仍可試怠速/麥克風）",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+        startAncService()
+    }
 
     private val requestNotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -104,6 +113,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startAncService() {
+        // Always capture session logs for any real use (status / AA / guided) — avoids empty exports
+        AncTestPreferences.setLoggingEnabled(this, true)
+        AncSessionLogger.init(this)
         val intent = Intent(this, ANCService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
     }
@@ -378,6 +390,19 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    // Full-app health (not only guided script): surfaces silent-failure conditions
+                    SystemHealthCard(
+                        ancRunning = uiState !is AncState.Stopped && uiState !is AncState.Error,
+                        consentOk = !sessionContext.entitlementManager.requiresSafetyConsent(),
+                        loggingOn = AncTestPreferences.isLoggingEnabled(context),
+                        gpsValid = vehicleSpeedValid,
+                        speedKmh = vehicleSpeedKmh,
+                        latencyMs = estimatedLatencyMs,
+                        gain = AncTestPreferences.getUserAncGain(context)
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
                     // P0: 狀態感知卡片 + 環形 Gauge + 放大動態 dB + 使用者價值語言
                     // 工程術語（延遲/頻帶/模式）預設隱藏在進階
                     val contextualTitle = when {
@@ -598,6 +623,60 @@ fun TierButton(label: String, tier: UserTier, isSelected: Boolean, onSelect: (Us
         onClick = { onSelect(tier) },
         label = { Text(label) }
     )
+}
+
+/**
+ * Cross-cutting readiness for **all** app paths (status start, AA, guided, test platform).
+ * Goal: surface conditions that historically caused incomplete / silent road tests.
+ */
+@Composable
+fun SystemHealthCard(
+    ancRunning: Boolean,
+    consentOk: Boolean,
+    loggingOn: Boolean,
+    gpsValid: Boolean,
+    speedKmh: Float,
+    latencyMs: Float,
+    gain: Float
+) {
+    val issues = buildList {
+        if (!consentOk) add("未接受安全聲明 → 無法啟動降噪")
+        if (!loggingOn) add("Log 關閉（啟動時會強制開啟）")
+        if (gain < 0.05f) add("使用者增益≈0 → 喇叭可能無 anti 聲")
+        if (ancRunning && !gpsValid) add("GPS 無效 → 無路噪 GPS 模式 / 腳本有效秒不累計")
+        if (ancRunning && latencyMs <= 0f) add("延遲尚未測到（剛啟動請稍候）")
+        if (ancRunning && gpsValid && speedKmh < 5f) add("車速很低：目前多為怠速/靜止路徑")
+    }
+    val ok = issues.isEmpty() && consentOk
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (ok) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.errorContainer
+        )
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                if (ok) "系統檢查：可正常使用" else "系統檢查：有風險（請先處理）",
+                style = MaterialTheme.typography.titleSmall
+            )
+            Text(
+                "ANC ${if (ancRunning) "ON" else "OFF"} · Log ${if (loggingOn) "ON" else "OFF"} · " +
+                    "聲明 ${if (consentOk) "OK" else "缺"} · GPS ${if (gpsValid) "OK" else "無"} · " +
+                    "增益 ${"%.0f".format(gain * 100)}% · 延遲 ${if (latencyMs > 0) "%.0f".format(latencyMs) + "ms" else "—"}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            if (issues.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                issues.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+            }
+            Text(
+                "涵蓋：狀態啟動、AA 車機、測試腳本、測試平台、log 匯出",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
 }
 
 @Composable

@@ -77,33 +77,40 @@ class CarAncAutoScreen(carContext: CarContext) : Screen(carContext), DefaultLife
         val canStop = currentState !is AncState.Stopped
         val actionTitle = if (canStop) "停止降噪" else "啟動降噪"
 
+        val needsConsent = sessionContext.entitlementManager.requiresSafetyConsent()
         val mainAction = Action.Builder()
             .setTitle(actionTitle)
             .setOnClickListener {
                 if (canStop) {
                     stopAncService()
+                } else if (needsConsent) {
+                    // Cannot show full dialog on car screen — service would stopSelf anyway
+                    // User must accept on phone first
                 } else {
                     startAncService()
                 }
             }
             .build()
 
-        val statusText = when (val s = currentState) {
-            is AncState.Calibrating -> s.message
-            is AncState.Learning -> s.message
-            is AncState.Running -> "降噪中 [${getTierLabel(currentTier)}] (-${"%.1f".format(currentRawDb - currentCancelledDb)} dB)"
-            is AncState.DrivingMode -> s.message
-            is AncState.MusicMode -> s.message
-            is AncState.Paused -> s.message
-            is AncState.Error -> "錯誤: ${s.message}"
-            is AncState.Stopped -> s.message
+        val statusText = when {
+            needsConsent && !canStop -> "請先在手機 App 接受安全聲明"
+            else -> when (val s = currentState) {
+                is AncState.Calibrating -> s.message
+                is AncState.Learning -> s.message
+                is AncState.Running -> "降噪中 [${getTierLabel(currentTier)}] (-${"%.1f".format(currentRawDb - currentCancelledDb)} dB)"
+                is AncState.DrivingMode -> s.message
+                is AncState.MusicMode -> s.message
+                is AncState.Paused -> s.message
+                is AncState.Error -> "錯誤: ${s.message}"
+                is AncState.Stopped -> s.message
+            }
         }
 
         val row = Row.Builder()
             .setTitle("車內主動降噪系統")
             .addText(statusText)
             .addText("原始: ${"%.1f".format(currentRawDb)} dB | 處理後: ${"%.1f".format(currentCancelledDb)} dB")
-            .addText("建議：USB 有線 AA（非無線）。AA 高延遲時走 FF_PREVIEW + 預訓 bank。")
+            .addText("建議：USB 有線 AA。高延遲走 HIGH_LAT_PRED_BANK + neural bank（非舊 FF_PREVIEW）。")
             .build()
 
         val noteRow = Row.Builder()
