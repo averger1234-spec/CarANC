@@ -662,3 +662,18 @@ After cee0dd2 unit tests still failed (red=0 / −6.6 dB). Extra root causes:
 
 **Unit tests:** `MultiBandANCProcessorTest` all pass incl. `lowFreqReduction_positiveDb_onTone` + `aaPlantDelay_lowFreqStillCancels_notJustNoise`.
 
+## 2026-07-22 Literature / patent algorithm upgrades
+
+Mapped industry RNC + patents into code (not UI):
+
+| Literature / patent | Implementation |
+|---------------------|----------------|
+| Secondary-path delay limits cancel BW (~1/(6τ)) | `LatencyAwareBandLimiter` hybrid lit+FF bound; AA 200ms+ → maxCancel ~45–110 Hz; mid/high off |
+| Predictive / delay-compensated FxLMS | `PredictiveReferenceAligner` bipolar low-ref plant delay + mild predict (NOT IMU magnitude) |
+| US20250069581 latent road → load params | `PreLearnedAncBank` 3-D match speed×rough×energy, sharper kernel, `lastMatchQuality` |
+| Multi-coherence accel channel select | `ImuMicCoherenceGate` damps IMU boost / bank trust when vibration≠cabin low |
+| Impact / switching FxLMS | freeze → `impactMuDamp=0.25`; no capture while frozen |
+| High-lat strategy | `HIGH_LAT_PRED_BANK`: bank heavier + adaptive low μ lighter |
+
+Tests: `LiteratureAlgTest` + full `MultiBandANCProcessorTest`.
+

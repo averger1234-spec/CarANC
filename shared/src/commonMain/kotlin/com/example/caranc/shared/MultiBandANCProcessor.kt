@@ -14,7 +14,9 @@ import com.example.caranc.shared.latency.LatencyAwareBandLimiter
 import com.example.caranc.shared.latency.LatencyBandLimits
 import com.example.caranc.shared.latency.MultirateLowBandFxLms
 import com.example.caranc.shared.latency.NativeLowBandProcessor
+import com.example.caranc.shared.latency.ImuMicCoherenceGate
 import com.example.caranc.shared.latency.PreLearnedAncBank
+import com.example.caranc.shared.latency.PredictiveReferenceAligner
 import com.example.caranc.shared.latency.RoadNoiseWienerBank
 import com.example.caranc.shared.latency.VirtualSensingModel
 import com.example.caranc.shared.predictor.RumblePreviewPredictor
@@ -144,6 +146,11 @@ class MultiBandANCProcessor(
     // Processor counters now better exposed for timing comparison (native vs kotlin low path).
     private val nativeLow = NativeLowBandProcessor()
     private val preLearnedBank = PreLearnedAncBank(filterLength = tierLength(initialTier))
+    /** Literature: delay-compensated bipolar low ref (Predictive FxLMS style), not IMU magnitude. */
+    private val predictiveRef = PredictiveReferenceAligner()
+    /** Literature: coherence proxy so incoherent IMU doesn't corrupt FF / boost. */
+    private val imuMicCoherence = ImuMicCoherenceGate()
+    private var lastCoherenceQuality = 0.5f
     private var latencyBandLimits = LatencyAwareBandLimiter.limits(150f)
     /** Always measured AA/path latency (not debug override). Used for plant, maxCancel, FF strategy. */
     private var estimatedLatencyMs = 150f
@@ -262,9 +269,9 @@ class MultiBandANCProcessor(
 
     private fun updateLatencyStrategy() {
         // CORE FIX: abandoned FF_PREVIEW_ONLY open-loop magnitude inject (produced speaker noise).
-        // High lat → adaptive FxLMS on low only (mid/high muted), plant delay only on filtered-x.
+        // Literature: high secondary-path delay → only low-band adaptive + predictive bank FF.
         latencyStrategy = if (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode) {
-            "HIGH_LAT_LOW_FXLMS"
+            "HIGH_LAT_PRED_BANK" // predictive ref + latent bank + low FxLMS only
         } else if (estimatedLatencyMs > HIGH_LATENCY_MS) {
             "HIGH_LAT_CONSERVATIVE"
         } else {
@@ -417,7 +424,7 @@ class MultiBandANCProcessor(
                 estimatedLatencyMs > HIGH_LATENCY_MS -> 0.48f
                 else -> 0.25f
             }
-            preLearnedBank.blendedWeights(vehicleSpeedKmh, roadRoughness)?.let { bias ->
+            preLearnedBank.blendedWeights(vehicleSpeedKmh, roadRoughness, rumbleEnergyProxy)?.let { bias ->
                 lowBand.applyWeightBias(bias, blend = blend)
             }
         }
@@ -602,113 +609,131 @@ class MultiBandANCProcessor(
             // IMU magnitude envelope for diagnostics / gain only (NOT speaker audio).
             lastPreviewRumble = if (lastEffectiveRumbleMode) rumblePredictor.getCurrentPreviewRumble() else 0f
 
+            // Literature: multi-coherence style gate — weak IMU↔mic coupling → less IMU boost / bank trust
+            lastCoherenceQuality = imuMicCoherence.update(kotlin.math.abs(lowSample), rumbleAccelMag)
+
+            // Predictive ref ring: bipolar low audio only (Predictive / delay-compensated FxLMS)
+            predictiveRef.push(lowSample)
+
             // sonif 更不干擾 rumble：effectiveRumbleMode 時，rumble 的 muScale 不受 sonif eventScale 影響。
             val lowAdaptiveScale = if (effectiveRumbleMode) 1f else eventScale
             val lowLatBandScale = LatencyAwareBandLimiter.bandMuScale(
                 lowBand.centerHz, measuredLatencyMs, roadRumble = roadMode || lastEffectiveRumbleMode
             )
+            // Literature: bands above maxCancelHz must not learn aggressively (secondary-path BW limit)
+            val maxCancel = latencyLimits.maxCancelFrequencyHz
+            val lowFreqAllow = if (lowBand.centerHz > maxCancel * 1.15f) 0.35f else 1f
             val lowMu = effectiveMuScale(lowBand, floorMode, roadMode) *
                 lowAdaptiveScale *
                 latencyLimits.lowGain *
-                lowLatBandScale
+                lowLatBandScale *
+                lowFreqAllow
 
-            // P3: Direct IMU integration into ANC: use rumbleAccelMag (vibration proxy from phone IMU) to boost low band when high road rumble vibration detected.
-            // Strengthened per review (0.09 insufficient; now PRO 0.15, max boost ~1.8x before bias, allow higher accel input) for better rumble prediction/mix into low band.
-            // This provides a true structural feedforward (immune to cabin acoustic feedback) complementing the speed-based road ref and mic error.
-            // + personalRumbleBias (acoustic identity follows *user* via phone prefs; >1.0 for rumble-sensitive users). Tier auto + sim-driven.
-            // Boost only in roadMode; for "personal mobile quiet cabin" across any car (AA).
+            // P3: IMU boost only as *gain* on learning — gated by coherence (not raw magnitude→audio).
             val baseRumbleBoost = if (roadMode) (1f + rumbleAccelMag.coerceAtMost(5f) * rumbleBoostFactor).coerceAtMost(1.8f) else 1f
             var rumbleVibBoost = (baseRumbleBoost * personalRumbleBias).coerceIn(0.8f, 2.0f)
-            // First-principles: in MUSIC_DOMINANT_RUMBLE, make IMU rumble boost EVEN STRONGER and more STABLE (vibration precursor is the cleanest rumble ref, unaffected by music/latency)
-            // User feedback 07-01: direction correct, seeing improvement peaks, but strength not stable enough. Amplify base multipliers + add EMA for stability.
-            // Dynamic: low suppressionQuality (<0.5) -> extra aggressive.
-            // 07-01 user feedback: amplify for stronger + stable IMU dominance in music (direction correct but peaks not sustained); also targets AA high-latency bottleneck by maximizing clean vibration precursor ref.
             if (effectiveRumbleMode) {
-                // Widened clear rumble threshold (0.25f) to trigger strong boost more often when any structural rumble present.
                 val hasClearRumble = rumbleAccelMag > 0.25f
-                var extra = if (hasClearRumble) 2.8f else 1.4f   // amplified for stronger, more consistent IMU dominance in music or driving rumble
+                var extra = if (hasClearRumble) 2.2f else 1.25f
                 val vq = kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f)
                 if (vq < 0.5f && hasClearRumble) {
-                    extra *= (1.0f + (0.5f - vq) * 1.4f).coerceIn(1.0f, 1.8f)
+                    extra *= (1.0f + (0.5f - vq) * 1.1f).coerceIn(1.0f, 1.5f)
                 }
                 rumbleVibBoost *= extra
-                rumbleVibBoost = rumbleVibBoost.coerceAtMost(4.5f)
-                // 07-01 log feedback (high accel even at low spd ~15avg): add continuous energy proxy so boost scales with rumble strength, not just binary clear. Helps low-spd high-bump cases without over-boosting noise.
-                // 07-02 log: even with high boost snapshots existing, in #7 periods red still low and proxy low – increase energyProxy coefficient to 1.0 for stronger continuous scaling when rumble energy present (per user suggestion to lift if not obvious improvement).
-                val energyProxy = ((rumbleAccelMag - 0.25f) * 1.2f).coerceAtLeast(0f).coerceAtMost(1.5f)
-                rumbleVibBoost *= (1f + energyProxy * 1.0f)
+                val energyProxy = ((rumbleAccelMag - 0.25f) * 1.0f).coerceAtLeast(0f).coerceAtMost(1.2f)
+                rumbleVibBoost *= (1f + energyProxy * 0.7f)
             }
+            // Coherence gate (literature: drop bad accel channels)
+            rumbleVibBoost *= (0.55f + 0.45f * lastCoherenceQuality)
 
-            // CORE FIX: RumblePreviewPredictor returns non-negative IMU *magnitude envelope* (0..14),
-            // NOT a bipolar audio waveform. Injecting it as lowSample += preview or as speaker anti
-            // produces uncorrelated LF bias/noise (user: "radio static", not cancellation).
-            // IMU is used only as gain/modulation scale for the real low-band *audio* reference (mic/road).
+            // High-lat: plant-aligned / predictive bipolar ref for low path (not IMU envelope).
+            val highLat = estimatedLatencyMs > HIGH_LATENCY_MS
+            // Full-rate plant delay on bipolar low ref (Predictive FxLMS / delay-compensated FF).
+            // Cap to ring capacity; mild predictFraction only (avoid inventing HF under AA).
+            val lowAudioRef = if (highLat && plantElectricalDelaySamples > 64) {
+                predictiveRef.plantAlignedReference(
+                    plantDelaySamples = plantElectricalDelaySamples.coerceAtMost(12000),
+                    predictFraction = if (lastEffectiveRumbleMode) 0.18f else 0.1f
+                )
+            } else {
+                lowSample
+            }
             val imuRefScale = if (lastEffectiveRumbleMode) {
-                (1f + rumbleEnergyProxy.coerceIn(0f, 1f) * 0.35f).coerceIn(1f, 1.35f)
+                (1f + rumbleEnergyProxy.coerceIn(0f, 1f) * 0.25f * lastCoherenceQuality).coerceIn(1f, 1.25f)
             } else 1f
-            val lowSampleForLowBand = lowSample * imuRefScale
-            // IMU coupling quality: dampen only if very poor; less aggressive dampen to keep strength.
-            val couplingQuality = (rumbleAccelMag / 0.3f).coerceIn(0f, 1f)
-            if (couplingQuality < 0.4f && effectiveRumbleMode) {
-                rumbleVibBoost *= (0.6f + couplingQuality * 0.6f)
+            val lowSampleForLowBand = lowAudioRef * imuRefScale
+
+            if (lastCoherenceQuality < 0.35f && effectiveRumbleMode) {
+                rumbleVibBoost *= 0.75f
             }
             // Stability: EMA + hard cap (logs showed boost 6–11 → noise, not cancel)
             rumbleVibBoostEma = 0.65f * rumbleVibBoostEma + 0.35f * rumbleVibBoost
-            rumbleVibBoost = rumbleVibBoostEma.coerceIn(0.8f, 2.2f)
-            val effectiveLowMu = lowMu * rumbleVibBoost
+            rumbleVibBoost = rumbleVibBoostEma.coerceIn(0.8f, 2.0f)
+            // Impact-aware: freeze blocks → damp mu (Switching / impact FxLMS literature)
+            val impactMuDamp = if (freezeWeightUpdates > 0) 0.25f else 1f
+            val effectiveLowMu = lowMu * rumbleVibBoost * impactMuDamp
             lastRumbleVibBoost = rumbleVibBoost
             lastEffectiveLowMu = effectiveLowMu
 
             // True FxLMS low path: adapt continues under high lat (weaker mu), never freeze forever.
-            // Freezing LMS + open-loop magnitude "preview" was the noise-without-cancel path.
             val lowOut = multirateLow.processSample(lowSampleForLowBand) { decimated ->
                 val useLowErrBoost = musicLowAncEnabled && vehicleSpeedKmh > 12f
                 val vq3 = kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f)
                 val suppressionBoost = 1.0f + (vq3 * 0.5f).coerceAtMost(0.5f)
                 val lowError = if (useLowErrBoost) virtualBands.low * suppressionBoost else virtualBands.low
-                // High lat: reduce mu but keep learning; error = residual band energy at mic.
+                // High lat: reduce mu but keep learning; bank carries most FF (patent latent match).
                 val lowMuToUse = when {
-                    estimatedLatencyMs > HIGH_LATENCY_MS -> effectiveLowMu * 0.35f
+                    highLat && lastEffectiveRumbleMode -> effectiveLowMu * 0.28f
+                    highLat -> effectiveLowMu * 0.35f
                     estimatedLatencyMs > 150f -> effectiveLowMu * 0.55f
                     else -> effectiveLowMu
                 }
                 lowBand.processSample(
                     sample = decimated,
                     muScale = lowMuToUse,
-                    freezeUpdates = freeze, // do NOT freeze just because high-lat / FF strategy
+                    freezeUpdates = freeze,
                     errorSample = lowError
                 )
             }
-            // FDAF: always allow adapt lightly; delayless FIR on real low audio, not IMU envelope.
+            // FDAF: delayless FIR on real low audio; lighter under high lat / impact
             fdafLow.adaptEnabled = !freeze
             fdafLow.delaylessOutput = true
             val fdafIn = lowSampleForLowBand
             val fdafScale = when {
-                estimatedLatencyMs > HIGH_LATENCY_MS -> 0.35f
+                highLat -> 0.28f * lastCoherenceQuality.coerceAtLeast(0.4f)
                 estimatedLatencyMs > 150f -> 0.5f
                 else -> 0.75f
             }
             val fdafOut = fdafLow.push(fdafIn) * fdafScale
 
-            // Fixed bank only when we have a real audio x-ring (mic low), never magnitude envelope.
+            // Latent road bank (US2025-style): primary assist under high lat + rumble
             fixedBankXRing[fixedBankXIdx] = lowSampleForLowBand
             fixedBankXIdx = (fixedBankXIdx + 1) % fixedBankXRing.size
-            val useFixedBank = lastEffectiveRumbleMode && vehicleSpeedKmh > 35f && rumbleEnergyProxy > 0.2f
+            val useFixedBank = (lastEffectiveRumbleMode && vehicleSpeedKmh > 30f && rumbleEnergyProxy > 0.15f) ||
+                (highLat && vehicleSpeedKmh > 40f)
+            val bankScale = when {
+                highLat && lastEffectiveRumbleMode -> 0.72f
+                highLat -> 0.5f
+                lastEffectiveRumbleMode -> 0.55f
+                else -> 0.35f
+            }
             val fixedBankOut = if (useFixedBank) {
                 preLearnedBank.fixedFilterSample(
                     speedKmh = vehicleSpeedKmh,
                     roughness = roadRoughness.coerceAtLeast(0.3f),
                     xRing = fixedBankXRing,
-                    xWriteIndex = fixedBankXIdx
-                ) * 0.55f // milder assist; primary cancel is adaptive FxLMS
+                    xWriteIndex = fixedBankXIdx,
+                    energyProxy = rumbleEnergyProxy
+                ) * bankScale
             } else 0f
             lastFixedBankOut = fixedBankOut
-            // Online capture: also under FF (frozen weights still useful as snapshot); more frequent
-            if (vehicleSpeedKmh > 20f && (i % 256 == 0)) {
+            // Online capture with energy latent for faster road-condition reload
+            if (vehicleSpeedKmh > 20f && (i % 256 == 0) && freezeWeightUpdates == 0) {
                 preLearnedBank.capture(
                     vehicleSpeedKmh,
                     lowBand.captureWeights(),
-                    roadRoughness.coerceAtLeast(0.25f)
+                    roadRoughness.coerceAtLeast(0.25f),
+                    energyProxy = rumbleEnergyProxy
                 )
             }
 
@@ -803,12 +828,9 @@ class MultiBandANCProcessor(
             // - FDAF, fixed bank, engine comb, road Wiener already return speaker anti (−synth)
             // Mixing pre-anti paths into adaptiveCombined then negating again double-flips them
             // into +noise (user: residual louder / radio static). Keep LMS y and pre-anti separate.
-            val fixedScale = when {
-                lastEffectiveRumbleMode && vehicleSpeedKmh > 40f -> 0.45f
-                lastEffectiveRumbleMode -> 0.25f
-                else -> 0.1f
-            }
-            val fdafMix = if (estimatedLatencyMs > HIGH_LATENCY_MS) 0.3f else 0.45f
+            // fixedBankOut already scaled in bankScale; preAnti mix weights FDAF lightly under high lat
+            val fixedScale = 1f // lastFixedBankOut already includes bankScale
+            val fdafMix = if (estimatedLatencyMs > HIGH_LATENCY_MS) 0.22f else 0.45f
             val adaptMix = 1f
             // High lat: mute mid/high anti (phase untenable → hiss). Keep low adaptive only.
             val midMix = if (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode) 0f else midOut
@@ -1317,6 +1339,10 @@ class MultiBandANCProcessor(
     }
 
     override fun getRumbleEnergyProxy(): Float = rumbleEnergyProxy
+
+    /** Literature coherence proxy (0..1); exposed for snapshots / log. */
+    fun getImuMicCoherenceQuality(): Float = lastCoherenceQuality
+    fun getBankMatchQuality(): Float = preLearnedBank.lastMatchQuality
 
     // P1: preview / plant diagnostics for FF_PREVIEW_ONLY log validation
     override fun getPreviewRumble(): Float = lastPreviewRumble

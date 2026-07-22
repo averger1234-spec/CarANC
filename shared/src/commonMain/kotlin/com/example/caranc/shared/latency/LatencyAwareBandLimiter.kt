@@ -20,15 +20,26 @@ object LatencyAwareBandLimiter {
     fun maxCancelFrequencyHz(latencyMs: Float): Float {
         val l = latencyMs.coerceIn(20f, 400f)
         // P0: always driven by MEASURED latency (no debug override fake-low).
-        // Classical 1/(4T) is harsh for pure feedback; feedforward RNC can go higher, but AA ~250ms
-        // must stay conservative so adaptive doesn't chase un-cancelable mid/high.
-        // Formula ~ 1000/(2.5*T) with hard caps by latency class.
-        val base = 1000f / (2.5f * l)
+        //
+        // Literature (secondary-path delay ↔ controllable BW, e.g. ~1/(6τ) pure-delay bound
+        // for feedback-style systems; ISMA/FxLMS texts). OEM RNC needs τ≪10 ms for ~hundreds Hz.
+        // Phone AA remote_submix is 100–250 ms → classical bound collapses to tens of Hz only.
+        //
+        // Hybrid used here:
+        //   litBound  = 1000/(6·T_ms)          // harsh classical
+        //   ffBound   = 1000/(2.2·T_ms)         // feedforward RNC slightly more permissive
+        //   maxHz    = min(ff, max(lit*3, floor_by_class)) with hard caps
+        // so we never claim mid/high cancel under AA while still allowing ~60–140 Hz rumble.
+        val tauSec = l / 1000f
+        val litBoundHz = (1f / (6f * tauSec)).coerceAtLeast(8f)
+        val ffBoundHz = (1f / (2.2f * tauSec)).coerceAtLeast(20f)
+        val hybrid = kotlin.math.min(ffBoundHz, kotlin.math.max(litBoundHz * 2.5f, litBoundHz + 40f))
         return when {
-            l >= 200f -> base.coerceIn(60f, 120f)   // AA high-lat: low-rumble focus only
-            l >= 150f -> base.coerceIn(90f, 160f)
-            l >= 100f -> base.coerceIn(120f, 220f)
-            else -> base.coerceIn(150f, 350f)
+            l >= 220f -> hybrid.coerceIn(45f, 95f)    // critical AA: very-low rumble only
+            l >= 180f -> hybrid.coerceIn(55f, 110f)   // high-lat AA
+            l >= 150f -> hybrid.coerceIn(80f, 150f)
+            l >= 100f -> hybrid.coerceIn(110f, 210f)
+            else -> hybrid.coerceIn(140f, 380f)
         }
     }
 
