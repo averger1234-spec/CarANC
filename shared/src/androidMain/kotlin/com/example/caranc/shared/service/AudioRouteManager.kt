@@ -22,10 +22,18 @@ data class AudioRouteInfo(
     val audioSource: Int,
     val availableOutputs: List<String> = emptyList(),
     val availableInputs: List<String> = emptyList(),
-    /** #9: true when AA projection looks wireless (no USB/BUS car sink). */
+    /**
+     * #9 / A-fix: only true for likely **Bluetooth** wireless AA / A2DP.
+     * Phone USB AA often exposes only remote_submix — that is **projection_submix**, not wireless.
+     */
     val wirelessAaSuspected: Boolean = false,
-    /** #9: true when a wired USB/BUS car path is available. */
-    val wiredCarPathAvailable: Boolean = false
+    /** True when USB/BUS car sink is enumerated. */
+    val wiredCarPathAvailable: Boolean = false,
+    /**
+     * A-fix link class for logs:
+     * local | wired_usb | projection_submix | wireless_bt | aa_unknown
+     */
+    val aaLinkType: String = "local"
 )
 
 data class RouteApplyResult(
@@ -52,7 +60,8 @@ data class RouteApplyResult(
         "availableOutputs" to route.availableOutputs,
         "availableInputs" to route.availableInputs,
         "wirelessAaSuspected" to route.wirelessAaSuspected,
-        "wiredCarPathAvailable" to route.wiredCarPathAvailable
+        "wiredCarPathAvailable" to route.wiredCarPathAvailable,
+        "aaLinkType" to route.aaLinkType
     )
 }
 
@@ -135,20 +144,35 @@ class AudioRouteManager(context: Context) {
 
         val sinks = outputs.filter { it.isSink }
         val wiredAvailable = sinks.any { isWiredCarSink(it) }
-        val wirelessSuspected = isAaConnected && !wiredAvailable && (
-            preferredOutput?.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                preferredOutput?.type == AudioDeviceInfo.TYPE_REMOTE_SUBMIX ||
-                preferredOutput == null ||
-                routeLabel.contains("bluetooth") ||
-                routeLabel.contains("android_auto_media") ||
-                routeLabel.contains("android_auto_scored")
-            )
+        val outType = preferredOutput?.type
+        val isBt = outType == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+            routeLabel.contains("bluetooth", ignoreCase = true)
+        val isSubmix = outType == AudioDeviceInfo.TYPE_REMOTE_SUBMIX ||
+            routeLabel == "remote_submix" ||
+            routeLabel.contains("submix", ignoreCase = true)
+
+        // A-fix: remote_submix + AA + not BT = normal phone→car USB/Wi‑Fi projection path, NOT "wireless suspected".
+        // Only flag wireless when BT A2DP (or explicit bluetooth label) is the chosen sink.
+        val wirelessSuspected = isAaConnected && isBt
+        val aaLinkType = when {
+            !isAaConnected -> "local"
+            wiredAvailable -> "wired_usb"
+            isBt -> "wireless_bt"
+            isSubmix || routeLabel.startsWith("android_auto") -> "projection_submix"
+            else -> "aa_unknown"
+        }
 
         if (isAaConnected && wirelessSuspected && requireWiredAa) {
             Log.w(
                 TAG,
-                "WIRELESS_AA_SUSPECTED: requireWiredAa=true, no USB/BUS car sink. " +
-                    "Prefer USB Android Auto. label=$routeLabel available=${describeDevices(sinks)}"
+                "WIRELESS_AA_SUSPECTED: BT sink while requireWiredAa=true. Prefer USB Android Auto. " +
+                    "label=$routeLabel aaLinkType=$aaLinkType available=${describeDevices(sinks)}"
+            )
+        } else if (isAaConnected && aaLinkType == "projection_submix") {
+            Log.i(
+                TAG,
+                "AA_PROJECTION_SUBMIX: typical phone USB/Wi‑Fi AA path (not flagged wireless). " +
+                    "label=$routeLabel wiredUsbEnum=$wiredAvailable"
             )
         }
 
@@ -171,7 +195,8 @@ class AudioRouteManager(context: Context) {
             availableOutputs = describeDevices(outputs.filter { it.isSink }),
             availableInputs = describeDevices(inputs.filter { it.isSource }),
             wirelessAaSuspected = wirelessSuspected,
-            wiredCarPathAvailable = wiredAvailable
+            wiredCarPathAvailable = wiredAvailable,
+            aaLinkType = aaLinkType
         )
     }
 

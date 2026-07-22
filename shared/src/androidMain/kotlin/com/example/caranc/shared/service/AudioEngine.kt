@@ -1332,12 +1332,19 @@ class AudioEngine(
                     base = mapOf(
                         "guidedTestStepId" to (GuidedTestController.state.value.currentStep?.id ?: ""),
                         "guidedTestActive" to GuidedTestController.state.value.active,
-                        "rawDb" to estimatedRawDb,
+                        "rawDb" to rawDb,
+                        "rawDbEstimated" to estimatedRawDb,
                         "cancelledDb" to residualDb,
                         "antiNoiseDb" to antiNoiseDb,
-                        "reductionDb" to (estimatedRawDb - residualDb).coerceAtLeast(0f),
-                        // 07-02: lowBandRumbleReduction (accurate <250Hz from spectra via computeLowBandReductionDb) for driving rumble focus. Merged remote approx idea but prefer dedicated func (better for verifying IMU rumble path). Expect higher than overall when driving rumble + high accel.
+                        // C-fix: honest reduction = mic raw vs residual (mic+anti electrical mix).
+                        // Negative means anti made the sum louder (typical of uncorrelated white-noise anti).
+                        // Old formula used estimatedRawDb (boosted when anti loud) + coerceAtLeast(0) which
+                        // often plateaus ~3 dB and hid hiss. Keep legacy for A/B only.
+                        "reductionDb" to (rawDb - residualDb),
+                        "reductionDbLegacy" to (estimatedRawDb - residualDb).coerceAtLeast(0f),
+                        // Primary KPI for driving rumble (docs C): low-band <250Hz spectral reduction
                         "lowBandRumbleReduction" to lowBandReductionDb,
+                        "primaryReductionKpi" to "lowBandRumbleReduction",
                         "tier" to sessionContext.tierManager.currentTier.value.name,
                         "music" to audioManager.isMusicActive,
                         "call" to (audioManager.mode != AudioManager.MODE_NORMAL),
@@ -1399,12 +1406,14 @@ class AudioEngine(
                         "previewHistoryAgeMs" to (ancProcessor?.getPreviewHistoryAgeMs() ?: 0f),
                         "previewHistoryCount" to (ancProcessor?.getPreviewHistoryCount() ?: 0),
                         "preLearnedBinCount" to (ancProcessor?.getPreLearnedBinCount() ?: 0),
+                        "learnedBinCount" to (ancProcessor?.getLearnedBinCount() ?: 0),
                         "fixedBankOut" to (ancProcessor?.getLastFixedBankOut() ?: 0f),
                         "fdafDelayless" to (ancProcessor?.isFdafDelayless() ?: false),
                         "fdafPartitions" to (ancProcessor?.getFdafPartitionCount() ?: 0),
                         "audioBackend" to lastAudioBackendLabel,
                         "wirelessAaSuspected" to (currentRoute?.wirelessAaSuspected ?: false),
                         "wiredCarPathAvailable" to (currentRoute?.wiredCarPathAvailable ?: false),
+                        "aaLinkType" to (currentRoute?.aaLinkType ?: "unknown"),
                         "roadRoughness" to (vehicleSpeedProvider?.currentSnapshot()?.roughness ?: 0f),
                         // debug ov for script A/B only — does NOT drive plant/maxCancel anymore
                         "debugLatencyOverrideMs" to AncTestPreferences.getDebugLatencyOverrideMs(appContext),

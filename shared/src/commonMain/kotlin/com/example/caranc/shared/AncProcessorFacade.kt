@@ -131,6 +131,7 @@ interface AncProcessorFacade : AudioProcessor {
     fun getPreviewHistoryAgeMs(): Float = 0f
     fun getPreviewHistoryCount(): Int = 0
     fun getPreLearnedBinCount(): Int = 0
+    fun getLearnedBinCount(): Int = 0
     fun getLastFixedBankOut(): Float = 0f
     fun isFdafDelayless(): Boolean = false
     fun getFdafPartitionCount(): Int = 0

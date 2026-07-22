@@ -10,18 +10,16 @@
 - 等級制度：LIGHT（免費輕度）、STANDARD（普通中/重度）、PRO（專業中/重度）
 - 商業 gating + dev panel 可切方案測試
 
-**最新進度（2026-07-21）P0 + 中期 #6–#9 + #11 scaffold**：
-- **P0** `FF_PREVIEW_ONLY` + plant=measured + preview 診斷
-- **#6 Delayless/partitioned FDAF**：`FdafLowBandProcessor` 4×64 分區 + delayless FIR 輸出（low only）
-- **#7 PreLearned speed×roughness**：2D bank、fixed FIR 為主（高 lat）、adaptive 為輔；`setRoadRoughness`
-- **#8 AAudio-like 本機**：非 AA → `LocalLowLatencyAudio`（PERFORMANCE_MODE_LOW_LATENCY）；AA 仍 AudioTrack+submix
-- **#9 有線 AA**：`requireWiredAa`、BT 降權、`wirelessAaSuspected` / `wiredCarPathAvailable` log
-- **#11 AAOS**：強化 Car App 畫面 + optional automotive feature；**非**原廠 ECU RNC（見 CarAncAutoScreen 註解）
-- Log 新欄位：`audioBackend` / `fdafDelayless` / `fdafPartitions` / `fixedBankOut` / `wirelessAaSuspected`
-- install：`.\scripts\install-debug.ps1`
-- **無車測真 AA**：`.\scripts\start-dhu.ps1`（Desktop Head Unit = **電腦當車機**，手機 USB 走真 AA 協議）。**不要**做 App 內假 `isAAConnected`。
-- **文件已對齊（三份都要 pull）**：`GROK_RESUME_CONTEXT.md` + `README.md` + `MULTI_MACHINE_SYNC.md` 皆含 2026-07-21 進度；第二台：`git pull origin main`
-- **測試腳本** `car_road_tuning_v1`（`AncTestScript.kt`）：已更新 P0/P1 + #6–#9 驗證說明、monitored 欄位（fdafDelayless/fixedBankOut/audioBackend/wireless…）；#4/#4b ov=log-only；#7 為主驗步
+**最新進度（2026-07-22）A/B/C + 行駛白噪修正**：
+- **A** `remote_submix`+AA+非BT → `aaLinkType=projection_submix`，不再一律 wireless
+- **B** bank default prior + seed + capture；`fixedBankOut` 行駛應非零；`learnedBinCount`
+- **C** `reductionDb` 誠實（可負）；主 KPI=`lowBandRumbleReduction`；`reductionDbLegacy` 對照
+- **行駛白噪**：FF 關 mid/high、final lowpass、減 preview/FDAF、bank 為主；`effectiveMidMu` 不再 stale
+- install：`.\scripts\install-debug.ps1`；第二台 `git pull origin main`
+- **無車測真 AA**：`.\scripts\start-dhu.ps1`（DHU=電腦當車機）。**不要**假 `isAAConnected`
+- 路測聽感：怠速靜；行駛沙沙應↓；log 看 `aaLinkType` / `fixedBankOut` / `lowBandRumbleReduction`
+
+**2026-07-21 P0 + #6–#9 + #11**：FF_PREVIEW_ONLY、delayless FDAF、2D bank、本機 AAudio-like、有線偏好、Car App scaffold
 
 **歷史進度（2026-06-25）**：
 - 多機開發環境已建立（兩台 Windows + 一台 Mac）

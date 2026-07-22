@@ -110,6 +110,7 @@ class MultiBandANCProcessor(
     private var lastRumbleVibBoost = 1f
     private var lastEffectiveLowMu = 0f
     private var lastPreviewRumble = 0f  // P1: last RumblePreviewPredictor output for snapshot
+    private var lastEffectiveMidMuLogged = 0f  // 0 when mid forced off under FF (avoid stale lastMuScale)
     private var lastEffectiveRumbleMode = false  // 07-02: for isEffectiveRumbleMode() logging/diag (covers driving rumble music=false case)
     private var rumbleVibBoostEma = 1f  // EMA for stable boost strength in music dominant (07-01 feedback: peaks seen but not stable)
     private var bandGains = BandGains(low = 1f, mid = 0.25f, high = 0.05f)
@@ -535,10 +536,19 @@ class MultiBandANCProcessor(
         lowBand.baseMu = baseMu
         midBand.baseMu = baseMu
         highBand.baseMu = baseMu
-        if (!learningCaptured) {
-            preLearnedBank.capture(vehicleSpeedKmh, lowBand.captureWeights(), roadRoughness)
-            learningCaptured = true
+        // B: always seed default prior + write learned weights into speed×rough cells (and neighbors)
+        preLearnedBank.seedDefaultPriorIntoAllCells(force = false)
+        val w = lowBand.captureWeights()
+        preLearnedBank.seedFromLearning(
+            speedKmh = vehicleSpeedKmh.coerceAtLeast(40f),
+            weights = w,
+            roughness = roadRoughness.coerceAtLeast(0.5f)
+        )
+        // Also seed common drive speeds so #7 bank is non-empty before first rough segment
+        for (spd in floatArrayOf(50f, 70f, 90f)) {
+            preLearnedBank.capture(spd, w, roadRoughness.coerceAtLeast(0.6f), forceAlpha = 0.4f)
         }
+        learningCaptured = true
     }
 
     @Keep
@@ -700,21 +710,28 @@ class MultiBandANCProcessor(
             }
             val fdafOut = fdafLow.push(fdafIn) * fdafScale
 
-            // #7: fixed bank primary under FF_PREVIEW_ONLY (speed×roughness lookup FIR)
+            // #7 B-fix: fixed bank always available (default prior); primary under high-lat rumble
             fixedBankXRing[fixedBankXIdx] = lowSampleForLowBand
             fixedBankXIdx = (fixedBankXIdx + 1) % fixedBankXRing.size
-            val fixedBankOut = if (ffPreviewOnly || (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode)) {
+            val useFixedBank = ffPreviewOnly ||
+                (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode) ||
+                (lastEffectiveRumbleMode && vehicleSpeedKmh > 35f)
+            val fixedBankOut = if (useFixedBank) {
                 preLearnedBank.fixedFilterSample(
                     speedKmh = vehicleSpeedKmh,
-                    roughness = roadRoughness,
+                    roughness = roadRoughness.coerceAtLeast(0.3f),
                     xRing = fixedBankXRing,
                     xWriteIndex = fixedBankXIdx
                 )
             } else 0f
             lastFixedBankOut = fixedBankOut
-            // Occasional online capture into 2D bank when adaptive still learning (not frozen)
-            if (!ffPreviewOnly && vehicleSpeedKmh > 25f && roadRoughness > 0.35f && (i % 512 == 0)) {
-                preLearnedBank.capture(vehicleSpeedKmh, lowBand.captureWeights(), roadRoughness)
+            // Online capture: also under FF (frozen weights still useful as snapshot); more frequent
+            if (vehicleSpeedKmh > 20f && (i % 256 == 0)) {
+                preLearnedBank.capture(
+                    vehicleSpeedKmh,
+                    lowBand.captureWeights(),
+                    roadRoughness.coerceAtLeast(0.25f)
+                )
             }
 
             // CYCLE3_EXTRA integration point: exercise native low proto (switchable via setUseNativeLowBand)
@@ -803,79 +820,92 @@ class MultiBandANCProcessor(
                 0f
             }
 
-            // #7: under high lat, fixed bank + delayless FDAF carry more weight than long adaptive LMS
-            val fixedScale = if (ffPreviewOnly) 1.1f else if (estimatedLatencyMs > HIGH_LATENCY_MS) 0.65f else 0.2f
-            val adaptiveCombined = (lowOut + nativeLowOut) * bandGains.low * latencyLimits.lowGain *
-                (if (ffPreviewOnly) 0.35f else 1f) +
-                midOut + highOut + fdafOut * 0.45f + fixedBankOut * fixedScale
+            // #7: fixed bank primary; under FF de-emphasize adaptive/FDAF (driving white-noise fix)
+            val fixedScale = when {
+                ffPreviewOnly -> 1.45f
+                estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode -> 1.0f
+                lastEffectiveRumbleMode -> 0.55f
+                else -> 0.2f
+            }
+            val fdafMix = if (ffPreviewOnly) 0.18f else 0.45f
+            val adaptMix = if (ffPreviewOnly) 0.12f else 1f
+            // Driving hiss fix: never mix mid/high into high-lat rumble path (stale lastMuScale was misleading logs)
+            val midMix = if (ffPreviewOnly || (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode)) 0f else midOut
+            val highMix = if (ffPreviewOnly || estimatedLatencyMs > HIGH_LATENCY_MS) 0f else highOut
+            lastEffectiveMidMuLogged = if (midMix == 0f && (ffPreviewOnly || estimatedLatencyMs > HIGH_LATENCY_MS)) 0f else midBand.lastMuScale
 
-            val combined = when {
+            val adaptiveCombined = (lowOut + nativeLowOut) * bandGains.low * latencyLimits.lowGain * adaptMix +
+                midMix + highMix + fdafOut * fdafMix + fixedBankOut * fixedScale
+
+            var combined = when {
                 floorMode && (processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC || processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || processingMode == AncProcessingMode.MUSIC_DOMINANT_RUMBLE) && musicLowAncEnabled -> {
-                    // low freq full ANC + mid/high protected (lowpassed)
-                    // extra boost to low band anti for stronger tire/wind rumble cancellation even in music (user request for more noticeable low-freq effect)
-                    // More aggressive dynamic boost for low band in musicLowAnc (user: perceived reduction still insensitive, make rumble cancellation stronger)
                     val lowRumbleEnergy = kotlin.math.abs(lowOut) * bandGains.low
-                    val speedBoost = (vehicleSpeedKmh / 100f).coerceIn(0f, 0.6f)
-                    // IDLE ARTIFACT FIX: at low speed no dynamic boost (prevents over-anti on quiet residuals); full at rumble speeds for #7 goal.
-                    val dynamicLowBoost = if (vehicleSpeedKmh < 12f) 1.0f else 1.6f + (lowRumbleEnergy * 0.7f).coerceAtMost(1.0f) + speedBoost  // even more aggressive for perceived rumble reduction (user: still insensitive)
-                    // Conservative anti output scale: when suppression poor (music not well removed), reduce lowAnti to avoid pushing anti that cancels music residual (artifacts).
-                    // Complements the mu conservative scale. High suppression -> full anti strength.
-                    val conservativeAntiScale = if (musicLowAncEnabled) musicSuppressionQuality.coerceAtLeast(0.5f) else 1f
-                    val lowAnti = (lowOut * bandGains.low * latencyLimits.lowGain + fdafOut * 0.45f + fixedBankOut * fixedScale) *
-                        dynamicLowBoost * conservativeAntiScale
-                    val higherAnti = midOut + highOut
-                    // Even higher road_wiener in musicLow for tire/wind (aggressive feedforward)
-                    val roadMusicWeight = if (roadMode) roadWiener.blendGain() * 2.0f else 0f
+                    val speedBoost = (vehicleSpeedKmh / 100f).coerceIn(0f, 0.45f)
+                    val dynamicLowBoost = if (vehicleSpeedKmh < 12f) 1.0f else 1.25f + (lowRumbleEnergy * 0.4f).coerceAtMost(0.6f) + speedBoost
+                    val conservativeAntiScale = if (musicLowAncEnabled) musicSuppressionQuality.coerceAtLeast(0.45f) else 1f
+                    // Under FF: low path = fixed bank + mild preview + tiny adaptive; kill mid/high hiss
+                    val lowAnti = (
+                        lowOut * bandGains.low * latencyLimits.lowGain * adaptMix +
+                            fdafOut * fdafMix +
+                            fixedBankOut * fixedScale
+                        ) * dynamicLowBoost * conservativeAntiScale
+                    val higherAnti = midMix + highMix
+                    val roadMusicWeight = if (roadMode) roadWiener.blendGain() * (if (ffPreviewOnly) 1.2f else 2.0f) else 0f
                     val roadFfInMusicLow = if (roadMode) roadWiener.feedforwardSample(lowSample) * roadMusicWeight else 0f
-
-                    // Per Skoda Octavia 2019 + user spectrum analysis (200-350 Hz dominant rumble):
-                    // When road noise dominant (roadMode), relax higher-band lowpass protection so mid (200-350Hz) anti can contribute.
-                    // S3 Ext: even more permissive (0.52f) for road+rumble+speed>28 to let bigger mid contrib even with music (ov=80 maxC focus).
-                    // Guarded by roadMode + speed + energy (minimal safe). Addresses main energy above 150Hz limit.
-                    val protectedHigher = if (roadMode && vehicleSpeedKmh > 28f) higherAnti * 0.52f else lowPassOutput(higherAnti)
-                    // P0: same predictive anti for floor_music_road hybrid (AA often ends here with music=true).
-                    // P1: mix live preview (immediate anti) + delayed residual prior for plant alignment.
+                    // Driving white-noise fix: ZERO mid/high leak under FF / high-lat rumble (was 0.15–0.52 hiss)
+                    val protectedHigher = when {
+                        ffPreviewOnly -> 0f
+                        estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode -> 0f
+                        roadMode && vehicleSpeedKmh > 28f -> higherAnti * 0.35f
+                        else -> lowPassOutput(higherAnti)
+                    }
                     val previewAntiMusic = when {
-                        ffPreviewOnly -> -(rumblePreview * 1.15f + delayedPreview * 0.35f)
-                        lastEffectiveRumbleMode && estimatedLatencyMs > HIGH_LATENCY_MS -> -rumblePreview * 0.9f
-                        lastEffectiveRumbleMode && estimatedLatencyMs > 150f -> -rumblePreview * 0.45f
+                        ffPreviewOnly -> -(rumblePreview * 0.75f + delayedPreview * 0.2f) // milder than before (less hiss)
+                        lastEffectiveRumbleMode && estimatedLatencyMs > HIGH_LATENCY_MS -> -rumblePreview * 0.55f
+                        lastEffectiveRumbleMode && estimatedLatencyMs > 150f -> -rumblePreview * 0.35f
                         else -> 0f
                     }
-                    val roadFfBoost = if (ffPreviewOnly) 2.0f else 1f
-                    - (lowAnti * (if (ffPreviewOnly) 0.3f else 1f) + protectedHigher * (if (ffPreviewOnly) 0.15f else 1f)) +
-                        engineFf + roadFfInMusicLow * roadFfBoost + previewAntiMusic
+                    val roadFfBoost = if (ffPreviewOnly) 1.35f else 1f
+                    -(lowAnti + protectedHigher) + engineFf * 0.5f + roadFfInMusicLow * roadFfBoost + previewAntiMusic
                 }
                 floorMode -> -lowPassOutput(adaptiveCombined) + engineFf
                 roadMode -> {
-                    // P0: FF_PREVIEW_ONLY maximizes open-loop anti from road Wiener + IMU preview.
                     val roadFfGain = when {
-                        ffPreviewOnly -> 2.2f
-                        estimatedLatencyMs > 150f && lastEffectiveRumbleMode -> 1.6f
+                        ffPreviewOnly -> 1.5f
+                        estimatedLatencyMs > 150f && lastEffectiveRumbleMode -> 1.35f
                         else -> 1.0f
                     }
                     val previewAntiContribution = when {
-                        ffPreviewOnly -> -(rumblePreview * 1.15f + delayedPreview * 0.35f)
-                        lastEffectiveRumbleMode && estimatedLatencyMs > 150f -> -rumblePreview * 0.9f
+                        ffPreviewOnly -> -(rumblePreview * 0.75f + delayedPreview * 0.2f)
+                        lastEffectiveRumbleMode && estimatedLatencyMs > 150f -> -rumblePreview * 0.55f
                         else -> 0f
                     }
-                    // In FF_PREVIEW_ONLY, de-emphasize delayed adaptive combined (keep small residual only).
-                    val adaptScale = if (ffPreviewOnly) 0.25f else 1f
+                    val adaptScale = if (ffPreviewOnly) 0.12f else 1f
                     -roadLowPassOutput(adaptiveCombined * adaptScale) +
-                        roadFf * roadFfGain + engineFf * 0.3f + previewAntiContribution
+                        roadFf * roadFfGain + engineFf * 0.25f + previewAntiContribution +
+                        fixedBankOut * fixedScale * 0.85f
                 }
                 else -> -adaptiveCombined + engineFf
             }
 
-            // 07-02 log: 1076 sonif events (many in #7) with 0.06 duck may over-protect and reduce perceived rumble even if mu not affected. In dominant rumble + high energy, use milder duck (protect less aggressively).
-            val outputEventScale = if (musicDominantRumbleMode && rumbleEnergyProxy > 0.2f) (eventScale * 0.5f + 0.5f).coerceAtMost(1f) else eventScale
+            // Driving white-noise: force final anti through lowpass under high lat + rumble (kill HF hiss)
+            if (ffPreviewOnly || (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode && vehicleSpeedKmh > 20f)) {
+                combined = lowPassOutput(combined) * 0.92f
+            }
 
-            // Gate speaker output to (near) zero in low-excitation idle/no-rumble conditions.
-            // Prevents "white noise" / telegraph artifact from being played through speakers (AA or otherwise) when there's no rumble to cancel.
-            // User observation: even if phase not perfectly aligned ("沒有對準"), it should NOT produce audible white noise/hiss.
-            // Only allow anti output when rumble excitation is present (speed/accel/proxy) or effectiveRumbleMode (our IMU logic).
-            // Over pits/bumps (high accel) or driving rumble will still trigger output as intended.
+            val outputEventScale = if (musicDominantRumbleMode && rumbleEnergyProxy > 0.2f) {
+                (eventScale * 0.5f + 0.5f).coerceAtMost(1f)
+            } else eventScale
+
+            // Idle silent; also mute tiny anti when driving but almost no rumble energy (reduces constant hiss)
             val lowExcitationNoRumble = vehicleSpeedKmh < 10f && rumbleAccelMag < 0.4f && rumbleEnergyProxy < 0.15f && !effectiveRumbleMode
-            val gatedCombined = if (lowExcitationNoRumble) 0f else combined
+            val weakDriveHiss = vehicleSpeedKmh in 10f..35f && rumbleAccelMag < 0.35f && rumbleEnergyProxy < 0.12f &&
+                estimatedLatencyMs > HIGH_LATENCY_MS
+            val gatedCombined = when {
+                lowExcitationNoRumble -> 0f
+                weakDriveHiss -> combined * 0.25f
+                else -> combined
+            }
             output[i] = (gatedCombined * outputEventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
 
             if (freezeWeightUpdates > 0) {
@@ -1259,8 +1289,8 @@ class MultiBandANCProcessor(
     override fun getFdafLmsUpdateCount(): Long = fdafLow.fdafLmsUpdateCount
     override fun getMultirateDecimUpdateCount(): Long = multirateLow.multirateDecimUpdates
 
-    // Iter2: effective mid mu (post boost/relax) for AudioEngine logging of mid band rumble contrib
-    override fun getLastEffectiveMidMu(): Float = midBand.lastMuScale
+    // Iter2 + hiss fix: report 0 when mid forced off under high-lat FF (do not expose stale lastMuScale)
+    override fun getLastEffectiveMidMu(): Float = lastEffectiveMidMuLogged
 
     // 06-30 verification: expose internal flag (set by force on MUSIC_BROAD even if quality=0) and IMU rumble boost values.
     // Allows confirming in logs: flag true in #7 MUSIC_BROAD, rumbleVibBoost raised (2+), effectiveLowMu higher than base.
@@ -1282,6 +1312,7 @@ class MultiBandANCProcessor(
     override fun getPreviewHistoryAgeMs(): Float = rumblePredictor.getHistoryAgeMs()
     override fun getPreviewHistoryCount(): Int = rumblePredictor.getHistorySampleCount()
     override fun getPreLearnedBinCount(): Int = preLearnedBank.filledBinCount()
+    override fun getLearnedBinCount(): Int = preLearnedBank.learnedBinCount()
     override fun getLastFixedBankOut(): Float = lastFixedBankOut
     override fun isFdafDelayless(): Boolean = fdafLow.isDelaylessEnabled()
     override fun getFdafPartitionCount(): Int = fdafLow.getPartitionCount()
