@@ -1146,12 +1146,28 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 **Test scripts (AncTestScript.kt) updated for post-3c0016b:**
 - `monitoredSnapshotFields` includes coherence/bankMatch/latent*
 - `car_road_tuning_v1` #7 expects `HIGH_LAT_PRED_BANK` (not FF_PREVIEW_ONLY), neural bank, no radio-static listen pass
-- `car_field_v3` prep/idle checklist: no radio static
+- UI: **only** road-tuning button (`9c47d78`); car_field_v3 not shown
+
+## 2026-07-22 Guided valid-drive advance (紅燈不計)
+
+**Must see on `git log -5`:**
+```
+7f8107f feat(test): advance on valid drive seconds (pause at red lights)
+a2e84c3 feat(test): timed auto-advance road tuning (start + save log only)
+9c47d78 ui: only road-tuning guided script (remove car_field_v3 from UI)
+```
+
+**How it works:**
+- Drive steps count **only** when GPS speed ≥ minSpeed (40/45/50 by step)
+- Red light / idle → pause, no progress
+- prep/finish = short wall clock
+- User: Start → drive → Save log
 
 **Verify:**
 ```powershell
 git pull origin main
+git log -5 --oneline   # expect 7f8107f or later
 .\gradlew.bat :shared:testDebugUnitTest --tests com.example.caranc.shared.LiteratureAlgTest --tests com.example.caranc.shared.MultiBandANCProcessorTest
-.\scripts\install-debug.ps1   # or adb install -r app\build\outputs\apk\debug\app-debug.apk
+adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 

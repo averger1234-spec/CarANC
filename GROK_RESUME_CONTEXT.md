@@ -683,3 +683,10 @@ Tests: `LiteratureAlgTest` + full `MultiBandANCProcessorTest`.
 - `PreLearnedAncBank`: soft-max cosine match on cell latent EMA; capture stores latent with FIR
 - `running_snapshot` fields: `imuMicCoherence`, `bankMatchQuality`, `bankMatchCosine`, `neuralLatentEnabled`, `latent0/1/2`
 
+### Guided test UX (same day)
+
+- UI: **only** `car_road_tuning_v1` (`9c47d78`)
+- Advance: **valid drive seconds** not wall clock (`7f8107f`) — red light / speed below threshold does not count
+- User flow: Start → auto ANC → auto step when validSec met → Save log
+- Log fields on step complete: `validSec`, `wallElapsedSec`, `advanceMode=valid_drive_sec`
+
