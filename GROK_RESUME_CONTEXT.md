@@ -10,6 +10,11 @@
 - 等級制度：LIGHT（免費輕度）、STANDARD（普通中/重度）、PRO（專業中/重度）
 - 商業 gating + dev panel 可切方案測試
 
+**產品聚焦（2026-07-23）輪噪 / 路噪 / 風切**：
+- `CabinNvhFocus`：`ROAD_RUMBLE` 40–200Hz、`TIRE_NOISE` 80–350Hz、`WIND_SHEAR` >500Hz **不追消**
+- high band 永遠 0；風切時 anti 大壓；log：`nvhFocus` / `nvhTargetHz`
+- 路測 KPI：低頻 `lowBandRumbleReduction` + 主觀 rumble；**不要**追求風切有感消噪
+
 **最新進度（2026-07-22）A/B/C + 行駛白噪修正**：
 - **A** `remote_submix`+AA+非BT → `aaLinkType=projection_submix`，不再一律 wireless
 - **B** bank default prior + seed + capture；`fixedBankOut` 行駛應非零；`learnedBinCount`

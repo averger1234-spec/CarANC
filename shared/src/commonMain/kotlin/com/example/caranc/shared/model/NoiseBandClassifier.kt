@@ -18,7 +18,11 @@ data class NoiseBandClassification(
     val lowEnergyRatio: Float,
     val midEnergyRatio: Float,
     val highEnergyRatio: Float,
-    val confidence: Float
+    val confidence: Float,
+    /** Product: tire / road / wind focus (see CabinNvhFocus). */
+    val nvhFocus: NvhFocusClass = NvhFocusClass.MIXED_CABIN,
+    val nvhTargetHzLabel: String = "",
+    val nvhSuppressHighAnti: Boolean = true
 )
 
 /**
@@ -44,7 +48,8 @@ class NoiseBandClassifier(
         speedValid: Boolean,
         isMusicActive: Boolean,
         isCallActive: Boolean,
-        linearAccelMagnitude: Float = 0f  // NEW: IMU for driving rumble bias (when speed high + accel, force ROAD even if MUSIC_BROAD)
+        linearAccelMagnitude: Float = 0f,  // NEW: IMU for driving rumble bias (when speed high + accel, force ROAD even if MUSIC_BROAD)
+        estimatedLatencyMs: Float = 150f
     ): NoiseBandClassification {
         if (spectrum.isEmpty() || sampleRate <= 0) {
             return NoiseBandClassification(
@@ -52,7 +57,10 @@ class NoiseBandClassifier(
                 lowEnergyRatio = 0.33f,
                 midEnergyRatio = 0.33f,
                 highEnergyRatio = 0.34f,
-                confidence = 0f
+                confidence = 0f,
+                nvhFocus = NvhFocusClass.MIXED_CABIN,
+                nvhTargetHzLabel = "unknown",
+                nvhSuppressHighAnti = true
             )
         }
 
@@ -62,6 +70,16 @@ class NoiseBandClassifier(
         val midRatio = midEnergy / total
         val highRatio = highEnergy / total
         val lowMidRatio = lowRatio + midRatio
+
+        val nvh = CabinNvhFocus.classify(
+            speedKmh = speedKmh,
+            speedValid = speedValid,
+            lowRatio = lowRatio,
+            midRatio = midRatio,
+            highRatio = highRatio,
+            linearAccelMagnitude = linearAccelMagnitude,
+            estimatedLatencyMs = estimatedLatencyMs
+        )
 
         // BREAKTHROUGH for AA music + Skoda rumble (2026-06-29 real log data):
         // In cabin AA playback, music energy swamps total power (highRatio~0.999, low+mid max observed 0.071 even @90kmh rough).
@@ -118,18 +136,46 @@ class NoiseBandClassifier(
             lowEnergyRatio = lowRatio,
             midEnergyRatio = midRatio,
             highEnergyRatio = highRatio,
-            confidence = confidence
+            confidence = confidence,
+            nvhFocus = nvh.focus,
+            nvhTargetHzLabel = nvh.targetHzLabel,
+            nvhSuppressHighAnti = nvh.suppressHighAnti
         )
     }
 
     fun bandGains(classification: NoiseBandClassification): BandGains {
-        return when (classification.dominantBand) {
-            DominantNoiseBand.IDLE_LOW -> BandGains(low = 1f, mid = 0.2f, high = 0.05f)
-            DominantNoiseBand.ROAD_LOW -> BandGains(low = 1f, mid = 0.28f, high = 0.08f)
-            DominantNoiseBand.ROAD_MID -> BandGains(low = 0.7f, mid = 0.55f, high = 0.12f)  // iter4+S3: higher mid for 300-350 rumble focus (pure ROAD_MID)
-            DominantNoiseBand.MUSIC_BROAD -> BandGains(low = 0.55f, mid = 0.28f, high = 0.03f)  // raised 0.15->0.28 as safer fallback for rumble-under-music (AA cabin); still < ROAD_MID 0.55
-            DominantNoiseBand.MIXED -> BandGains(low = 0.85f, mid = 0.25f, high = 0.06f)
+        val base = when (classification.dominantBand) {
+            DominantNoiseBand.IDLE_LOW -> BandGains(low = 1f, mid = 0.15f, high = 0f)
+            // 路噪：全力 low；輪噪 mid 次之；風切 high 永不開（產品政策）
+            DominantNoiseBand.ROAD_LOW -> BandGains(low = 1f, mid = 0.35f, high = 0f)
+            DominantNoiseBand.ROAD_MID -> BandGains(low = 0.85f, mid = 0.65f, high = 0f)  // tire 200-350 class
+            DominantNoiseBand.MUSIC_BROAD -> BandGains(low = 0.7f, mid = 0.3f, high = 0f)
+            DominantNoiseBand.MIXED -> BandGains(low = 0.9f, mid = 0.3f, high = 0f)
         }
+        val focus = NvhFocusResult(
+            focus = classification.nvhFocus,
+            confidence = classification.confidence,
+            targetHzLabel = classification.nvhTargetHzLabel,
+            lowPriority = when (classification.nvhFocus) {
+                NvhFocusClass.ROAD_RUMBLE -> 1f
+                NvhFocusClass.TIRE_NOISE -> 1f
+                NvhFocusClass.WIND_SHEAR -> 0.35f
+                NvhFocusClass.MIXED_CABIN -> 0.85f
+                NvhFocusClass.IDLE -> 0.2f
+            },
+            midPriority = when (classification.nvhFocus) {
+                NvhFocusClass.TIRE_NOISE -> 0.55f
+                NvhFocusClass.ROAD_RUMBLE -> 0.3f
+                NvhFocusClass.WIND_SHEAR -> 0.05f
+                NvhFocusClass.MIXED_CABIN -> 0.25f
+                NvhFocusClass.IDLE -> 0.05f
+            },
+            highPriority = 0f,
+            suppressHighAnti = true,
+            preferStructuralFf = true
+        )
+        // Product rule: high always 0 — never chase wind/hiss with adaptive ANC
+        return CabinNvhFocus.applyToBandGains(base, focus).copy(high = 0f)
     }
 
     private fun bandEnergies(spectrum: FloatArray, sampleRate: Int): Triple<Float, Float, Float> {
@@ -141,9 +187,11 @@ class NoiseBandClassifier(
         spectrum.forEachIndexed { index, magnitude ->
             val freq = (index + 0.5f) * nyquist / spectrum.size
             when {
-                // Subagent3: adjusted 300->250 / 800->850 for better 250-350Hz (rumble peak) capture into mid band; center focus 300-350
-                freq < 250f -> low += magnitude
-                freq < 850f -> mid += magnitude
+                // Product split: road rumble / deep structure
+                freq < CabinNvhFocus.ROAD_HI_HZ -> low += magnitude
+                // Tire tread + cabin mid-rumble (200–500 includes Skoda 200–350)
+                freq < CabinNvhFocus.WIND_LO_HZ -> mid += magnitude
+                // Wind shear / aero hiss / music treble — do not treat as cancel target
                 else -> high += magnitude
             }
         }

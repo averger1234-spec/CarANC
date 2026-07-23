@@ -317,6 +317,8 @@ object CarAncTestScript {
         "reductionDbLegacy",
         "lowBandRumbleReduction",
         "primaryReductionKpi",
+        "nvhFocus",
+        "nvhTargetHz",
         "requireWiredAa",
         "lowBandMuScale",
         "midBandMuScale",

@@ -117,6 +117,9 @@ class MultiBandANCProcessor(
     private var rumbleVibBoostEma = 1f  // EMA for stable boost strength in music dominant (07-01 feedback: peaks seen but not stable)
     private var bandGains = BandGains(low = 1f, mid = 0.25f, high = 0.05f)
     private var lastDominant = com.example.caranc.shared.model.DominantNoiseBand.MIXED
+    private var lastNvhFocus = com.example.caranc.shared.model.NvhFocusClass.MIXED_CABIN
+    private var lastNvhTargetHzLabel = ""
+    private var lastNvhSuppressHigh = true
     private var resonancePeaks = emptyList<com.example.caranc.shared.model.ResonancePeak>()
     private var mimoProfile: CabinMimoProfile? = null
     private var mimoZoneCount = 1
@@ -375,6 +378,9 @@ class MultiBandANCProcessor(
         // CYCLE3_EXTRA: use via context (supports injected/mock classifier).
         bandGains = sessionContext.noiseBandClassifier.bandGains(result)
         lastDominant = result.dominantBand
+        lastNvhFocus = result.nvhFocus
+        lastNvhTargetHzLabel = result.nvhTargetHzLabel
+        lastNvhSuppressHigh = result.nvhSuppressHighAnti
     }
 
     override fun updateSecondaryPath(model: FloatArray) {
@@ -878,18 +884,19 @@ class MultiBandANCProcessor(
                 else -> -lmsY + preAnti + engineFf * 0.25f
             }
 
-            // Final lowpass only under high lat (remove HF hash); keep level honest (no extra silence gate as "fix").
-            if (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode && vehicleSpeedKmh > 20f) {
-                combined = lowPassOutput(combined)
+            // Tire/road/wind: lowpass HF; wind-shear ducks hard (cannot cancel aero at AA delay).
+            val windFocus = lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.WIND_SHEAR
+            if (windFocus || lastNvhSuppressHigh ||
+                (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode && vehicleSpeedKmh > 20f)
+            ) {
+                combined = lowPassOutput(combined) * (if (windFocus) 0.45f else 1f)
             }
 
             val outputEventScale = if (musicDominantRumbleMode && rumbleEnergyProxy > 0.2f) {
                 (eventScale * 0.5f + 0.5f).coerceAtMost(1f)
             } else eventScale
 
-            // Idle hiss control: never hard-zero real cancel energy.
-            // Old gate forced combined→0 whenever speed<10 & no IMU → unit residual=input and phone
-            // "silent when idle" instead of canceling cabin tone. Only attenuate micro-hiss.
+            // Idle: only mute micro-hiss. Wind focus: keep mild low boom only (no HF chase → less telegraph).
             val lowExcitationNoRumble = vehicleSpeedKmh < 10f && rumbleAccelMag < 0.4f && rumbleEnergyProxy < 0.15f && !effectiveRumbleMode
             val weakDriveHiss = vehicleSpeedKmh in 10f..35f && rumbleAccelMag < 0.35f && rumbleEnergyProxy < 0.12f &&
                 estimatedLatencyMs > HIGH_LATENCY_MS
@@ -897,6 +904,7 @@ class MultiBandANCProcessor(
             val gatedCombined = when {
                 lowExcitationNoRumble && absCombined < 0.008f -> 0f
                 lowExcitationNoRumble -> combined * 0.85f
+                windFocus -> combined * 0.4f
                 weakDriveHiss -> combined * 0.45f
                 else -> combined
             }
@@ -1365,4 +1373,8 @@ class MultiBandANCProcessor(
     override fun getLastFixedBankOut(): Float = lastFixedBankOut
     override fun isFdafDelayless(): Boolean = fdafLow.isDelaylessEnabled()
     override fun getFdafPartitionCount(): Int = fdafLow.getPartitionCount()
+
+    /** Product NVH focus: ROAD_RUMBLE / TIRE_NOISE / WIND_SHEAR / … */
+    override fun getNvhFocus(): String = lastNvhFocus.name
+    override fun getNvhTargetHzLabel(): String = lastNvhTargetHzLabel
 }

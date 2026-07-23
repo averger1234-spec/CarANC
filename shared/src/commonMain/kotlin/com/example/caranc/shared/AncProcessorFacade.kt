@@ -136,6 +136,10 @@ interface AncProcessorFacade : AudioProcessor {
     fun isFdafDelayless(): Boolean = false
     fun getFdafPartitionCount(): Int = 0
 
+    /** Product: tire/road/wind — ROAD_RUMBLE / TIRE_NOISE / WIND_SHEAR / … */
+    fun getNvhFocus(): String = "MIXED_CABIN"
+    fun getNvhTargetHzLabel(): String = ""
+
     /** IMU↔mic low coherence proxy 0..1 (literature multi-coherence gate). */
     fun getImuMicCoherenceQuality(): Float = 0.5f
     /** Bank latent soft-max peak mass 0..1 (US2025-style match quality). */

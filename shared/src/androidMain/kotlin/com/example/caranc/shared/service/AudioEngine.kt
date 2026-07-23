@@ -1343,7 +1343,10 @@ class AudioEngine(
             speedValid = speed.valid,
             isMusicActive = audioManager.isMusicActive,
             isCallActive = audioManager.mode != AudioManager.MODE_NORMAL,
-            linearAccelMagnitude = speed.linearAccelMagnitude  // pass IMU for driving rumble bias in classifier (force ROAD even if MUSIC_BROAD when driving high accel)
+            linearAccelMagnitude = speed.linearAccelMagnitude,  // IMU prior for tire/road vs wind
+            estimatedLatencyMs = currentLatency?.totalMs
+                ?: ancProcessor?.getMeasuredLatencyMs()
+                ?: 150f
         )
 
         // Real-time visibility for "when speakers produce sound" (user: can't know in real-time when ANC anti is played through AA speakers).
@@ -1393,6 +1396,9 @@ class AudioEngine(
                         // Primary KPI for driving rumble (docs C): low-band <250Hz spectral reduction
                         "lowBandRumbleReduction" to lowBandReductionDb,
                         "primaryReductionKpi" to "lowBandRumbleReduction",
+                        // Product: 輪噪/路噪/風切
+                        "nvhFocus" to (ancProcessor?.getNvhFocus() ?: "MIXED_CABIN"),
+                        "nvhTargetHz" to (ancProcessor?.getNvhTargetHzLabel() ?: ""),
                         // Closed-loop self-check (program band energy — not external phone recorder)
                         "rawLowBandDb" to lastRawLowBandDb,
                         "residualLowBandDb" to lastResidualLowBandDb,
