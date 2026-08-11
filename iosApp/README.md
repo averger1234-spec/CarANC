@@ -39,12 +39,13 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 
 | 能力 | iOS 現況 | Android |
 |------|----------|---------|
-| 多頻段 FxLMS | ✅ Swift MVP | ✅ 完整 MultiBand + FDAF/bank |
+| 多頻段 DSP | ✅ **KMP `MultiBandANCProcessor`**（`CarANCShared.framework`） | ✅ 同核心 |
 | 路測腳本 | ✅ car_road_tuning_v1 | ✅ 同腳本 + 更全 log |
-| Session log | ✅ running_snapshot 文字 | ✅ JSONL |
+| Session log | ✅ running_snapshot 同欄位名 | ✅ JSONL |
 | GPS / IMU | ✅ | ✅ |
 | Android Auto / CarPlay | ❌ 尚未 | ✅ AA |
-| 本機喇叭 duplex | ✅ | ✅ |
+| 本機喇叭 duplex | ✅ AVAudioEngine | ✅ |
+| 預編 IPA | ✅ `dist/CarANC-ios-kmp-debug.ipa` | — |
 
 ## 結構
 

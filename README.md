@@ -2,10 +2,38 @@
 
 **手機即裝即用車內主動降噪（Active Noise Cancellation）**
 
-CarANC 是一款 Android 應用，透過手機麥克風收音、即時 DSP 演算法產生反相聲波，並經喇叭（含 Android Auto 車機）播放，為沒有原廠 ANC 的車主提供軟體降噪方案。目標使用者為 Android Auto 通勤族、二手車或無內建主動降噪的車主。
+CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
 **跨機器**：見 `MULTI_MACHINE_SYNC.md` + `GROK_RESUME_CONTEXT.md`（先 `git pull origin main`）。
+
+---
+
+## 最新進度（2026-08-11）— iOS + 共用 DSP + IPA
+
+| 項目 | 說明 | 狀態 |
+|------|------|------|
+| **iOS App** | `iosApp/` SwiftUI：狀態／方案／測試腳本／測試平台 | ✅ |
+| **共用 DSP** | KMP `CarANCShared.framework` → `MultiBandANCProcessor`（與 Android 同源） | ✅ 已接真機 |
+| **Log schema** | 與 Android `running_snapshot` **同欄位名**（`AncRunningSnapshotSchema`） | ✅ |
+| **路測腳本** | iOS 對齊 `car_road_tuning_v1`（有效行駛秒數） | ✅ |
+| **Windows 裝 iPhone** | 預編 IPA + Sideloadly（Windows **不能編譯** iOS） | ✅ |
+
+| 路徑 | 用途 |
+|------|------|
+| [`iosApp/README.md`](iosApp/README.md) | iOS 專案說明、與 Android 資料夾分工 |
+| [`iosApp/ROAD_TEST_VERIFY.md`](iosApp/ROAD_TEST_VERIFY.md) | 實車驗證 × log 欄位 |
+| [`iosApp/ANDROID_REUSE.md`](iosApp/ANDROID_REUSE.md) | 如何複用 Android／KMP |
+| [`dist/CarANC-ios-kmp-debug.ipa`](dist/CarANC-ios-kmp-debug.ipa) | iOS 安裝包（Development 簽名，約 7 天） |
+| [`dist/WINDOWS_INSTALL_SIDELOADLY.md`](dist/WINDOWS_INSTALL_SIDELOADLY.md) | Windows → Sideloadly → iPhone |
+
+```bash
+git pull origin main
+# Android：.\scripts\install-debug.ps1
+# iOS：見 iosApp/README.md 或下載 dist/*.ipa
+```
+
+**注意**：iOS 尚無 CarPlay／完整 AA 路徑；部分 plant residual KPI 仍以代理或 `n/a` 為主。Android 路測仍以 USB AA + `lowBandRumbleReduction` 為準。
 
 ---
 
@@ -126,29 +154,54 @@ Log 看：`nvhFocus` = `ROAD_RUMBLE` / `TIRE_NOISE` / `WIND_SHEAR`；`nvhTargetH
 CarANC/
 ├── app/                    # Android 應用（Compose UI、Android Auto 入口）
 │   └── src/main/java/com/example/caranc/
-├── shared/                 # 共用核心（KMP commonMain + androidMain）
+├── iosApp/                 # iOS 應用（SwiftUI + AVAudioEngine + KMP framework）
+│   ├── CarANC.xcodeproj
+│   ├── README.md
+│   ├── ROAD_TEST_VERIFY.md
+│   └── ANDROID_REUSE.md
+├── shared/                 # 共用核心（KMP：Android + iOS）
 │   └── src/
-│       ├── commonMain/     # 演算法、狀態、商業邏輯、測試腳本
-│       └── androidMain/    # ANCService、音訊路由、GPS、手動 RPM、Logger
-├── log/                    # Session log 輸出目錄（執行時產生）
+│       ├── commonMain/     # MultiBandANCProcessor、腳本、commercial、log schema
+│       ├── androidMain/    # ANCService、音訊路由、GPS、Logger
+│       └── iosMain/        # iOS actual（Keep、時間、Entitlement、facade）
+├── dist/                   # 預編產物（iOS .ipa + Windows 安裝說明）
+├── scripts/                # Android 安裝／打包腳本
 ├── gradle/
+├── version.properties      # Android 版號
 ├── build.gradle.kts
 ├── settings.gradle.kts
 └── README.md
 ```
 
+| 平台 | 目錄 | 說明 |
+|------|------|------|
+| Android | `app/` + `shared` | 完整產品；Play `internal`/`store` flavor |
+| iOS | `iosApp/` + `shared` | 路測／開發；DSP 走 `CarANCShared.framework` |
+| 兩邊共用 | `shared/commonMain` | 演算法與腳本定義；**勿另發明 KPI 欄位名** |
+
 ---
 
 ## 環境需求
+
+### Android
 
 | 項目 | 版本 |
 |------|------|
 | Android Studio | Ladybug 或更新版本（建議） |
 | JDK | 17 |
 | minSdk | 26 |
-| targetSdk / compileSdk | 34 |
+| targetSdk / compileSdk | 34+（store 準備見 `version.properties` / Play 文件） |
 | Kotlin | 2.2.10 |
 | AGP | 9.2.1 |
+
+### iOS（Mac）
+
+| 項目 | 說明 |
+|------|------|
+| Xcode | 16+（本機曾用 Xcode 26 真機） |
+| JDK 17 | 建 KMP framework：`./gradlew :shared:linkDebugFrameworkIosArm64` |
+| 產出 | `shared/build/bin/iosArm64/debugFramework/CarANCShared.framework` → 複製到 `iosApp/Frameworks/` |
+| 詳見 | [`iosApp/README.md`](iosApp/README.md) |
 
 實車測試建議：
 
