@@ -64,6 +64,28 @@
 
 打 **store release AAB** 給 Play Console。需先設定 `keystore.properties`（見 `keystore.properties.example`）才是正式上傳簽名。
 
+### 1c. install-ios-sideloadly.ps1 / .bat（Windows 把 IPA 裝到 iPhone）
+
+**用途**：這台是 Windows 時，用 **Sideloadly** 安裝 `dist\CarANC-ios-kmp-debug.ipa`（**不能在 Windows 編譯 iOS**）。
+
+**第一次環境**（可 winget）：
+
+```powershell
+winget install --id Apple.AppleMobileDeviceSupport -e --accept-package-agreements --accept-source-agreements
+winget install --id iOSGods.Sideloadly -e --accept-package-agreements --accept-source-agreements
+```
+
+**怎麼用**：
+
+1. `git pull` 拿到最新 `dist\*.ipa`
+2. iPhone USB 接電腦 → 信任此電腦
+3. 雙擊 `scripts\install-ios-sideloadly.bat`（會開 Sideloadly 並複製 IPA 路徑）
+4. 選裝置、貼 IPA、登入 Apple ID → Start
+5. iPhone：設定 → 一般 → VPN 與裝置管理 → 信任開發者
+
+完整說明：[`dist/WINDOWS_INSTALL_SIDELOADLY.md`](../dist/WINDOWS_INSTALL_SIDELOADLY.md)  
+多機流程：[`MULTI_MACHINE_SYNC.md`](../MULTI_MACHINE_SYNC.md)
+
 ### 2. pull-latest-log.ps1 （直接把手機上的 log 拉到電腦）
 
 **用途**：跑完路測後，不用手動上傳 Google Drive。腳本會自動把最新的測試 log 複製到你電腦的 `log/` 資料夾。

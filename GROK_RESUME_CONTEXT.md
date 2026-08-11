@@ -1,4 +1,20 @@
-﻿# Grok CLI Resume Context（跨機器使用）
+﻿# 最新多機同步索引（2026-08-11）
+
+**請先讀**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」。
+
+| 區塊 | 文件 |
+|------|------|
+| 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
+| 總覽 | `README.md` |
+| Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
+| Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
+| 腳本 | `scripts/README.md` |
+
+近期 commit 方向：Play flavor 準備、iOS+KMP IPA、Sideloadly 腳本。  
+keystore **不在** GitHub，多機自行拷貝。
+
+---
+# Grok CLI Resume Context（跨機器使用）
 
 **用途**：在任何新機器（第二台 Windows、Mac 等）第一次開啟 Grok CLI / AS 內建 Grok Terminal 時，先 `git pull`，然後把下面整段文字複製貼給 Grok，快速恢復完整上下文。
 

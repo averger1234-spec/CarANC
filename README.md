@@ -5,7 +5,37 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**跨機器**：見 `MULTI_MACHINE_SYNC.md` + `GROK_RESUME_CONTEXT.md`（先 `git pull origin main`）。
+**跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
+（深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
+
+### 多機一分鐘流程
+
+```powershell
+# 開工（每台）
+git pull origin main
+
+# Android Dev
+.\scripts\install-debug.ps1
+
+# Windows 裝 iPhone（預編 IPA）
+.\scripts\install-ios-sideloadly.ps1
+
+# 改完
+git add -A
+git commit -m "docs: ..."
+git push origin main
+```
+
+| 文件 | 用途 |
+|------|------|
+| [`MULTI_MACHINE_SYNC.md`](MULTI_MACHINE_SYNC.md) | 多機同步主指南 |
+| [`DISTRIBUTION.md`](DISTRIBUTION.md) | store / internal、簽名、版本號 |
+| [`PLAY_RELEASE_CHECKLIST.md`](PLAY_RELEASE_CHECKLIST.md) | Play 上架檢查清單 |
+| [`DATA_SAFETY.md`](DATA_SAFETY.md) | Play 資料安全填寫 |
+| [`dist/WINDOWS_INSTALL_SIDELOADLY.md`](dist/WINDOWS_INSTALL_SIDELOADLY.md) | Windows → iPhone |
+| [`scripts/README.md`](scripts/README.md) | 本機腳本總表 |
+
+**不會進 GitHub**（需自行拷貝到要打 Play AAB 的電腦）：`upload-keystore.jks`、`keystore.properties`。
 
 ---
 

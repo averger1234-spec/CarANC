@@ -6,7 +6,101 @@
 
 ---
 
-## 另一台電腦現在請這樣拉（2026-07-22）
+## 另一台電腦現在請這樣拉（2026-08-11 · 現行）
+
+> 你有多台電腦：以 **GitHub `main` 為唯一真相**。換機先 pull，改完再 push。
+
+### 1. 拉程式（每台、每次開工）
+
+```powershell
+cd <你的路徑>\CarANC
+git pull origin main
+git log -5 --oneline
+# 近期應能看到例如：
+# 6d7aaa1 docs+scripts: Windows iPhone install helper (Sideloadly)
+# eadd9ea / bca6af1  ios: KMP DSP + IPA
+# 658992d feat(play): store/internal flavors and Play release prep
+```
+
+### 2. 依用途選讀文件（多機必讀索引）
+
+| 你要做什麼 | 先讀哪個 md |
+|------------|-------------|
+| **換機同步流程（本檔）** | `MULTI_MACHINE_SYNC.md`（本節） |
+| 專案總覽 / iOS+Android 現況 | `README.md` →「最新進度（2026-08-11）」 |
+| Android 日常裝機 / 拉 log | `scripts/README.md` |
+| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
+| iOS 專案 / 路測 log | `iosApp/README.md`、`iosApp/ROAD_TEST_VERIFY.md` |
+| Play 上架 / store vs internal | `DISTRIBUTION.md`、`PLAY_RELEASE_CHECKLIST.md` |
+| Play 資料安全怎麼填 | `DATA_SAFETY.md` |
+| 隱私政策 | `PRIVACY.md` |
+
+### 3. 常用指令（Windows）
+
+```powershell
+# Android 路測 Dev（internal，com.example.caranc）
+.\scripts\install-debug.ps1
+
+# Android 預覽商店 UI（store，com.caranc.app，可並存）
+.\scripts\install-debug.ps1 -Flavor store
+
+# 拉 Android session log
+.\scripts\pull-latest-log.ps1
+
+# Windows → 用預編 IPA 裝到 iPhone（需 USB + Apple ID）
+# 第一次環境：winget install Apple.AppleMobileDeviceSupport
+#              winget install iOSGods.Sideloadly
+.\scripts\install-ios-sideloadly.ps1
+# 或雙擊 scripts\install-ios-sideloadly.bat
+
+# Play AAB（需本機 keystore.properties，見下）
+.\scripts\bundle-store-release.ps1
+```
+
+### 4. 會進 GitHub vs 不會進（多機特別注意）
+
+| 內容 | GitHub | 多機怎麼辦 |
+|------|--------|------------|
+| 原始碼、md、腳本、`dist/*.ipa` | ✅ pull 就有 | `git pull` |
+| `upload-keystore.jks` / `keystore.properties` | ❌ gitignore | **USB／密碼管理器自行拷貝**到每台要打 store AAB 的 PC |
+| `secrets/UPLOAD_KEY_BACKUP.txt` | ❌ | 同上 |
+| 手機上的 session log | ❌ | 用 `pull-latest-log` 或 App 匯出 |
+
+沒有 keystore 仍可：改 code、internal 路測、裝 iOS IPA。  
+只有 **打 store release 上傳 Play** 才需要 keystore。
+
+### 5. 近期架構變更摘要（2026-07 末～2026-08-11）
+
+| 區塊 | 內容 | 主要路徑 / 文件 |
+|------|------|-----------------|
+| **Play 準備** | `internal` / `store` flavor；store=`com.caranc.app`；公開免費體驗強制 FREE；targetSdk 35；`version.properties` | `app/build.gradle.kts`、`StoreReleasePolicy.kt`、`DISTRIBUTION.md` |
+| **iOS App** | SwiftUI + AVAudioEngine；狀態／方案／腳本／測試平台 | `iosApp/` |
+| **KMP DSP** | iOS 接 `CarANCShared` → `MultiBandANCProcessor`；snapshot 欄位對齊 Android | `shared/` + framework |
+| **Windows→iPhone** | 預編 IPA + Sideloadly 一鍵腳本 | `dist/`、`scripts/install-ios-sideloadly.*` |
+| **Android 路測** | 仍以 internal + USB AA + log 為主 | `scripts/install-debug`、`pull-latest-log` |
+
+### 6. Android Studio / 換機後建置
+
+1. **File → Reload All from Disk**
+2. **Sync Project with Gradle Files**（flavor 後選 `internalDebug` 日常用）
+3. `.\scripts\install-debug.ps1` 裝 Dev  
+   - 簽章／package 衝突時：`adb uninstall com.example.caranc` 或 `com.caranc.app`
+
+### 7. 改完一定要推（另一台才看得到）
+
+```powershell
+git status
+git add <有改的檔>
+git commit -m "android: ... 或 ios: ... 或 docs: ..."
+git push origin main
+```
+
+在另一台：`git pull origin main`。  
+也可在對話裡說「更新到 GitHub」，請 AI 幫 commit+push（**不會**推 keystore）。
+
+---
+
+## 另一台電腦歷史節點（2026-07-22 · 保留）
 
 在第二台（或任何機器）的專案根目錄：
 
@@ -14,9 +108,6 @@
 cd <你的路徑>\CarANC
 git pull origin main
 git log -5 --oneline
-# 應至少看到：
-# 1d8eb1a fix(anc): A/B/C wireless+bank+reduction KPI and driving hiss
-# （以及更早的 f624ad0 / b9e135c / dafbcac 等）
 ```
 
 Android Studio：
@@ -25,12 +116,11 @@ Android Studio：
 2. **Sync Project with Gradle Files**
 3. 可選：`.\scripts\install-debug.ps1` 裝到手機（簽章不符時先 `adb uninstall com.example.caranc`）
 
-讀文件恢復上下文（**三份 .md 已對齊**）：
+讀文件恢復上下文：
 
-1. `GROK_RESUME_CONTEXT.md` 最上方「最新進度（2026-07-22）」
-2. `README.md` 同標題段落
-3. 本檔（`MULTI_MACHINE_SYNC.md`）本節 + 文末 2026-07-22 章
-4. 把 GROK 那段貼給新 Grok 對話當開場
+1. `README.md`「最新進度」
+2. 本檔（`MULTI_MACHINE_SYNC.md`）**上方 2026-08-11 現行節**
+3. 需要深度履歷時再看 `GROK_RESUME_CONTEXT.md`
 
 ### 架構變更摘要（含 07-22 A/B/C）
 
@@ -49,6 +139,7 @@ Android Studio：
 **聽感**：怠速應靜；行駛沙沙應比舊版少；log 看 `fixedBankOut` / `lowBandRumbleReduction` / `effectiveMidMu≈0`（高 lat）。
 
 ---
+
 
 ## 無車測真 AA：電腦當車機（Desktop Head Unit / DHU）
 
