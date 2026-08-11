@@ -9,12 +9,13 @@ kotlin {
     // iOS targets - add for Mac build
     iosArm64 {
         binaries.framework {
-            baseName = "CarANC"
+            // Distinct from Swift app module name "CarANC" (avoids import CarANC self-conflict)
+            baseName = "CarANCShared"
         }
     }
     iosSimulatorArm64 {
         binaries.framework {
-            baseName = "CarANC"
+            baseName = "CarANCShared"
         }
     }
 
@@ -25,12 +26,11 @@ kotlin {
         commonMain.dependencies {
             // P1 #4: coroutines version now from libs.versions.toml (unified; was direct "1.8.1")
             implementation(libs.kotlinx.coroutines.core)
-            // androidx.annotation for @Keep annotations on DSP core (see commonMain files: MultiBandANCProcessor.kt etc.)
-            // Ensures @Keep survives even if proguard rules are bypassed; added for P0 ProGuard hardening
-            implementation(libs.androidx.annotation)
+            // @Keep is multiplatform expect/actual (see Keep.kt) — no androidx in commonMain (breaks K/N ABI)
         }
 
         androidMain.dependencies {
+            implementation(libs.androidx.annotation)
             // P1 #4 unify: all direct version strings moved to gradle/libs.versions.toml catalog refs
             // (core-ktx 1.13.1, lifecycles 2.8.6, car.app 1.4.0, play-services 21.3.0)
             // Behavior kept identical via version refs in [versions] + [libraries]

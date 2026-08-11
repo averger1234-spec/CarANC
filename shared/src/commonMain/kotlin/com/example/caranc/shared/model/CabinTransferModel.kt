@@ -1,6 +1,6 @@
 package com.example.caranc.shared.model
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 import com.example.caranc.shared.ImpulseResponseEstimate
 
 @Keep

@@ -1,6 +1,6 @@
 package com.example.caranc.shared.latency
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 
 /**
  * 將麥克風誤差轉換為駕駛耳點虛擬誤差，供 FXLMS 權重更新使用。

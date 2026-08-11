@@ -1,6 +1,6 @@
 package com.example.caranc.shared.latency
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 import com.example.caranc.shared.RoadNoiseReferenceModel
 import kotlin.math.PI
 import kotlin.math.sin

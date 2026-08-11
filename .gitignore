@@ -1,4 +1,4 @@
-﻿# Gradle
+# Gradle
 .gradle/
 build/
 local.properties
@@ -33,3 +33,19 @@ keystore.properties
 *.keystore
 !keystore.properties.example
 secrets/
+
+# iOS (Xcode derived data / local build products)
+iosApp/build/
+iosApp/**/xcuserdata/
+*.xcuserstate
+
+# iOS local build products / vendored binaries (rebuild: ./gradlew :shared:linkDebugFrameworkIosArm64)
+iosApp/Frameworks/
+iosApp/build/
+iosApp/**/xcuserdata/
+*.xcuserstate
+
+# KMP native outputs
+shared/build/
+.kotlin/
+.konan/

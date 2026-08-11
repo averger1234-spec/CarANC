@@ -1,6 +1,6 @@
 package com.example.caranc.shared.latency
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 
 /**
  * 低頻 4x 降採樣 FXLMS 包裝：等效更長時間窗、更低運算延遲。

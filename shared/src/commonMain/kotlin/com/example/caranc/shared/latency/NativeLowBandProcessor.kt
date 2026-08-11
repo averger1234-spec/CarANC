@@ -1,6 +1,6 @@
 package com.example.caranc.shared.latency
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 
 /**
  * CYCLE3_EXTRA: Native low-freq path prototype.

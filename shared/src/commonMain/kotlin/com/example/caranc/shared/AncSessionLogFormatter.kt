@@ -35,7 +35,7 @@ internal object AncSessionLogFormatter {
     }
 
     private fun formatFloat(value: Float): String {
-        return if (value.isNaN() || value.isInfinite()) "0" else "%.4f".format(value)
+        return if (value.isNaN() || value.isInfinite()) "0" else com.example.caranc.shared.formatFloat(value, 4)
     }
 
     private fun escape(text: String): String {

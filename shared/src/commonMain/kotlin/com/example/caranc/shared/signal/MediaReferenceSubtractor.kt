@@ -1,6 +1,6 @@
 package com.example.caranc.shared.signal
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 
 /**
  * 以播放參考估計麥克風中的音樂成分並扣除，留下環境殘差供 ANC 處理。

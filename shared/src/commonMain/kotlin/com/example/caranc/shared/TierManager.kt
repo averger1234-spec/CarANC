@@ -83,9 +83,9 @@ class AncPerfMetrics {
         lastFullLoopMs = dtMs
         emaFullLoopMs = if (emaFullLoopMs < 1e-6) dtMs else (1 - emaAlpha) * emaFullLoopMs + emaAlpha * dtMs
         currentMode = mode
-        val cnt = modeBlockCounts.getOrDefault(mode, 0L) + 1
+        val cnt = (modeBlockCounts[mode] ?: 0L) + 1
         modeBlockCounts[mode] = cnt
-        val prevEma = modeEmaMs.getOrDefault(mode, 0.0)
+        val prevEma = modeEmaMs[mode] ?: 0.0
         modeEmaMs[mode] = if (prevEma < 1e-6) dtMs else (1 - emaAlpha) * prevEma + emaAlpha * dtMs
     }
 

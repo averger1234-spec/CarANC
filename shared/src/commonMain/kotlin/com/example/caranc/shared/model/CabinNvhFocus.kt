@@ -1,6 +1,6 @@
 package com.example.caranc.shared.model
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 
 /**
  * Product focus: **輪噪 / 路噪 / 風切** only (cabin NVH while driving).

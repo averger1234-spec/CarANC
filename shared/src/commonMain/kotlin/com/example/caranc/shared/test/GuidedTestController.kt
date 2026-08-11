@@ -1,5 +1,7 @@
 package com.example.caranc.shared.test
 
+import com.example.caranc.shared.formatFloat0
+
 import com.example.caranc.shared.AncSessionContext
 import com.example.caranc.shared.GlobalAncSessionContext
 import com.example.caranc.shared.commercial.ProductCatalog
@@ -153,9 +155,9 @@ object GuidedTestController {
                 true to if (!ancRunning && step.id.contains("prep", true)) "等待 ANC 啟動中…" else "準備/結束（壁鐘）"
             }
             !speedValid -> false to "GPS 無效 · 不計有效秒"
-            speed < minSpd -> false to "車速 ${"%.0f".format(speed)} < ${"%.0f".format(minSpd)}（紅燈/怠速不計）"
+            speed < minSpd -> false to "車速 ${formatFloat0(speed)} < ${formatFloat0(minSpd)}（紅燈/怠速不計）"
             step.requiresAncRunning && !ancRunning -> false to "ANC 未運行 · 不計有效秒"
-            else -> true to "收集中 · 車速 ${"%.0f".format(speed)} km/h"
+            else -> true to "收集中 · 車速 ${formatFloat0(speed)} km/h"
         }
 
         val valid = if (countThisSec) state.validSec + 1 else state.validSec
@@ -343,7 +345,7 @@ object GuidedTestController {
             validSec = 0,
             wallElapsedSec = 0,
             collectingNow = false,
-            pauseReason = if (wallOnly) "準備/結束" else "等待車速 ≥ ${"%.0f".format(step.minSpeedKmh)}",
+            pauseReason = if (wallOnly) "準備/結束" else "等待車速 ≥ ${formatFloat0(step.minSpeedKmh)}",
             minSpeedKmh = step.minSpeedKmh,
             wallClockOnly = wallOnly,
             autoAdvance = autoAdvanceEnabled,

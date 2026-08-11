@@ -1,7 +1,7 @@
 package com.example.caranc.shared.latency
 
 import android.util.Log
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 
 /**
  * Android actual for NativeLowBandProcessor (CYCLE3_EXTRA native low-freq proto).

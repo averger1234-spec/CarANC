@@ -1,6 +1,6 @@
 package com.example.caranc.shared.model
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 
 /**
  * AMBEO-lite 試作：以多區域 secondary path 加權混合，模擬 MIMO 車廂聲場。

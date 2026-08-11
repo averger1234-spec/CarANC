@@ -1,6 +1,6 @@
 package com.example.caranc.shared.latency
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 import kotlin.math.abs
 import kotlin.math.exp
 

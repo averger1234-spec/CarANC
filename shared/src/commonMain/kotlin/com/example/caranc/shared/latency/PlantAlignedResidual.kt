@@ -1,6 +1,6 @@
 package com.example.caranc.shared.latency
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.sqrt
@@ -72,7 +72,7 @@ object PlantAlignedResidual {
         val st = start.coerceIn(0, end)
         val len = end - st
         if (len < 8 || sampleRate <= 0) return -90f
-        val w = 2.0 * Math.PI * freqHz / sampleRate
+        val w = 2.0 * kotlin.math.PI * freqHz / sampleRate
         var re = 0.0
         var im = 0.0
         for (i in 0 until len) {

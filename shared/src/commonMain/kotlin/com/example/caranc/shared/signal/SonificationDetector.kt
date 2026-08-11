@@ -1,6 +1,6 @@
 package com.example.caranc.shared.signal
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 import kotlin.math.abs
 
 /**
@@ -23,8 +23,8 @@ import kotlin.math.abs
 @Keep
 class SonificationDetector(sampleRate: Int) {
     // 短事件特性：快速能量上升 + 快速衰減。使用雙 EMA（快攻擊 / 慢釋放）偵測 burst。
-    private val fastCoeff = (2.0 * Math.PI * 20.0 / sampleRate).toFloat().coerceIn(0.05f, 0.3f)  // ~20Hz envelope
-    private val slowCoeff = (2.0 * Math.PI * 5.0 / sampleRate).toFloat().coerceIn(0.01f, 0.1f)
+    private val fastCoeff = (2.0 * kotlin.math.PI * 20.0 / sampleRate).toFloat().coerceIn(0.05f, 0.3f)  // ~20Hz envelope
+    private val slowCoeff = (2.0 * kotlin.math.PI * 5.0 / sampleRate).toFloat().coerceIn(0.01f, 0.1f)
 
     private var envFast = 0f
     private var envSlow = 0f

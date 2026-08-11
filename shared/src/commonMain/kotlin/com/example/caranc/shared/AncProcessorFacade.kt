@@ -1,6 +1,6 @@
 package com.example.caranc.shared
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 import com.example.caranc.shared.latency.LatencyBandLimits
 import com.example.caranc.shared.model.CabinTransferModel
 import com.example.caranc.shared.model.NoiseBandClassification

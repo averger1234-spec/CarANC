@@ -1,6 +1,6 @@
 package com.example.caranc.shared
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 import com.example.caranc.shared.model.BandGains
 import com.example.caranc.shared.model.CabinMimoProfile
 import com.example.caranc.shared.model.CabinResonanceDetector
@@ -339,7 +339,7 @@ class MultiBandANCProcessor(
     override fun setRumbleAccel(mag: Float) {
         rumbleAccelMag = mag.coerceAtLeast(0f)
         // Feed to predictor (with current time as proxy; in practice timestamp from engine would be better)
-        rumblePredictor.update(rumbleAccelMag, vehicleSpeedKmh, System.currentTimeMillis().toDouble())
+        rumblePredictor.update(rumbleAccelMag, vehicleSpeedKmh, platformEpochMs().toDouble())
     }
 
     /** #7: road surface roughness proxy from VehicleSpeedProvider (IMU variance). */
@@ -423,7 +423,7 @@ class MultiBandANCProcessor(
             val cutoff = sessionContext.roadNoiseReferenceModel.lowPassCutoffHz(vehicleSpeedKmh)
             roadLpCoeff = (2.0 * PI * cutoff / sampleRate).toFloat().coerceIn(0.005f, 0.15f)
             // Update predictor with speed (IMU already fed via setRumbleAccel)
-            rumblePredictor.update(rumbleAccelMag, vehicleSpeedKmh, System.currentTimeMillis().toDouble())
+            rumblePredictor.update(rumbleAccelMag, vehicleSpeedKmh, platformEpochMs().toDouble())
             // #7: speed×roughness pre-learned blend — primary under high lat, light assist otherwise
             val blend = when {
                 estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode -> 0.72f

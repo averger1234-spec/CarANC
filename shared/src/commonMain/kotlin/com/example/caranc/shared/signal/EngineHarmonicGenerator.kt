@@ -1,6 +1,6 @@
 package com.example.caranc.shared.signal
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 import kotlin.math.PI
 import kotlin.math.sin
 

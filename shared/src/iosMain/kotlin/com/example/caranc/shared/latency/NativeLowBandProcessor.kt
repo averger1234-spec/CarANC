@@ -1,6 +1,6 @@
 package com.example.caranc.shared.latency
 
-import androidx.annotation.Keep
+import com.example.caranc.shared.Keep
 
 /**
  * iOS actual for NativeLowBandProcessor (CYCLE3_EXTRA proto stub).
