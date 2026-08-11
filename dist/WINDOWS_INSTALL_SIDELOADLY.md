@@ -7,16 +7,45 @@
 - 通常 **約 7 天過期**，過期後需 Mac 重簽再裝
 - 安裝時建議用 **同一個 Apple ID**（簽 ipa 的帳號）
 
-## 步驟
+## 本機環境準備（這台 Windows）
 
-1. iPhone 用 USB 接 Windows（信任電腦）
-2. 下載安裝 [Sideloadly](https://sideloadly.io/)
-3. 開啟 Sideloadly → 選裝置
-4. Apple 欄填你的 **Apple ID**（建議與開發簽名同一帳號）
-5. IPA 欄選 `CarANC-ios-kmp-debug.ipa`
-6. Start → 等安裝完成
-7. iPhone：**設定 → 一般 → VPN 與裝置管理** → 信任開發者
-8. 開啟 **CarANC**
+在專案根目錄 PowerShell（可重複執行）：
+
+```powershell
+# 1) Apple USB 裝置支援（讓 Windows 認 iPhone）
+winget install --id Apple.AppleMobileDeviceSupport -e --accept-package-agreements --accept-source-agreements
+
+# 2) Sideloadly（裝 IPA）
+winget install --id iOSGods.Sideloadly -e --accept-package-agreements --accept-source-agreements
+
+# 3) 確認 IPA 存在
+dir dist\CarANC-ios-kmp-debug.ipa
+```
+
+一鍵開啟 Sideloadly 並複製 IPA 路徑到剪貼簿：
+
+```bat
+scripts\install-ios-sideloadly.bat
+```
+
+或：
+
+```powershell
+.\scripts\install-ios-sideloadly.ps1
+```
+
+## 步驟（裝到手機）
+
+1. iPhone 用 **可傳資料的 USB** 接 Windows  
+2. 手機跳出「信任此電腦？」→ **信任**（輸入鎖屏密碼）  
+3. 雙擊 `scripts\install-ios-sideloadly.bat`（或開始選單開 Sideloadly）  
+4. Sideloadly 選你的 **iPhone**  
+5. IPA 欄貼上路徑（腳本已複製）或拖入：  
+   `dist\CarANC-ios-kmp-debug.ipa`  
+6. Apple 欄填 **Apple ID**（建議與 Mac 簽 ipa 同一帳號）+ 密碼  
+7. **Start** → 等完成  
+8. iPhone：**設定 → 一般 → VPN 與裝置管理**（或「裝置管理」）→ 信任該開發者  
+9. 開啟 **CarANC**，允許 **麥克風**、**定位**
 
 ## 從 GitHub 取得
 
@@ -26,14 +55,16 @@ Mac 推送後：
   dist/WINDOWS_INSTALL_SIDELOADLY.md
 ```
 
-Windows：`git pull` 或下載 Release，再依上面 Sideloadly 步驟。
+Windows：`git pull` 後再跑 `scripts\install-ios-sideloadly.bat`。
 
 ## 若安裝失敗
 
-- 換線 / 重插 / 信任電腦
-- Apple ID 開「允許安全性」App 密碼（若需要）
-- 免費帳號裝置數達上限 → 移除舊開發 App
-- 過期：回 Mac 重編 ipa 再裝
+- 換線 / 重插 / 信任電腦；拔插後重開 Sideloadly  
+- 尚未裝 Apple Mobile Device Support → 見上方 winget  
+- Apple ID 若要求「App 專用密碼」→ [appleid.apple.com](https://appleid.apple.com) 產生  
+- 免費帳號裝置數達上限 → 移除舊開發 App  
+- 過期（約 7 天）：回 Mac 重編 ipa，`git pull` 再裝  
+- 裝完打不開：先完成「信任開發者」
 
 ## 本包內容（KMP 共用 DSP）
 
