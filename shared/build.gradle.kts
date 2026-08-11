@@ -58,7 +58,7 @@ kotlin {
 
 android {
     namespace = "com.example.caranc.shared"
-    compileSdk = 34
+    compileSdk = 35
     defaultConfig {
         minSdk = 26
         // Export consumer proguard rules so that when app (or other consumers) builds release,

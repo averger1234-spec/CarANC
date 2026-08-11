@@ -71,6 +71,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AncSessionLogger.init(this)
+        // Store / public-beta builds: never keep a leftover dev PRO unlock from sideload testing.
+        if (BuildConfig.IS_STORE && !BuildConfig.ENABLE_DEV_BILLING_BYPASS) {
+            StoreReleasePolicy.enforcePublicFreePlan(this)
+        }
         setContent {
             CarANCTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -191,17 +195,25 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
     var showPrivacy by remember { mutableStateOf(false) }
     var showTerms by remember { mutableStateOf(false) }
 
-    // Bottom navigation for cleaner UI: 狀態 / 方案 (含隱私政策、服務條款；目前無網站，GitHub + in-app) / 測試腳本 / 測試平台
+    // Bottom nav: store flavor = 狀態 + 方案 only; internal = + 測試腳本 + 測試平台
+    val showTuningLab = BuildConfig.ENABLE_TUNING_LAB
     var selectedTab by remember { mutableStateOf(0) }
-    val tabTitles = listOf("狀態", "方案", "測試腳本", "測試平台")
-    val tabIcons = listOf(Icons.Filled.Home, Icons.Filled.ShoppingCart, Icons.Filled.List, Icons.Filled.Settings)
+    val tabTitles = if (showTuningLab) {
+        listOf("狀態", "方案", "測試腳本", "測試平台")
+    } else {
+        listOf("狀態", "方案")
+    }
+    val tabIcons = if (showTuningLab) {
+        listOf(Icons.Filled.Home, Icons.Filled.ShoppingCart, Icons.Filled.List, Icons.Filled.Settings)
+    } else {
+        listOf(Icons.Filled.Home, Icons.Filled.ShoppingCart)
+    }
 
     // P0: toggle for advanced engineering info (hidden by default for consumer)
     var showAdvancedInfo by remember { mutableStateOf(false) }
 
-    // P1: 開發者模式（連點版本號 7 次解鎖，只給自己/核心測試者；一般測試者看不到 debug 參數）
-    var devTapCount by remember { mutableStateOf(0) }
-    val isDevMode = devTapCount >= 7
+    // Internal flavor: full tuning lab. Store flavor: consumer UI only (no engineering unlock).
+    val isDevMode = showTuningLab
 
     if (showSafetyConsent) {
         SafetyConsentDialog(
@@ -351,19 +363,21 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    // P1 dev mode unlock: tap version 7x (hidden to normal users)
+                    // Version / channel label. Internal: always lab. Store: clean public label only.
+                    val channelLabel = when {
+                        BuildConfig.IS_STORE -> "公開版"
+                        isDevMode -> "內部測試 · 調校開啟"
+                        else -> "內部建置"
+                    }
                     Text(
-                        text = "v0.9 • ${if (isDevMode) "開發者模式已解鎖" else "點此 7 次啟用開發者模式"}",
+                        text = "v${BuildConfig.VERSION_NAME} · $channelLabel",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isDevMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .clickable {
-                                devTapCount++
-                                if (devTapCount == 7) {
-                                    Toast.makeText(context, "開發者模式已解鎖（僅供內部測試）", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                            .padding(top = 2.dp)
+                        color = if (!BuildConfig.IS_STORE) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(top = 2.dp)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
@@ -592,23 +606,27 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
                 }
 
                 2 -> {
-                    // 測試腳本 tab
-                    GuidedTestPanel(
-                        onRequestStartAnc = {
-                            if (sessionContext.entitlementManager.requiresSafetyConsent()) {
-                                pendingStartAfterConsent = true
-                                showSafetyConsent = true
-                            } else {
-                                onStartClick()
-                            }
-                        },
-                        onRequestStopAnc = onStopClick
-                    )
+                    // 測試腳本 tab (internal flavor only — tab not listed on store)
+                    if (showTuningLab) {
+                        GuidedTestPanel(
+                            onRequestStartAnc = {
+                                if (sessionContext.entitlementManager.requiresSafetyConsent()) {
+                                    pendingStartAfterConsent = true
+                                    showSafetyConsent = true
+                                } else {
+                                    onStartClick()
+                                }
+                            },
+                            onRequestStopAnc = onStopClick
+                        )
+                    }
                 }
 
                 3 -> {
-                    // 測試平台 tab
-                    TestLogPanel(currentTier = currentTier, isDevMode = isDevMode)
+                    // 測試平台 tab (internal flavor only)
+                    if (showTuningLab) {
+                        TestLogPanel(currentTier = currentTier, isDevMode = isDevMode)
+                    }
                 }
             }
         }

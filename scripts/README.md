@@ -44,17 +44,25 @@
 
 **用途**：你改完 code 後，一鍵把最新版本蓋到手機上。
 
+**兩個 flavor（重要）**：
+- **internal**（預設）：`com.example.caranc`，名稱「CarANC Dev」，完整調校／腳本
+- **store**：`com.caranc.app`，消費者 UI（可與 Dev 並存）
+
 **怎麼用**（最簡單）：
-1. 先 `git pull` 確保拿到最新 code（很重要，拿到修正後的 .bat）。
-2. **直接在檔案總管雙擊** `scripts\install-debug.bat` （最推薦，會自動處理編碼 + bypass + 暫停）
-   - 或者用 AS Terminal / 開 PowerShell 輸入：
+1. 先 `git pull` 確保拿到最新 code。
+2. **雙擊** `scripts\install-debug.bat`（預設 internal）
+   - 或 PowerShell：
      ```
      .\scripts\install-debug.ps1
+     .\scripts\install-debug.ps1 -Flavor store
      ```
-3. 等它跑完（會自動編譯 + adb 安裝到手機）。
-4. 手機上的 App 就變成最新版了。
+3. 等編譯 + adb 安裝完成。
 
-跑完視窗會暫停，按任意鍵關閉。
+詳見專案根目錄 `DISTRIBUTION.md`。
+
+### 1b. bundle-store-release.ps1 / .bat
+
+打 **store release AAB** 給 Play Console。需先設定 `keystore.properties`（見 `keystore.properties.example`）才是正式上傳簽名。
 
 ### 2. pull-latest-log.ps1 （直接把手機上的 log 拉到電腦）
 

@@ -433,7 +433,7 @@ fun TestLogPanel(
                 }
             }
 
-            if (BuildConfig.DEBUG) {
+            if (BuildConfig.ENABLE_TUNING_LAB) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     "開發者提示：推薦啟用「無線偵錯」，連上 adb 後可用 scripts/pull-latest-log.ps1 直接拉 log 到電腦，不用手動上傳 Drive。",

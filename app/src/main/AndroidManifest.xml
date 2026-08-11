@@ -2,7 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Core ANC: live mic capture (processed on-device only; not uploaded). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Road-noise mode: vehicle speed via GPS (coarse/fine). Not used for advertising. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -11,7 +13,22 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- OBD Bluetooth removed (not needed). Manual RPM via prefs supported for engine harmonics. -->
 
-    <!-- #11: optional automotive — app still installable on phones; marks car-host readiness -->
+    <!-- We do not use Advertising ID. Explicitly remove if a dependency merges it in. -->
+    <uses-permission
+        android:name="com.google.android.gms.permission.AD_ID"
+        tools:node="remove" />
+
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="true" />
+    <uses-feature
+        android:name="android.hardware.location"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.location.gps"
+        android:required="false" />
+
+    <!-- Optional automotive — app still installable on phones; marks car-host readiness -->
     <uses-feature
         android:name="android.hardware.type.automotive"
         android:required="false" />
@@ -21,12 +38,15 @@
 
     <application
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
-        android:label="CarANC"
+        android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.CarANC"
-        tools:targetApi="34">
+        android:usesCleartextTraffic="false"
+        tools:targetApi="35">
 
         <!-- Android Auto Support -->
         <meta-data
@@ -61,7 +81,7 @@
         <service
             android:name="com.example.caranc.ANCAppService"
             android:exported="true"
-            android:label="CarANC"
+            android:label="@string/app_name"
             android:icon="@mipmap/ic_launcher"
             tools:ignore="ExportedService">
             <intent-filter>

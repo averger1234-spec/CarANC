@@ -40,6 +40,15 @@ object ProductCatalog {
     const val PRODUCT_NAME = "CarANC"
     const val PRODUCT_TAGLINE = "手機即裝即用車內主動降噪"
     const val MARKET_POSITION = "Android Auto 通勤族 · 二手車／無原廠 ANC 車主"
+    /**
+     * First Play listing strategy: free public beta (no real Billing yet).
+     * Paid plan rows are shown as "即將推出", not purchasable.
+     */
+    const val PUBLIC_BETA = true
+    const val PUBLIC_BETA_LABEL = "公開免費體驗版"
+    const val PUBLIC_BETA_NOTE =
+        "目前為公開免費體驗：免費方案僅開放「輕度」降噪。付費方案與 Google Play 訂閱將於後續版本啟用。"
+
     // 注意：目前沒有獨立網站（caranc.app 僅為預留域名）。
     // 隱私政策與服務條款暫時指向 GitHub 儲存庫的 Markdown 文件（可直接在瀏覽器閱讀渲染後內容）。
     // 未來有正式網站後，再更新為 https://caranc.app/privacy 等。
@@ -47,6 +56,32 @@ object ProductCatalog {
     const val PRIVACY_POLICY_URL = "https://github.com/averger1234-spec/CarANC/blob/main/PRIVACY.md"
     const val TERMS_URL = "https://github.com/averger1234-spec/CarANC/blob/main/TERMS.md"
     const val SUPPORT_EMAIL = "support@caranc.app"
+    /** Short store listing blurb (also useful in Play Console). */
+    const val STORE_SHORT_DESCRIPTION = "手機麥克風收音、即時反相降噪，搭配 Android Auto 車機喇叭。"
+    /** Full Play listing text (not const — uses trimIndent). */
+    val STORE_FULL_DESCRIPTION: String = """
+CarANC 讓沒有原廠主動降噪的車主，用手機即可體驗車內軟體 ANC。
+
+【主要功能】
+• 多頻帶主動降噪（主攻低頻引擎／路噪）
+• 車廂聲學校正與情境模式（怠速、路噪、音樂保護）
+• 安全聲明與警覺提示（不可取代駕駛注意力）
+• Android Auto 連線支援（依車機／手機而定）
+
+【公開體驗版說明】
+目前為免費公開體驗，開放「輕度」降噪。中度／重度與訂閱方案將於後續更新。
+
+【重要安全聲明】
+本 App 為輔助降噪工具，無法保證消除所有噪音，也絕不能取代您對道路、行人與警笛的注意力。請遵守交通法規，並於安全情況下使用。
+
+【權限】
+• 麥克風：即時收音做 ANC（音訊在裝置端處理，不上傳）
+• 定位：取得車速以切換路噪模式（不上傳軌跡到伺服器）
+• 通知／前景服務：降噪進行中狀態
+
+隱私政策與服務條款見 App 內「方案」分頁，或 GitHub 公開文件。
+支援：support@caranc.app
+""".trimIndent()
 
     val planOrder: List<SubscriptionPlan> = listOf(
         SubscriptionPlan.FREE,

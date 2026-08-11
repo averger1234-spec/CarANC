@@ -3,4 +3,7 @@
     <string name="anc_attribution_label">主動降噪處理</string>
     <string name="status_detecting_frequency">偵測頻率: %1$.1f Hz</string>
     <string name="status_stopped">狀態：已停止</string>
+    <string name="support_email">support@caranc.app</string>
+    <string name="privacy_policy_url">https://github.com/averger1234-spec/CarANC/blob/main/PRIVACY.md</string>
+    <string name="terms_url">https://github.com/averger1234-spec/CarANC/blob/main/TERMS.md</string>
 </resources>

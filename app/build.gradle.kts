@@ -5,6 +5,7 @@ plugins {
 }
 
 import java.io.File
+import java.util.Properties
 
 kotlin {
     compilerOptions {
@@ -12,16 +13,35 @@ kotlin {
     }
 }
 
+// Optional production signing: keystore.properties (gitignored). Without it, release uses debug signing.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+val hasReleaseKeystore = keystorePropertiesFile.exists() &&
+    keystoreProperties.getProperty("storeFile")?.isNotBlank() == true
+
+// version.properties at repo root — bump VERSION_CODE for every Play upload.
+val versionProperties = Properties().apply {
+    val f = rootProject.file("version.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val playVersionCode = versionProperties.getProperty("VERSION_CODE", "1").toInt()
+val playVersionName = versionProperties.getProperty("VERSION_NAME", "1.0.0")
+
 android {
     namespace = "com.example.caranc"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
+        // Base id; flavors override for store vs internal distribution channels.
         applicationId = "com.example.caranc"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = 35
+        versionCode = playVersionCode
+        versionName = playVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -29,19 +49,69 @@ android {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Distribution channels: INTERNAL (daily road-test) vs STORE (Play public)
+    // -------------------------------------------------------------------------
+    // Build examples:
+    //   .\gradlew.bat :app:assembleInternalDebug     // daily phone install
+    //   .\gradlew.bat :app:assembleStoreDebug        // preview consumer UI (separate package)
+    //   .\gradlew.bat :app:bundleStoreRelease        // Play AAB (needs keystore.properties)
+    //
+    // Phone can install BOTH at once (different applicationId).
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("internal") {
+            dimension = "distribution"
+            // Keep current package so existing adb pull / install workflow keeps working.
+            applicationId = "com.example.caranc"
+            versionNameSuffix = "-internal"
+            resValue("string", "app_name", "CarANC Dev")
+            buildConfigField("boolean", "IS_STORE", "false")
+            buildConfigField("boolean", "ENABLE_TUNING_LAB", "true")
+            buildConfigField("boolean", "ENABLE_DEV_BILLING_BYPASS", "true")
+            buildConfigField("String", "DISTRIBUTION", "\"internal\"")
+        }
+        create("store") {
+            dimension = "distribution"
+            // Future Play Store id — change only if you have not published yet.
+            applicationId = "com.caranc.app"
+            resValue("string", "app_name", "CarANC")
+            buildConfigField("boolean", "IS_STORE", "true")
+            buildConfigField("boolean", "ENABLE_TUNING_LAB", "false")
+            buildConfigField("boolean", "ENABLE_DEV_BILLING_BYPASS", "false")
+            buildConfigField("String", "DISTRIBUTION", "\"store\"")
+        }
+    }
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                val storePath = keystoreProperties.getProperty("storeFile")!!
+                storeFile = rootProject.file(storePath)
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            // Cycle3 P2: Added signingConfig = signingConfigs.debug to allow real ./gradlew :app:assembleRelease (and thus verifyReleaseProguard) to succeed without "Keystore file not set" error.
-            // This enables full minify+proguard run + mapping generation for inspection in limited/CI envs (uses debug keystore for the "release" build - common for verification; in prod use proper release keystore).
-            // For prod release, override or remove in real signing setup.
-            signingConfig = signingConfigs.getByName("debug")
+            // Prefer upload/release keystore when keystore.properties exists; else debug so
+            // local ProGuard verification still runs without blocking CI/dev machines.
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // P0: ProGuard hardening active - app/proguard-rules.pro NOW aggressively keeps entire com.example.caranc.shared.* DSP
-            // (MultiBandANCProcessor, latency/*, model/*, signal/*, Fft*, Spectrum*, AudioSignal*, Anc* facades, Cabin* etc.)
-            // + @Keep annotations in shared commonMain + shared's consumer-proguard export.
-            // Legacy ANCProcessor keep was insufficient; fixed here.
+            // P0: ProGuard hardening active - app/proguard-rules.pro keeps shared DSP core.
+        }
+        debug {
+            isMinifyEnabled = false
+            // applicationIdSuffix not used — flavors already separate packages.
         }
     }
     compileOptions {
@@ -108,19 +178,22 @@ dependencies {
 // =====================================================
 tasks.register("verifyReleaseProguard") {
     group = "verification"
-    description = "Cycle3 P2: Runs assembleRelease then verifies ProGuard/R8 minify keeps MultiBandANCProcessor + DSP (no stripping). Also minify effects + timing."
+    description = "Runs assembleStoreRelease then verifies ProGuard/R8 minify keeps MultiBandANCProcessor + DSP (no stripping)."
 
-    dependsOn("assembleRelease")
+    // Store release is the public Play candidate; mapping path includes flavor name.
+    dependsOn("assembleStoreRelease")
 
     doLast {
         val startTime = System.currentTimeMillis()
-        println("=== [Cycle3 P2] verifyReleaseProguard: post-assembleRelease inspection for proguard/minify effects ===")
+        println("=== verifyReleaseProguard: post-assembleStoreRelease inspection ===")
         println("Relative module: app/ ; inspecting relative build/outputs/...")
 
-        // Inspect mapping.txt generated by R8/ProGuard during release minify (only if isMinifyEnabled).
-        // For -keep classes: mapping shows "com.example...Foo -> com.example...Foo:" (name preserved, not obfuscated).
-        // If class stripped entirely, won't appear in mapping (or usage.txt would list removed).
-        val mappingDir = layout.buildDirectory.dir("outputs/mapping/release").get().asFile
+        // Flavor-aware mapping locations (AGP: outputs/mapping/<flavor><BuildType>/)
+        val candidateMappingDirs = listOf(
+            layout.buildDirectory.dir("outputs/mapping/storeRelease").get().asFile,
+            layout.buildDirectory.dir("outputs/mapping/release").get().asFile
+        )
+        val mappingDir = candidateMappingDirs.firstOrNull { File(it, "mapping.txt").exists() } ?: candidateMappingDirs.first()
         val mappingFile = File(mappingDir, "mapping.txt")
         val classesToVerify = listOf(
             "com.example.caranc.shared.MultiBandANCProcessor",
@@ -141,7 +214,7 @@ tasks.register("verifyReleaseProguard") {
         if (mappingFile.exists()) {
             foundMapping = true
             val mappingContent = mappingFile.readText()
-            report.appendLine("Mapping file found (relative path from module): build/outputs/mapping/release/mapping.txt")
+            report.appendLine("Mapping file found: ${mappingFile.relativeTo(layout.buildDirectory.get().asFile)}")
             report.appendLine("Size: ${mappingFile.length()} bytes")
             for (cls in classesToVerify) {
                 val lines = mappingContent.lines().filter { it.trim().startsWith(cls) && it.contains("->") }
@@ -169,18 +242,22 @@ tasks.register("verifyReleaseProguard") {
                 }
             }
         } else {
-            report.appendLine("No mapping.txt at expected relative location: build/outputs/mapping/release/mapping.txt")
-            // Fallback check for release outputs (proves assembleRelease ran, minify was active via config)
-            val apkDir = layout.buildDirectory.dir("outputs/apk/release").get().asFile
-            val releaseApks = apkDir.listFiles()?.filter { it.extension == "apk" } ?: emptyList()
+            report.appendLine("No mapping.txt under storeRelease/release mapping dirs")
+            val apkCandidates = listOf(
+                layout.buildDirectory.dir("outputs/apk/store/release").get().asFile,
+                layout.buildDirectory.dir("outputs/apk/release").get().asFile
+            )
+            val releaseApks = apkCandidates.flatMap { dir ->
+                dir.listFiles()?.filter { it.extension == "apk" }?.toList() ?: emptyList()
+            }
             if (releaseApks.isNotEmpty()) {
                 report.appendLine("Fallback: Release APK(s) exist (minify/shrink was configured and ran):")
                 releaseApks.forEach { apk ->
-                    report.appendLine("  - ${apk.name} (size: ${apk.length()} bytes, relative: ${apk.relativeTo(layout.buildDirectory.get().asFile)} )")
+                    report.appendLine("  - ${apk.name} (size: ${apk.length()} bytes)")
                 }
-                report.appendLine("Since APK built w/o compile/runtime errors, and proguard rules active, DSP classes were not stripped (would fail at runtime or R8 errors otherwise for kept refs).")
+                report.appendLine("Since APK built w/o compile/runtime errors, and proguard rules active, DSP classes were not stripped.")
             } else {
-                report.appendLine("WARNING: Neither mapping nor release APK found. (Possible --dry-run, clean not run, or cache hit without outputs.)")
+                report.appendLine("WARNING: Neither mapping nor store release APK found.")
             }
         }
 

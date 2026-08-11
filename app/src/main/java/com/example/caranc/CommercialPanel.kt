@@ -45,6 +45,19 @@ fun CommercialPanel(modifier: Modifier = Modifier) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(ProductCatalog.PRODUCT_NAME, style = MaterialTheme.typography.titleMedium)
             Text(ProductCatalog.PRODUCT_TAGLINE, style = MaterialTheme.typography.bodySmall)
+            if (BuildConfig.IS_STORE && ProductCatalog.PUBLIC_BETA) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    ProductCatalog.PUBLIC_BETA_LABEL,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    ProductCatalog.PUBLIC_BETA_NOTE,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Text(
                 "目前方案：${currentPlan.displayName}（${currentPlan.marketLabel}）",
                 style = MaterialTheme.typography.bodyMedium,
@@ -55,23 +68,29 @@ fun CommercialPanel(modifier: Modifier = Modifier) {
                 "市場定位：${ProductCatalog.MARKET_POSITION}",
                 style = MaterialTheme.typography.bodySmall
             )
+            Text(
+                "支援：${ProductCatalog.SUPPORT_EMAIL}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
             Text("方案與功能", style = MaterialTheme.typography.labelLarge)
             ProductCatalog.planOrder.forEach { plan ->
                 val active = plan == currentPlan
-                val isRecommended = plan == com.example.caranc.shared.commercial.SubscriptionPlan.STANDARD_MONTHLY
+                val isRecommended = plan == SubscriptionPlan.STANDARD_MONTHLY
                 val featureCount = ProductCatalog.featuresForPlan(plan).size
+                val comingSoon = BuildConfig.IS_STORE && ProductCatalog.PUBLIC_BETA && plan.isPaid
                 val label = buildString {
                     append(if (isRecommended) "★ " else "")
                     append(plan.displayName)
                     append(" · ")
-                    append(ProductCatalog.suggestedPriceHint(plan))
+                    append(if (comingSoon) "即將推出" else ProductCatalog.suggestedPriceHint(plan))
                     append(" · ")
                     append(featureCount)
                     append(" 項功能")
                     if (active) append("  ← 你目前方案")
-                    if (isRecommended && !active) append(" （推薦）")
+                    if (isRecommended && !active && !comingSoon) append(" （推薦）")
                 }
                 Text(
                     text = label,
@@ -107,9 +126,13 @@ fun CommercialPanel(modifier: Modifier = Modifier) {
                 modifier = Modifier.padding(top = 4.dp)
             )
 
-            if (BuildConfig.DEBUG) {
+            // Internal / dev builds only — never ship fake plan unlock to Play store flavor.
+            if (BuildConfig.ENABLE_DEV_BILLING_BYPASS) {
                 Spacer(modifier = Modifier.height(12.dp))
-                Text("開發用方案切換（上架前移除）", style = MaterialTheme.typography.labelSmall)
+                Text(
+                    "開發用方案切換（僅 internal 建置）",
+                    style = MaterialTheme.typography.labelSmall
+                )
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     DevPlanChip("免費") {
                         DevEntitlementOverrides.activate(SubscriptionPlan.FREE)
@@ -129,11 +152,31 @@ fun CommercialPanel(modifier: Modifier = Modifier) {
                 }
             } else {
                 Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    if (BuildConfig.IS_STORE && ProductCatalog.PUBLIC_BETA) {
+                        "訂閱尚未開放購買。目前可免費使用「輕度」降噪；中度／重度將隨 Play 訂閱上線。"
+                    } else if (BuildConfig.IS_STORE) {
+                        "請透過 Google Play 管理訂閱（尚未接線時顯示即將推出）。"
+                    } else {
+                        "Google Play 訂閱尚未接線。"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Button(
-                    onClick = { toast(context, "Google Play 訂閱將於上架版本啟用") },
+                    onClick = {
+                        toast(
+                            context,
+                            if (ProductCatalog.PUBLIC_BETA) {
+                                "公開體驗中：付費方案即將推出"
+                            } else {
+                                "Google Play 訂閱將於後續版本啟用"
+                            }
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("升級方案（即將推出）")
+                    Text(if (ProductCatalog.PUBLIC_BETA) "付費方案（即將推出）" else "升級方案")
                 }
             }
         }

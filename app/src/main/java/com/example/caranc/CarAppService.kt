@@ -8,12 +8,13 @@ import androidx.car.app.validation.HostValidator
 
 class ANCAppService : CarAppService() {
     override fun createHostValidator(): HostValidator {
-        return if (BuildConfig.DEBUG) {
-            HostValidator.ALLOW_ALL_HOSTS_VALIDATOR
-        } else {
+        // Store (Play) builds: strict host allow-list. Internal road-test builds: allow all hosts for AA USB/wireless iteration.
+        return if (BuildConfig.IS_STORE) {
             HostValidator.Builder(applicationContext)
                 .addAllowedHosts(R.xml.host_validator)
                 .build()
+        } else {
+            HostValidator.ALLOW_ALL_HOSTS_VALIDATOR
         }
     }
 
