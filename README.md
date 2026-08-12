@@ -44,15 +44,16 @@ git push origin main
 
 ---
 
-## 最新進度（2026-08-12）— iOS 1.2.0 CarPlay + 1.1.0 DSP
+## 最新進度（2026-08-12）— 1.2.1 車速備用 + CarPlay + SpeedScheduled
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| **Android 版號** | `1.1.0` / code `2` · 主畫面 `v1.1.0` | ✅ |
-| **iOS 版號** | **`1.2.0` (build 13)** · 狀態頁顯示 **`v1.2.0 (13)`** | ✅ |
-| **共用 DSP** | KMP `MultiBandANCProcessor` + `SpeedScheduledNvhGains` + `speedNvh*` log | ✅ |
-| **CarPlay** | 對齊 AA：路由 `aaLinkType`、模板啟停／等級、斷線策略（見 `iosApp/CARPLAY.md`） | ✅ 程式；車機圖示需 Apple entitlement |
-| **Log schema** | 與 Android `running_snapshot` 同欄位名 | ✅ |
+| **Android 版號** | **`1.2.1` / code `3`** · 主畫面 `v1.2.1` | ✅ |
+| **iOS 版號** | **`1.2.1` (build 14)** · 狀態頁 **`v1.2.1 (14)`** | ✅ |
+| **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
+| **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
+| **CarPlay** | 對齊 AA（見 `iosApp/CARPLAY.md`） | ✅ 程式；圖示需 Apple entitlement |
+| **Log schema** | 同 Android 欄位名 + `speedSource` 等 | ✅ |
 | **Windows 裝 iPhone** | 預編 IPA + Sideloadly | ✅ |
 
 | 路徑 | 用途 |
@@ -67,10 +68,10 @@ git push origin main
 ```bash
 git pull origin main
 # Android：.\scripts\install-debug.ps1  → 主畫面看 v1.1.0
-# iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.0 (13)
+# iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.1 (14)
 ```
 
-**注意**：plant residual KPI 在 iOS 仍多為代理／`n/a`。Android 路測仍以 USB AA + `lowBandRumbleReduction` 為準。
+**注意**：plant residual KPI 在 iOS 仍多為代理／`n/a`。Android 路測仍以 USB AA + `lowBandRumbleReduction` 為準。無 GPS 時看 log `speedSource`（hold／imu_proxy 可餵速域，勿當精密 GPS KPI）。
 
 ---
 

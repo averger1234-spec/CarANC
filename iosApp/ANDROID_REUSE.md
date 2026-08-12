@@ -23,7 +23,7 @@ shared/     → 兩邊共用：DSP、schema、commercial、腳本定義
 dist/       → 預編 .ipa + Windows 安裝說明
 ```
 
-## 目前架構（2026-08-12 · iOS 1.2.0）
+## 目前架構（2026-08-12 · iOS 1.2.1）
 
 ```
 iPhone 麥克風
@@ -31,9 +31,11 @@ iPhone 麥克風
     → KotlinAncBridge
     → MultiBandANCProcessor (KMP / 與 Android 同源 + SpeedScheduled)
     → AVAudioEngine 喇叭 或 CarPlay 車機（aaLinkType=carplay_*）
+
+車速：GPS → gps_hold → imu_proxy（VehicleSpeedFusion，與 Android 同策略）
 ```
 
-**對版**：狀態頁 `v1.2.0 (13)`；Android 主畫面仍 `v1.1.0`（共用 DSP 以 1.1.0 為基線，CarPlay 為 iOS 1.2.0）。
+**對版**：iOS / Android 均 **1.2.1**（狀態頁 `v1.2.1 (14)` · Android `v1.2.1` code 3）。
 
 建 framework（本機需 JDK 17）：
 

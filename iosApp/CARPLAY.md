@@ -1,6 +1,6 @@
 # iOS CarPlay（對齊 Android Auto）
 
-**本功能版號**：**iOS 1.2.0 (build 13)**（Android 仍 1.1.0；平台專屬功能 iOS 超前）  
+**本功能自 iOS 1.2.0 起**；現行全包 **iOS / Android 1.2.1**（含車速 hold／IMU 備用）。  
 狀態頁應顯示 **`v1.2.1 (14)`**。
 
 ## 架構對照

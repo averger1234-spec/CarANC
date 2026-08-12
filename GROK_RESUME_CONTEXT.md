@@ -4,15 +4,17 @@
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.1.0 / code 2** · iOS **1.2.0 (13)** CarPlay |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.1 / code 3** · iOS **1.2.1 (14)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
-**1.1.0 重點（Android + 共用 DSP）**：`SpeedScheduledNvhGains`（路/輪/風 × 每 5 km/h）+ `car_road_tuning_v1`。  
-**1.2.0 重點（iOS）**：CarPlay 對齊 AA（路由 `aaLinkType`、模板啟停／等級、斷線策略）；狀態頁顯示 `v1.2.0 (13)`。見 `iosApp/CARPLAY.md`。  
+**1.1.0 重點**：`SpeedScheduledNvhGains`（路/輪/風 × 每 5 km/h）+ `car_road_tuning_v1`。  
+**1.2.0 重點（iOS）**：CarPlay 對齊 AA；見 `iosApp/CARPLAY.md`。  
+**1.2.1 重點（雙端）**：無車速備用 — `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`）；log `speedSource` / UI 顯示。  
+
 
 keystore **不在** GitHub，多機自行拷貝。
 

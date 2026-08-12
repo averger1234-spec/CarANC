@@ -63,8 +63,8 @@ APK 路徑：
 編輯根目錄 `version.properties`：
 
 ```
-VERSION_CODE=2
-VERSION_NAME=1.1.0
+VERSION_CODE=3
+VERSION_NAME=1.2.1
 ```
 
 - 每次上傳 Play（含內部測試）都必須 **VERSION_CODE + 1**
@@ -75,9 +75,9 @@ VERSION_NAME=1.1.0
 
 | 位置 | 欄位 | 目前 |
 |------|------|------|
-| `iosApp/CarANC/Info.plist` | `CFBundleShortVersionString` / `CFBundleVersion` | **1.2.0** / **13** |
+| `iosApp/CarANC/Info.plist` | `CFBundleShortVersionString` / `CFBundleVersion` | **1.2.1** / **14** |
 | Xcode target | `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | 同上 |
-| App UI | 狀態頁 | **`v1.2.0 (13)`** |
+| App UI | 狀態頁 | **`v1.2.1 (14)`** |
 
 - 每次可路測 IPA：**build +1**；功能包再升 marketing
 - 寫 **`CHANGELOG.md`**；更新 `dist/WINDOWS_INSTALL_SIDELOADLY.md` 版本字樣
