@@ -58,6 +58,8 @@ APK 路徑：
 
 ## 版本號
 
+### Android
+
 編輯根目錄 `version.properties`：
 
 ```
@@ -68,6 +70,17 @@ VERSION_NAME=1.1.0
 - 每次上傳 Play（含內部測試）都必須 **VERSION_CODE + 1**
 - 每次可路測的功能包：同步改 **VERSION_NAME**，並在 **`CHANGELOG.md`** 寫「改了什麼」
 - App 主畫面：`v{VERSION_NAME}`（internal 另顯示 `-internal`）
+
+### iOS
+
+| 位置 | 欄位 | 目前 |
+|------|------|------|
+| `iosApp/CarANC/Info.plist` | `CFBundleShortVersionString` / `CFBundleVersion` | **1.2.0** / **13** |
+| Xcode target | `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | 同上 |
+| App UI | 狀態頁 | **`v1.2.0 (13)`** |
+
+- 每次可路測 IPA：**build +1**；功能包再升 marketing
+- 寫 **`CHANGELOG.md`**；更新 `dist/WINDOWS_INSTALL_SIDELOADLY.md` 版本字樣
 
 ## 簽名備份
 

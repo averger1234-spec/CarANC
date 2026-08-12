@@ -11,6 +11,7 @@
 		3188EEDCCD1E4406962EF7DC /* CarANCShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0BD129737DA94DFE9517086E /* CarANCShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A10000000000000000000001 /* AppController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* AppController.swift */; };
 		A10000000000000000000002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000012 /* AppDelegate.swift */; };
+		A10000000000000000000006 /* AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000017 /* AppVersion.swift */; };
 		A10000000000000000000003 /* CarAudioRouteMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* CarAudioRouteMonitor.swift */; };
 		A10000000000000000000004 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000014 /* CarPlaySceneDelegate.swift */; };
 		A10000000000000000000005 /* CarPlayRootController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000015 /* CarPlayRootController.swift */; };
@@ -59,6 +60,7 @@
 		0BD129737DA94DFE9517086E /* CarANCShared.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CarANCShared.framework; path = Frameworks/CarANCShared.framework; sourceTree = "<group>"; };
 		A10000000000000000000011 /* AppController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppController.swift; sourceTree = "<group>"; };
 		A10000000000000000000012 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A10000000000000000000017 /* AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersion.swift; sourceTree = "<group>"; };
 		A10000000000000000000013 /* CarAudioRouteMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarAudioRouteMonitor.swift; sourceTree = "<group>"; };
 		A10000000000000000000014 /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
 		A10000000000000000000015 /* CarPlayRootController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayRootController.swift; sourceTree = "<group>"; };
@@ -187,6 +189,7 @@
 			children = (
 				A10000000000000000000011 /* AppController.swift */,
 				A10000000000000000000012 /* AppDelegate.swift */,
+				A10000000000000000000017 /* AppVersion.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -338,6 +341,7 @@
 			files = (
 				A10000000000000000000001 /* AppController.swift in Sources */,
 				A10000000000000000000002 /* AppDelegate.swift in Sources */,
+				A10000000000000000000006 /* AppVersion.swift in Sources */,
 				A10000000000000000000003 /* CarAudioRouteMonitor.swift in Sources */,
 				A10000000000000000000004 /* CarPlaySceneDelegate.swift in Sources */,
 				A10000000000000000000005 /* CarPlayRootController.swift in Sources */,
@@ -423,7 +427,7 @@
 				);
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				CODE_SIGN_ENTITLEMENTS = CarANC/CarANC.entitlements;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = Q8U9PM5FTD;
 				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -445,7 +449,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lutony.caranc.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -473,7 +477,7 @@
 				);
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				CODE_SIGN_ENTITLEMENTS = CarANC/CarANC.entitlements;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = Q8U9PM5FTD;
 				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -495,7 +499,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lutony.caranc.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

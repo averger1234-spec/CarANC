@@ -49,7 +49,7 @@ struct TestLabView: View {
                 } label: {
                     Label("匯出完整 Session Log", systemImage: "square.and.arrow.up")
                 }
-                Text("含 running_snapshot：lowBandRumbleReduction / rawDb / antiDb / speed / IMU / latency / LMS updates。路測後用分享傳到電腦分析。")
+                Text("App \(AppVersion.display)。含 running_snapshot：lowBandRumbleReduction / rawDb / antiDb / speed / IMU / latency / LMS / speedNvh*。路測後用分享傳到電腦分析。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

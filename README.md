@@ -5,7 +5,8 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**版號**：`version.properties`（目前 **1.1.0 / code 2**）· 改版說明見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+**版號**：Android **`version.properties` → 1.1.0 / code 2** · iOS **Info.plist → 1.2.0 (13)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+
 **跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
 
@@ -30,7 +31,8 @@ git push origin main
 | 文件 | 用途 |
 |------|------|
 | [`CHANGELOG.md`](CHANGELOG.md) | **改版紀錄**（每版改了什麼） |
-| [`version.properties`](version.properties) | `VERSION_NAME` / `VERSION_CODE` 唯一來源 |
+| [`version.properties`](version.properties) | Android `VERSION_NAME` / `VERSION_CODE` |
+| iOS `Info.plist` / Xcode | iOS marketing + build（狀態頁顯示 `v… (build)`） |
 | [`MULTI_MACHINE_SYNC.md`](MULTI_MACHINE_SYNC.md) | 多機同步主指南 |
 | [`DISTRIBUTION.md`](DISTRIBUTION.md) | store / internal、簽名、版本號 |
 | [`PLAY_RELEASE_CHECKLIST.md`](PLAY_RELEASE_CHECKLIST.md) | Play 上架檢查清單 |
@@ -42,19 +44,21 @@ git push origin main
 
 ---
 
-## 最新進度（2026-08-11）— iOS + 共用 DSP + IPA
+## 最新進度（2026-08-12）— iOS 1.2.0 CarPlay + 1.1.0 DSP
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| **iOS App** | `iosApp/` SwiftUI：狀態／方案／測試腳本／測試平台 | ✅ |
-| **共用 DSP** | KMP `CarANCShared.framework` → `MultiBandANCProcessor`（與 Android 同源） | ✅ 已接真機 |
-| **Log schema** | 與 Android `running_snapshot` **同欄位名**（`AncRunningSnapshotSchema`） | ✅ |
-| **路測腳本** | iOS 對齊 `car_road_tuning_v1`（有效行駛秒數） | ✅ |
-| **Windows 裝 iPhone** | 預編 IPA + Sideloadly（Windows **不能編譯** iOS） | ✅ |
+| **Android 版號** | `1.1.0` / code `2` · 主畫面 `v1.1.0` | ✅ |
+| **iOS 版號** | **`1.2.0` (build 13)** · 狀態頁顯示 **`v1.2.0 (13)`** | ✅ |
+| **共用 DSP** | KMP `MultiBandANCProcessor` + `SpeedScheduledNvhGains` + `speedNvh*` log | ✅ |
+| **CarPlay** | 對齊 AA：路由 `aaLinkType`、模板啟停／等級、斷線策略（見 `iosApp/CARPLAY.md`） | ✅ 程式；車機圖示需 Apple entitlement |
+| **Log schema** | 與 Android `running_snapshot` 同欄位名 | ✅ |
+| **Windows 裝 iPhone** | 預編 IPA + Sideloadly | ✅ |
 
 | 路徑 | 用途 |
 |------|------|
-| [`iosApp/README.md`](iosApp/README.md) | iOS 專案說明、與 Android 資料夾分工 |
+| [`iosApp/README.md`](iosApp/README.md) | iOS 專案、版號對版 |
+| [`iosApp/CARPLAY.md`](iosApp/CARPLAY.md) | CarPlay ↔ AA 對照、entitlement |
 | [`iosApp/ROAD_TEST_VERIFY.md`](iosApp/ROAD_TEST_VERIFY.md) | 實車驗證 × log 欄位 |
 | [`iosApp/ANDROID_REUSE.md`](iosApp/ANDROID_REUSE.md) | 如何複用 Android／KMP |
 | [`dist/CarANC-ios-kmp-debug.ipa`](dist/CarANC-ios-kmp-debug.ipa) | iOS 安裝包（Development 簽名，約 7 天） |
@@ -62,11 +66,11 @@ git push origin main
 
 ```bash
 git pull origin main
-# Android：.\scripts\install-debug.ps1
-# iOS：見 iosApp/README.md 或下載 dist/*.ipa
+# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.1.0
+# iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.0 (13)
 ```
 
-**注意**：iOS 尚無 CarPlay／完整 AA 路徑；部分 plant residual KPI 仍以代理或 `n/a` 為主。Android 路測仍以 USB AA + `lowBandRumbleReduction` 為準。
+**注意**：plant residual KPI 在 iOS 仍多為代理／`n/a`。Android 路測仍以 USB AA + `lowBandRumbleReduction` 為準。
 
 ---
 

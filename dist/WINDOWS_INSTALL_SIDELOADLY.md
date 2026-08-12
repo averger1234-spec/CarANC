@@ -68,8 +68,8 @@ Windows：`git pull` 後再跑 `scripts\install-ios-sideloadly.bat`。
 
 ## 本包內容（KMP 共用 DSP）
 
-- App 版本：1.1.0 (12) — 對齊 Android `version.properties` 1.1.0 + SpeedScheduledNvhGains
-- 內含 `CarANCShared.framework` = Android 同源 `MultiBandANCProcessor`（含每 5 km/h 速域增益）
-- Log：`dsp=kmp_MultiBandANCProcessor` / `audioBackend=AVAudioEngine_local+KMP`
-- Log 新欄位（與 Android 1.1.0 同名）：`speedNvhBinKmh` / `speedNvhLowGain` / `speedNvhMidGain` / `speedNvhTotalAnti` / `speedNvhTableId`
+- App 版本：**1.2.0 (13)** — 狀態頁應顯示 **`v1.2.0 (13)`**
+- DSP：KMP `MultiBandANCProcessor` + Android 1.1.0 同源 `SpeedScheduledNvhGains`
+- CarPlay：路由 + 模板（車機圖示需 Apple entitlement，見 `iosApp/CARPLAY.md`）
+- Log：`dsp=kmp_MultiBandANCProcessor` / `aaLinkType` / `speedNvh*` / `appVersion`+`build`
 

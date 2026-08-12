@@ -79,7 +79,7 @@ final class CarPlayRootController: NSObject {
         }()
 
         let statusItem = CPListItem(
-            text: "車內主動降噪",
+            text: "車內主動降噪 · \(AppVersion.display)",
             detailText: "\(statusTitle)\n\(kpi)\n\(routeLine) · \(nvh) · \(speed)"
         )
         statusItem.isEnabled = false

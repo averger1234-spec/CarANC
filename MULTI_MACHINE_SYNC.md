@@ -6,9 +6,16 @@
 
 ---
 
-## 另一台電腦現在請這樣拉（2026-08-11 · 現行）
+## 另一台電腦現在請這樣拉（2026-08-12 · 現行）
 
 > 你有多台電腦：以 **GitHub `main` 為唯一真相**。換機先 pull，改完再 push。
+
+**現行版號**
+
+| 平台 | 版號 | App 怎麼對版 |
+|------|------|----------------|
+| Android | **1.1.0 / code 2** | 主畫面 `v1.1.0` |
+| iOS | **1.2.0 (build 13)** | 狀態頁 **`v1.2.0 (13)`** |
 
 ### 1. 拉程式（每台、每次開工）
 
@@ -17,9 +24,9 @@ cd <你的路徑>\CarANC
 git pull origin main
 git log -5 --oneline
 # 近期應能看到例如：
-# 6d7aaa1 docs+scripts: Windows iPhone install helper (Sideloadly)
-# eadd9ea / bca6af1  ios: KMP DSP + IPA
-# 658992d feat(play): store/internal flavors and Play release prep
+# ios: 1.2.0 CarPlay + version UI
+# ca86d6a / 8962cb4  iOS KMP / CarPlay
+# e94fddc feat(anc): v1.1.0 speed-binned gains
 ```
 
 ### 2. 依用途選讀文件（多機必讀索引）
@@ -27,11 +34,11 @@ git log -5 --oneline
 | 你要做什麼 | 先讀哪個 md |
 |------------|-------------|
 | **換機同步流程（本檔）** | `MULTI_MACHINE_SYNC.md`（本節） |
-| **這版改了什麼** | `CHANGELOG.md` + `version.properties` |
+| **這版改了什麼** | `CHANGELOG.md` + `version.properties` + iOS Info.plist |
 | 專案總覽 / iOS+Android 現況 | `README.md` →「最新進度」 |
 | Android 日常裝機 / 拉 log | `scripts/README.md` |
-| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
-| iOS 專案 / 路測 log | `iosApp/README.md`、`iosApp/ROAD_TEST_VERIFY.md` |
+| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md`（應寫 1.2.0 (13)） |
+| iOS 專案 / CarPlay / 路測 | `iosApp/README.md`、`iosApp/CARPLAY.md`、`iosApp/ROAD_TEST_VERIFY.md` |
 | Play 上架 / store vs internal | `DISTRIBUTION.md`、`PLAY_RELEASE_CHECKLIST.md` |
 | Play 資料安全怎麼填 | `DATA_SAFETY.md` |
 | 隱私政策 | `PRIVACY.md` |

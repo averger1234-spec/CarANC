@@ -1,17 +1,58 @@
 # CarANC 改版紀錄（Changelog）
 
-**版號來源**：根目錄 `version.properties`（`VERSION_NAME` + `VERSION_CODE`）  
-App 主畫面顯示：`v{VERSION_NAME}`（internal 另有 `-internal` suffix）。
+**版號來源**
+
+| 平台 | 檔案 | 主畫面顯示 |
+|------|------|------------|
+| **Android** | 根目錄 `version.properties`（`VERSION_NAME` + `VERSION_CODE`） | `v{VERSION_NAME}`（internal 另有 `-internal`） |
+| **iOS** | `iosApp/CarANC/Info.plist` + Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | **`v{marketing} (build)`**（狀態頁右上角） |
 
 規則：
 
-- 每次 **Play 上傳**（含內部測試）：`VERSION_CODE` **必須 +1**
-- 每次 **可路測的功能包**：`VERSION_NAME` 遞增，並在本檔新增一節
+- 每次 **Play 上傳**（含內部測試）：Android `VERSION_CODE` **必須 +1**
+- 每次 **iOS 可路測 IPA**：`CFBundleVersion`（build）**必須 +1**
+- 每次 **可路測的功能包**：`VERSION_NAME` / iOS marketing **遞增**，並在本檔新增一節
+- 共用 DSP／schema 功能：兩邊 **marketing 版號宜對齊**；**僅 iOS 平台功能**（如 CarPlay）可 iOS marketing 超前
 - Commit 建議：`feat:` / `fix:` / `docs:` + 本檔同步
 
 ---
 
-## [1.1.0] — 2026-08-12 · code 2
+## [1.2.0] — 2026-08-12 · **iOS only** · build 13
+
+**路測主題**：對齊 Android Auto → **CarPlay 車機路徑**（路由 + 模板 UI + 斷線策略）。
+
+### 功能（iOS）
+
+- `CarAudioRouteMonitor`：`aaLinkType` = `local` / `carplay_wired` / `carplay_wireless` / `carplay_unknown`
+- `AppController`：手機與 CarPlay 共用 model / engine
+- CarPlay 模板：啟停降噪、輕／中／高（對齊 `CarAncAutoScreen`）
+- 斷線：非導引腳本中自動 stop（對齊 AA）
+- Log：`aaLinkType`、`wirelessAaSuspected`、`carplay_connected` / `carplay_disconnected`
+- 狀態頁／方案／測試平台／CarPlay 列表 **顯示 `v1.2.0 (13)`**
+
+### 限制
+
+- 車機主機 **圖示／模板** 需 Apple **CarPlay Driving Task** entitlement 核准後才能出現（見 `iosApp/CARPLAY.md`）
+- 未核准前：路由層 + 手機 UI 可用；車機無圖示
+
+### Android
+
+- 仍為 **1.1.0 / code 2**（本版無 Android 程式變更）
+
+### 文件
+
+- `iosApp/CARPLAY.md`、`iosApp/README.md`、`ANDROID_REUSE.md`
+- 根 `README.md`、`GROK_RESUME_CONTEXT.md`、`dist/WINDOWS_INSTALL_SIDELOADLY.md`
+
+### 路測怎麼對版
+
+1. 狀態頁看 **`v1.2.0 (13)`**
+2. 連 CarPlay 時看 `aaLinkType=carplay_*`、log `audioBackend=…carplay…`
+3. 斷線應停 ANC（非導引中）
+
+---
+
+## [1.1.0] — 2026-08-12 · code 2 · iOS build 11–12
 
 **路測主題**：mic 高延遲對不齊 → **路噪／輪噪／風切 × 車速每 5 km/h 增益表** 當主增益路徑。
 

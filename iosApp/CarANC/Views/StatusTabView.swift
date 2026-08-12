@@ -29,6 +29,10 @@ struct StatusTabView: View {
                 Text(model.isRunning ? "運作中" : "已停止")
                     .font(.headline)
                 Spacer()
+                // 對齊 Android 主畫面 `v{VERSION_NAME}` — 路測對版用
+                Text(AppVersion.display)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
                 Text(model.tier.shortLabel)
                     .font(.caption.bold())
                     .padding(.horizontal, 8)
@@ -41,6 +45,9 @@ struct StatusTabView: View {
             Text(model.nvhFocus.displayName)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+            Text("\(AppVersion.platformLabel) · \(AppVersion.shortDisplay) · build \(AppVersion.build)")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -1,5 +1,6 @@
 # iOS 實車驗證與 Log 指南
 
+**現行對版**：**App 狀態頁 `v1.2.0 (13)`** · log `appVersion=1.2.0` `build=13`  
 **Log 欄位名與 Android `running_snapshot` 同一套**（見 `shared/.../AncRunningSnapshotSchema.kt`、`ANDROID_REUSE.md`）。  
 缺能力填 `n/a`，不改名。
 
@@ -7,8 +8,10 @@
 
 | 驗證目標 | Log 欄位（Android 同名） | 怎麼判 |
 |----------|--------------------------|--------|
+| **裝對版本** | `appVersion`、`build` | 應為 **1.2.0** / **13**（與狀態頁一致） |
 | 有在播反噪 | `outputPathActive`、`antiNoiseDb` | antiNoiseDb 不應長期 -90；outputPathActive=true |
 | 低頻路噪 KPI | `lowBandRumbleReduction` | 主 KPI；看趨勢（`kpiSource=ios_spectrum_proxy` 時勿硬比 Android 絕對值） |
+| 速域增益 1.1.0 | `speedNvhBinKmh`、`speedNvhTotalAnti`、`speedNvhTableId` | 行駛時 bin 隨速跳；table 非 none |
 | 麥克風有聲 | `rawDb` | 行駛應高於安靜怠速 |
 | LMS 有在學 | `lmsLowUpdates` | 隨時間遞增；卡 0 表示沒更新 |
 | 延遲／可消頻 | `estimatedLatencyMs`、`maxCancelFrequencyHz` | 啟動後有值 |
@@ -16,9 +19,9 @@
 | GPS 有效行駛 | `vehicleSpeedKmh`、`vehicleSpeedValid` | 開闊路 true |
 | 行駛 rumble | `isDrivingRumble` | speed>40 且 accel>0.5（**同 Android 規則**） |
 | IMU | `rumbleAccel` | 路面震動有變化 |
-| Plant 閉環 | `plantResidualReductionDb` | iOS 暫 `n/a`（KMP 接上後有） |
-| Bank/FDAF | `fixedBankOut`、`fdafDelayless` | iOS 暫 `n/a` |
-| 後端 | `audioBackend` / `aaLinkType` | local / n/a_ios_no_aa |
+| Plant 閉環 | `plantResidualReductionDb` | iOS 暫 `n/a` |
+| Bank/FDAF | `fixedBankOut`、`fdafDelayless` | 可看 kmp_diag |
+| 後端／車機 | `audioBackend` / `aaLinkType` | local 或 `carplay_*`；CarPlay 時 backend 含 carplay |
 
 ## 建議流程
 
