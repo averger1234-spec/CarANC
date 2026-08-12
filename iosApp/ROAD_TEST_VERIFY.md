@@ -56,3 +56,14 @@
 | 主 KPI 名 | `lowBandRumbleReduction` | 同名（演算法為代理） |
 
 分析時請標 **platform=ios**，勿與 Android 數值直接橫向比絕對值。
+
+## 車速備用（1.2.1+）
+
+| speedSource | 含義 |
+|-------------|------|
+| `gps` | 有效 GPS |
+| `gps_hold` | GPS 掉線後 ≤25s 保持 |
+| `imu_proxy` | IMU 振動估計（非精密） |
+| `none` | 無 |
+
+DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路測看 `speedValidForRoadTest` 與 `speedSource=gps`。

@@ -1218,11 +1218,14 @@ class AudioEngine(
     }
 
     private fun speedLogFields(speed: VehicleSpeedSnapshot): Map<String, Any?> {
+        val provider = vehicleSpeedProvider
         return mapOf(
             "speedKmh" to speed.speedKmh,
             "speedValid" to speed.valid,
             "speedAccuracyM" to speed.accuracyMeters,
             "speedSource" to speed.source,
+            "speedFusion" to (provider?.lastFusionSource ?: speed.source),
+            "speedHoldAgeSec" to (provider?.lastHoldAgeSec ?: -1f),
             "noiseSource" to sessionContext.roadNoiseReferenceModel.classify(speed.speedKmh, speed.valid).name,
             // IMU hybrid feedforward + NVH crowdsourced map fields (Road Preview, predictive ANC, Waze-like dynamic road noise DB).
             // coarse* for privacy-safe road segment keying (quantized ~111m). roughness + accel for vibration proxy.

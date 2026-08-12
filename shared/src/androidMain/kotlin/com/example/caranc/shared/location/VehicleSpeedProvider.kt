@@ -9,6 +9,8 @@ import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.caranc.shared.VehicleSpeedSnapshot
+import com.example.caranc.shared.model.VehicleSpeedFusion
+import com.example.caranc.shared.model.VehicleSpeedFusionState
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
@@ -33,6 +35,10 @@ class VehicleSpeedProvider(context: Context) {
                 val y = event.values[1]
                 val z = event.values[2]
                 linearAccelMag = kotlin.math.sqrt(x * x + y * y + z * z)
+                // GPS 稀疏時仍用 IMU 推進 fusion（hold / imu_proxy）
+                if (running) {
+                    republishFusion(gpsSpeedKmh = lastRawGpsKmh, gpsValid = lastRawGpsValid, sourceHint = lastGpsSource)
+                }
             }
         }
         override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
@@ -44,6 +50,15 @@ class VehicleSpeedProvider(context: Context) {
     private var lastLocation: Location? = null
     private var smoothedSpeedKmh = 0f
     private var running = false
+    private var fusionState = VehicleSpeedFusionState()
+    private var lastRawGpsKmh = 0f
+    private var lastRawGpsValid = false
+    private var lastGpsSource = "none"
+    /** 融合後 source：gps | gps_hold | imu_proxy | none */
+    @Volatile var lastFusionSource: String = "none"
+        private set
+    @Volatile var lastHoldAgeSec: Float = -1f
+        private set
 
     private val locationRequest = LocationRequest.Builder(
         Priority.PRIORITY_HIGH_ACCURACY,
@@ -72,13 +87,21 @@ class VehicleSpeedProvider(context: Context) {
     @SuppressLint("MissingPermission")
     fun start(): Boolean {
         if (running) return hasPermission()
+        running = true
+
+        // IMU 一律啟動：無 GPS 時仍可 imu_proxy / 掉線 hold 後續
+        val accelSensor = sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_LINEAR_ACCELERATION)
+        if (accelSensor != null) {
+            sensorManager.registerListener(accelListener, accelSensor, android.hardware.SensorManager.SENSOR_DELAY_GAME)
+            Log.i(TAG, "IMU accel listener registered (fusion + rumble proxy)")
+        }
+
         if (!hasPermission()) {
-            _snapshot.value = VehicleSpeedSnapshot.invalid()
-            Log.w(TAG, "GPS 車速：無定位權限，fallback 純麥克風模式")
+            Log.w(TAG, "GPS 車速：無定位權限 → IMU 代車速備用（imu_proxy）")
+            republishFusion(gpsSpeedKmh = 0f, gpsValid = false, sourceHint = "none")
             return false
         }
 
-        running = true
         fusedClient.requestLocationUpdates(
             locationRequest,
             callback,
@@ -88,14 +111,7 @@ class VehicleSpeedProvider(context: Context) {
             if (location != null) publish(location, source = "last_known")
         }
 
-        // IMU (linear accel mag) + coarse GPS for NVH crowdsourced map (Road Preview, predictive ANC, "Waze for road noise + vehicle aging"). Mixed as aux ref + boost. Privacy quantized.
-        val accelSensor = sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_LINEAR_ACCELERATION)
-        if (accelSensor != null) {
-            sensorManager.registerListener(accelListener, accelSensor, android.hardware.SensorManager.SENSOR_DELAY_GAME)
-            Log.i(TAG, "IMU accel listener registered for rumble proxy logging")
-        }
-
-        Log.i(TAG, "GPS 車速追蹤已啟動")
+        Log.i(TAG, "GPS 車速追蹤已啟動（含 gps_hold / imu_proxy fusion）")
         return true
     }
 
@@ -108,6 +124,11 @@ class VehicleSpeedProvider(context: Context) {
         _snapshot.value = VehicleSpeedSnapshot.invalid()
         lastLocation = null
         smoothedSpeedKmh = 0f
+        fusionState = VehicleSpeedFusionState()
+        lastRawGpsKmh = 0f
+        lastRawGpsValid = false
+        lastFusionSource = "none"
+        lastHoldAgeSec = -1f
         Log.i(TAG, "GPS 車速追蹤已停止 (IMU listener unregistered)")
     }
 
@@ -115,25 +136,55 @@ class VehicleSpeedProvider(context: Context) {
         val hasGpsSpeed = location.hasSpeed() && location.speed >= 0f
         val speedKmh = resolveSpeedKmh(location)
         val accuracy = if (location.hasAccuracy()) location.accuracy else 999f
-        val valid = isSpeedValid(speedKmh, accuracy, hasGpsSpeed)
-
-        smoothedSpeedKmh = if (valid) {
-            if (smoothedSpeedKmh <= 0f) speedKmh else smoothedSpeedKmh * 0.82f + speedKmh * 0.18f
-        } else {
-            0f
-        }
+        val gpsValid = isSpeedValid(speedKmh, accuracy, hasGpsSpeed)
 
         lastLocation = location
-        // Coarse quantize (~0.001° ≈ 111m grid) for privacy-safe NVH crowdsourced map / road segment keying.
-        // Supports predictive ANC (preload best S(z)/VSS when approaching known rough GPS cluster) + "acoustic identity" data collection.
-        val cLat = if (location.hasAccuracy() && location.accuracy < 200f) (location.latitude * 1000).roundToInt() / 1000f else 0f
-        val cLon = if (location.hasAccuracy() && location.accuracy < 200f) (location.longitude * 1000).roundToInt() / 1000f else 0f
+        lastRawGpsKmh = if (gpsValid) speedKmh else 0f
+        lastRawGpsValid = gpsValid
+        lastGpsSource = if (hasGpsSpeed) "$source:gps_speed" else source
+
+        republishFusion(gpsSpeedKmh = speedKmh, gpsValid = gpsValid, sourceHint = lastGpsSource, location = location)
+    }
+
+    private fun republishFusion(
+        gpsSpeedKmh: Float,
+        gpsValid: Boolean,
+        sourceHint: String,
+        location: Location? = lastLocation
+    ) {
+        val now = System.currentTimeMillis()
+        val (fused, nextState) = VehicleSpeedFusion.fuse(
+            gpsSpeedKmh = gpsSpeedKmh,
+            gpsValid = gpsValid,
+            accelMag = linearAccelMag,
+            nowMs = now,
+            state = fusionState
+        )
+        fusionState = nextState
+        lastFusionSource = fused.source
+        lastHoldAgeSec = fused.holdAgeSec
+        smoothedSpeedKmh = fused.speedKmh
+
+        val cLat = if (location != null && location.hasAccuracy() && location.accuracy < 200f) {
+            (location.latitude * 1000).roundToInt() / 1000f
+        } else 0f
+        val cLon = if (location != null && location.hasAccuracy() && location.accuracy < 200f) {
+            (location.longitude * 1000).roundToInt() / 1000f
+        } else 0f
+        val accuracy = location?.let { if (it.hasAccuracy()) it.accuracy else 999f } ?: 999f
         val rough = linearAccelMag.coerceAtLeast(0f)
+        // valid：DSP 可用（含 hold / imu_proxy）；log 用 source 區分品質
+        val srcLabel = when (fused.source) {
+            "gps" -> sourceHint
+            "gps_hold" -> "gps_hold"
+            "imu_proxy" -> "imu_proxy"
+            else -> "none"
+        }
         _snapshot.value = VehicleSpeedSnapshot(
-            speedKmh = smoothedSpeedKmh,
-            valid = valid,
+            speedKmh = fused.speedKmh,
+            valid = fused.validForDsp,
             accuracyMeters = accuracy,
-            source = if (hasGpsSpeed) "$source:gps_speed" else source,
+            source = srcLabel,
             linearAccelMagnitude = linearAccelMag,
             accelSource = if (linearAccelMag > 0f) "linear_accel" else "none",
             coarseLat = cLat,

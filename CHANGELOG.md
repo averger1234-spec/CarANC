@@ -17,6 +17,30 @@
 
 ---
 
+## [1.2.1] — 2026-08-12 · Android code 3 · iOS build 14
+
+**路測主題**：新版依賴車速 → **無 GPS 時 GPS 掉線保持 + IMU 代車速**，避免 SpeedScheduled 整段 idle。
+
+### 功能
+
+- 共用 `VehicleSpeedFusion`（commonMain）
+  1. **gps** — 有效 GPS  
+  2. **gps_hold** — 掉線後 ≤25s 保持上一檔（緩慢衰減）  
+  3. **imu_proxy** — 線加速度映射粗速（上限 ~75 km/h）  
+  4. **none**
+- Android `VehicleSpeedProvider` / iOS `SpeedProvider` 接入 fusion  
+- 無定位權限仍啟 IMU → 可行駛時 `imu_proxy` 餵 DSP  
+- Log：`speedSource`、`speedHoldAgeSec`、`imuProxyKmh`、`speedValidForRoadTest`  
+- UI：狀態列顯示「GPS / 保持 / IMU 估計」
+
+### 對版
+
+- Android 主畫面 `v1.2.1`（code 3）  
+- iOS 狀態頁 **`v1.2.1 (14)`**  
+- 嚴格路測 KPI 仍以 `speedSource=gps`（或短 hold）為準；`imu_proxy` 可累導引 valid、可跑速域表，但勿當精密 GPS
+
+---
+
 ## [1.2.0] — 2026-08-12 · **iOS only** · build 13
 
 **路測主題**：對齊 Android Auto → **CarPlay 車機路徑**（路由 + 模板 UI + 斷線策略）。

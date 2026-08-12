@@ -186,9 +186,13 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.speedNvhTotalAnti: f2(speedNvhTotalAnti),
             AndroidSnapshotKeys.speedNvhTableId: speedNvhTableId,
 
-            // Vehicle / IMU
+            // Vehicle / IMU（gps | gps_hold | imu_proxy）
             AndroidSnapshotKeys.vehicleSpeedKmh: f1(model.vehicleSpeedKmh),
             AndroidSnapshotKeys.vehicleSpeedValid: "\(model.vehicleSpeedValid)",
+            "speedSource": model.speedSource,
+            "speedHoldAgeSec": f1(model.speedHoldAgeSec),
+            "imuProxyKmh": f1(model.imuProxyKmh),
+            "speedValidForRoadTest": "\(model.speedValidForRoadTest)",
             AndroidSnapshotKeys.isDrivingRumble: "\(driving)",
             AndroidSnapshotKeys.rumbleAccel: f2(model.rumbleAccel),
             AndroidSnapshotKeys.roadRoughness: "n/a",

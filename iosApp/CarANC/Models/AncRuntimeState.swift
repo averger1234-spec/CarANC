@@ -46,6 +46,11 @@ final class AncAppModel: ObservableObject {
 
     @Published var vehicleSpeedKmh: Float = 0
     @Published var vehicleSpeedValid = false
+    /// gps | gps_hold | imu_proxy | none（無車速備用）
+    @Published var speedSource: String = "none"
+    @Published var speedHoldAgeSec: Float = -1
+    @Published var imuProxyKmh: Float = 0
+    @Published var speedValidForRoadTest = false
     @Published var rumbleAccel: Float = 0
     @Published var estimatedLatencyMs: Float = 0
     @Published var maxCancelHz: Float = 150
@@ -83,10 +88,19 @@ final class AncAppModel: ObservableObject {
     }
 
     var speedText: String {
-        if vehicleSpeedValid {
+        switch speedSource {
+        case "gps":
             return String(format: "GPS 車速：%.0f km/h", vehicleSpeedKmh)
+        case "gps_hold":
+            return String(format: "車速保持：%.0f km/h（掉線 %.0fs）", vehicleSpeedKmh, max(0, speedHoldAgeSec))
+        case "imu_proxy":
+            return String(format: "IMU 估計車速：%.0f km/h（無 GPS 備用）", vehicleSpeedKmh)
+        default:
+            if vehicleSpeedValid {
+                return String(format: "車速：%.0f km/h", vehicleSpeedKmh)
+            }
+            return "車速：不可用（開定位或行駛中 IMU 可備用）"
         }
-        return "GPS 車速：不可用（怠速 / 純麥克風模式）"
     }
 
     var latencyText: String {

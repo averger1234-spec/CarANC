@@ -237,8 +237,10 @@ final class AncAudioEngine: ObservableObject {
             }
         }
 
-        let speed = speedProvider.snapshot
         let accel = imuProvider.linearAccelMagnitude
+        // 無 GPS 時仍推進 hold / IMU 代車速（對齊 Android VehicleSpeedFusion）
+        speedProvider.tickWithAccel(accel)
+        let speed = speedProvider.snapshot
         kmpProcessor?.updateTier(activeTier)
         kmpProcessor?.setVehicleSpeed(kmh: speed.kmh, valid: speed.valid)
         kmpProcessor?.setRumbleAccel(accel)
@@ -278,6 +280,7 @@ final class AncAudioEngine: ObservableObject {
         let lowIn = noiseBars.prefix(lowN).reduce(0, +) / Float(lowN)
         let lowAnti = antiBars.prefix(lowN).reduce(0, +) / Float(lowN)
         let lowBandKpi = max(-6, min(12, (lowIn - lowAnti) * 8 + reduction * 0.5))
+        speedProvider.tickWithAccel(imuProvider.linearAccelMagnitude)
         let speed = speedProvider.snapshot
         let accel = imuProvider.linearAccelMagnitude
         let focus = kmpProcessor?.mappedNvhFocus ?? .idle
@@ -303,6 +306,10 @@ final class AncAudioEngine: ObservableObject {
             model.antiSpectrum = antiBars
             model.vehicleSpeedKmh = speed.kmh
             model.vehicleSpeedValid = speed.valid
+            model.speedSource = speed.source
+            model.speedHoldAgeSec = speed.holdAgeSec
+            model.imuProxyKmh = speed.imuProxyKmh
+            model.speedValidForRoadTest = speed.validForRoadTest
             model.rumbleAccel = accel
             model.nvhFocus = focus
             model.maxCancelHz = maxHz
@@ -319,7 +326,10 @@ final class AncAudioEngine: ObservableObject {
             }
 
             if model.showAdvanced {
-                model.statusDetail = String(format: "KMP lms=%lld · %@", lowUpdates, focus.rawValue)
+                model.statusDetail = String(
+                    format: "KMP lms=%lld · %@ · speed=%@",
+                    lowUpdates, focus.rawValue, speed.source
+                )
             } else {
                 model.statusDetail = "KMP · " + focus.displayName
             }

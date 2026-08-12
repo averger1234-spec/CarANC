@@ -230,6 +230,7 @@ final class GuidedTestRunner: ObservableObject {
             return
         }
 
+        // valid：DSP 可用車速即可累加（含 gps_hold / imu_proxy）；嚴格路測看 log speedSource
         let speedOk = model.vehicleSpeedValid && model.vehicleSpeedKmh >= step.minSpeedKmh
         if speedOk {
             validSec += 1
