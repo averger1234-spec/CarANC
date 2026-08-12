@@ -52,8 +52,12 @@ cp -R shared/build/bin/iosArm64/debugFramework/CarANCShared.framework iosApp/Fra
 - `imuMicCoherence` / `bankMatchQuality` / `fixedBankOut` 等由 KMP 回報
 - 部分 plant residual 頻帶若仍為代理或 `n/a`，以趨勢 + 主觀為準，勿硬比 Android 絕對值
 
+## CarPlay（對齊 AA）
+
+見 [`CARPLAY.md`](./CARPLAY.md)。程式已落地；車機 template UI 需 Apple **Driving Task** entitlement。
+
 ## 迭代順序（後續）
 
 1. 路測 log 對照 Android 同場景  
 2. 補 iOS plant residual 閉環 KPI（若 commonMain 已有、Swift 側未掛齊）  
-3. CarPlay（若產品需要）  
+3. Apple 核准後打開 `carplay-driving-task` entitlement → 車機圖示  

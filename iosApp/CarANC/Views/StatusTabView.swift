@@ -69,14 +69,22 @@ struct StatusTabView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(model.speedText)
             Text(model.latencyText)
-            Text("產品目標：路噪 · 輪噪 · 風切（高頻不追消）")
+            HStack(spacing: 6) {
+                Image(systemName: model.carPlayConnected ? "car.fill" : "iphone")
+                Text(model.carPlayConnected
+                     ? "CarPlay 已連線 · \(model.aaLinkType)"
+                     : "本機路徑 · \(model.aaLinkType)")
+            }
+            .foregroundStyle(model.carPlayConnected ? Color.green : Color.secondary)
+            Text("產品目標：路噪 · 輪噪 · 風切（高頻不追消）· 車機對齊 AA")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if model.showAdvanced {
-                Text(String(format: "strategy maxCancel=%.0f mid=%@ high=%@",
+                Text(String(format: "strategy maxCancel=%.0f mid=%@ high=%@ wireless=%@",
                             model.maxCancelHz,
                             model.midEnabled ? "on" : "off",
-                            model.highEnabled ? "on" : "off"))
+                            model.highEnabled ? "on" : "off",
+                            model.wirelessCarPlaySuspected ? "yes" : "no"))
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
             }
@@ -111,19 +119,14 @@ struct StatusTabView: View {
     private func toggleStart() async {
         busy = true
         defer { busy = false }
+        let app = AppController.shared
         if model.isRunning {
-            engine.stop()
+            app.stopAnc()
             return
         }
-        if !model.safetyConsentAccepted {
-            model.showSafetyConsent = true
-            return
-        }
-        do {
-            try await engine.start()
-        } catch {
+        if let err = await app.startAnc() {
             model.phase = .error
-            model.lastError = error.localizedDescription
+            model.lastError = err
             model.isRunning = false
         }
     }

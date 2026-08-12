@@ -55,6 +55,13 @@ final class AncAppModel: ObservableObject {
     @Published var isRunning = false
     @Published var lastError: String?
 
+    // CarPlay / 車機路由（對齊 Android aaLinkType / isAAConnected）
+    @Published var aaLinkType: String = "local"
+    @Published var carPlayConnected = false
+    @Published var wirelessCarPlaySuspected = false
+    /// 供斷線 edge 偵測
+    var wasCarPlayConnected = false
+
     @Published var showAdvanced = false
     @Published var selectedTab = 0
 

@@ -188,7 +188,7 @@ struct GuidedTestView: View {
                 return
             }
             do {
-                try await engine.start()
+                try await engine.start(preferCarAudio: AppController.shared.routeMonitor.linkType.isCarPlay)
             } catch {
                 model.phase = .error
                 model.lastError = error.localizedDescription

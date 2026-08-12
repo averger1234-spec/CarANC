@@ -1,17 +1,16 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var model: AncAppModel
-    @StateObject private var engine: AncAudioEngine
+    @ObservedObject private var app = AppController.shared
 
-    init() {
-        let shared = AncAppModel()
-        _model = StateObject(wrappedValue: shared)
-        _engine = StateObject(wrappedValue: AncAudioEngine(model: shared))
-    }
+    private var model: AncAppModel { app.model }
+    private var engine: AncAudioEngine { app.engine }
 
     var body: some View {
-        TabView(selection: $model.selectedTab) {
+        TabView(selection: Binding(
+            get: { model.selectedTab },
+            set: { model.selectedTab = $0 }
+        )) {
             NavigationStack {
                 StatusTabView(model: model, engine: engine)
                     .navigationTitle("CarANC")
@@ -37,7 +36,10 @@ struct ContentView: View {
             .tabItem { Label("測試平台", systemImage: "wrench.and.screwdriver.fill") }
             .tag(3)
         }
-        .sheet(isPresented: $model.showSafetyConsent) {
+        .sheet(isPresented: Binding(
+            get: { model.showSafetyConsent },
+            set: { model.showSafetyConsent = $0 }
+        )) {
             SafetyConsentView(model: model)
                 .interactiveDismissDisabled(true)
         }

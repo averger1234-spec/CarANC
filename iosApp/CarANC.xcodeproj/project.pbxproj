@@ -9,6 +9,11 @@
 /* Begin PBXBuildFile section */
 		5C4A72784CD7447E88C37240 /* CarANCShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0BD129737DA94DFE9517086E /* CarANCShared.framework */; };
 		3188EEDCCD1E4406962EF7DC /* CarANCShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0BD129737DA94DFE9517086E /* CarANCShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A10000000000000000000001 /* AppController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* AppController.swift */; };
+		A10000000000000000000002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000012 /* AppDelegate.swift */; };
+		A10000000000000000000003 /* CarAudioRouteMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* CarAudioRouteMonitor.swift */; };
+		A10000000000000000000004 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000014 /* CarPlaySceneDelegate.swift */; };
+		A10000000000000000000005 /* CarPlayRootController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000015 /* CarPlayRootController.swift */; };
 		B3636CC27A1945C2A3AFDC95 /* KotlinAncBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C214BBE26086497FB4BF2239 /* KotlinAncBridge.swift */; };
 		A2CF3EF4E57D417E8B8B32AC /* SessionLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9BCC0AF13734FCAACB2CF25 /* SessionLogger.swift */; };
 		6E3AA18F05394F85ABC7A78B /* AppIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = 34C3698164EF4AD293B017F0 /* AppIcon.png */; };
@@ -52,6 +57,12 @@
 
 /* Begin PBXFileReference section */
 		0BD129737DA94DFE9517086E /* CarANCShared.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CarANCShared.framework; path = Frameworks/CarANCShared.framework; sourceTree = "<group>"; };
+		A10000000000000000000011 /* AppController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppController.swift; sourceTree = "<group>"; };
+		A10000000000000000000012 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A10000000000000000000013 /* CarAudioRouteMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarAudioRouteMonitor.swift; sourceTree = "<group>"; };
+		A10000000000000000000014 /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
+		A10000000000000000000015 /* CarPlayRootController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayRootController.swift; sourceTree = "<group>"; };
+		A10000000000000000000016 /* CarANC.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CarANC.entitlements; sourceTree = "<group>"; };
 		C214BBE26086497FB4BF2239 /* KotlinAncBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KotlinAncBridge.swift; sourceTree = "<group>"; };
 		F9BCC0AF13734FCAACB2CF25 /* SessionLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionLogger.swift; sourceTree = "<group>"; };
 		34C3698164EF4AD293B017F0 /* AppIcon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = AppIcon.png; sourceTree = "<group>"; };
@@ -157,15 +168,36 @@
 			isa = PBXGroup;
 			children = (
 				5A78803D8C494FB2B1ABF054 /* AppIcons */,
+				A10000000000000000000020 /* App */,
 				2B6BDF17AAC1474E8D4BCF3F /* Audio */,
+				A10000000000000000000021 /* CarPlay */,
 				5B39C303EE9043048FED324D /* DSP */,
 				1D24C22A16D34169AA0659BE /* Models */,
 				C4CA52C5E0B146DBA4C9FC06 /* Sensors */,
 				EC483164344B48B8B629E907 /* Views */,
 				A8D350DCBB4B42FA81F39A40 /* CarANCApp.swift */,
+				A10000000000000000000016 /* CarANC.entitlements */,
 				C6D8581CF08D44D9BBB6F9BA /* Info.plist */,
 			);
 			path = CarANC;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000020 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000011 /* AppController.swift */,
+				A10000000000000000000012 /* AppDelegate.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000021 /* CarPlay */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000014 /* CarPlaySceneDelegate.swift */,
+				A10000000000000000000015 /* CarPlayRootController.swift */,
+			);
+			path = CarPlay;
 			sourceTree = "<group>";
 		};
 		2B6BDF17AAC1474E8D4BCF3F /* Audio */ = {
@@ -173,6 +205,7 @@
 			children = (
 				C214BBE26086497FB4BF2239 /* KotlinAncBridge.swift */,
 				DBD8B777F3E84517A8973E14 /* AncAudioEngine.swift */,
+				A10000000000000000000013 /* CarAudioRouteMonitor.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -303,6 +336,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000001 /* AppController.swift in Sources */,
+				A10000000000000000000002 /* AppDelegate.swift in Sources */,
+				A10000000000000000000003 /* CarAudioRouteMonitor.swift in Sources */,
+				A10000000000000000000004 /* CarPlaySceneDelegate.swift in Sources */,
+				A10000000000000000000005 /* CarPlayRootController.swift in Sources */,
 				B3636CC27A1945C2A3AFDC95 /* KotlinAncBridge.swift in Sources */,
 				A2CF3EF4E57D417E8B8B32AC /* SessionLogger.swift in Sources */,
 				E592FC87604E46B09B1BCE43 /* TestLabView.swift in Sources */,
@@ -384,7 +422,8 @@
 					CarANCShared,
 				);
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				CURRENT_PROJECT_VERSION = 11;
+				CODE_SIGN_ENTITLEMENTS = CarANC/CarANC.entitlements;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = Q8U9PM5FTD;
 				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -433,7 +472,8 @@
 					CarANCShared,
 				);
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				CURRENT_PROJECT_VERSION = 11;
+				CODE_SIGN_ENTITLEMENTS = CarANC/CarANC.entitlements;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = Q8U9PM5FTD;
 				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = (

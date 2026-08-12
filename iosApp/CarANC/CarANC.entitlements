@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  CarPlay Driving Task 需 Apple 核准後才可放進 profile。
+	  申請通過後取消下一行註解（或設為 true）：
+	  <key>com.apple.developer.carplay-driving-task</key>
+	  <true/>
+	  見 iosApp/CARPLAY.md
+	-->
+</dict>
+</plist>

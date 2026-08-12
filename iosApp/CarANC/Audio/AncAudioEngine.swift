@@ -2,8 +2,9 @@ import Foundation
 import AVFoundation
 import Combine
 
-/// 本機 duplex 音訊引擎：麥克風 → **KMP MultiBandANCProcessor（共用 Android DSP）** → 喇叭
-/// 對齊 Android LocalLowLatencyAudio 路徑（非 CarPlay；CarPlay 為後續整合）
+/// 本機 / CarPlay duplex 音訊引擎：麥克風 → **KMP MultiBandANCProcessor** → 輸出
+/// - 本機：對齊 Android `LocalLowLatencyAudio`
+/// - CarPlay：對齊 Android AA `AUDIOTRACK_AA_SUBMIX` 高延遲路徑（DSP SpeedScheduled 吸收）
 final class AncAudioEngine: ObservableObject {
     private let model: AncAppModel
     private let engine = AVAudioEngine()
@@ -37,28 +38,32 @@ final class AncAudioEngine: ObservableObject {
     private var lastFixedBankOut: Float = 0
     /// Captured on main at start/tier change — safe for audio thread
     private var activeTier: UserTier = .light
+    private var preferCarAudio = false
 
     init(model: AncAppModel) {
         self.model = model
     }
 
+    /// 執行中切換等級（對齊 AA 車機 ActionStrip）
     @MainActor
-    func start() async throws {
+    func applyTier(_ tier: UserTier) {
+        activeTier = tier
+        kmpProcessor?.updateTier(tier)
+    }
+
+    @MainActor
+    func start(preferCarAudio: Bool = false) async throws {
         guard !isStarted else { return }
         if !model.safetyConsentAccepted {
             model.showSafetyConsent = true
             throw EngineError.needsConsent
         }
+        self.preferCarAudio = preferCarAudio
 
+        // 路由：本機 speaker vs CarPlay 車機（對齊 AA resolveRoute）
+        try CarAudioRouteMonitor.configureSessionForCarIfNeeded(preferCar: preferCarAudio)
+        AppController.shared.routeMonitor.refresh()
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(
-            .playAndRecord,
-            mode: .measurement,
-            options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers]
-        )
-        try session.setPreferredSampleRate(48_000)
-        try session.setPreferredIOBufferDuration(0.01)
-        try session.setActive(true)
 
         teardownGraph()
 
@@ -68,7 +73,9 @@ final class AncAudioEngine: ObservableObject {
             throw EngineError.invalidFormat
         }
         sampleRate = format.sampleRate
-        measuredLatencyMs = Float(session.ioBufferDuration * 1000.0 * 3.0 + 30.0)
+        // CarPlay / AA 路徑延遲通常 100–250ms+；本機較低
+        let base = Float(session.ioBufferDuration * 1000.0 * 3.0 + 30.0)
+        measuredLatencyMs = preferCarAudio ? max(base, 140) : base
 
         let bufFrames = 512
         activeTier = model.tier
@@ -114,18 +121,24 @@ final class AncAudioEngine: ObservableObject {
         model.midEnabled = proc.midEnabled
         model.highEnabled = proc.highEnabled
 
+        let link = model.aaLinkType
+        let backend = preferCarAudio ? "AVAudioEngine_carplay+KMP" : "AVAudioEngine_local+KMP"
         SessionLogger.shared.startSession(meta: [
             "tier": model.tier.rawValue,
             "sampleRate": String(format: "%.0f", sampleRate),
             "bufferMs": String(format: "%.1f", session.ioBufferDuration * 1000),
             "latencyEstMs": String(format: "%.1f", measuredLatencyMs),
-            "dsp": "kmp_MultiBandANCProcessor"
+            "dsp": "kmp_MultiBandANCProcessor",
+            "aaLinkType": link,
+            "preferCarAudio": "\(preferCarAudio)"
         ])
         SessionLogger.shared.event("audio_init", [
-            "audioBackend": "AVAudioEngine_local+KMP",
+            "audioBackend": backend,
             "sampleRate": String(format: "%.0f", sampleRate),
             "channelsIn": "\(format.channelCount)",
-            "dsp": "shared.MultiBandANCProcessor"
+            "dsp": "shared.MultiBandANCProcessor",
+            "aaLinkType": link,
+            "carPlayConnected": "\(model.carPlayConnected)"
         ])
         SessionLogger.shared.event("calibration", ["msg": "learning_window_start"])
 

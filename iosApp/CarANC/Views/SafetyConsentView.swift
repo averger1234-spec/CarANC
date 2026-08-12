@@ -9,7 +9,7 @@ struct SafetyConsentView: View {
         "請在車輛靜止或安全情境下完成校正；行駛中請以交通安全為優先。",
         "本 App 需要麥克風、定位權限以提供降噪功能。",
         "若感到暈眩、耳壓不適或聽不見警報聲，請立即停止降噪。",
-        "iOS 版目前為本機喇叭路徑；CarPlay 音訊路由為後續版本。"
+        "支援本機喇叭與 CarPlay 車機路徑（對齊 Android Auto：手機 DSP、車機輸出）。建議優先有線 CarPlay。"
     ]
 
     var body: some View {

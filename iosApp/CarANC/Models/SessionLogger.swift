@@ -218,10 +218,12 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.neuralLatentEnabled: "n/a",
             AndroidSnapshotKeys.fdafDelayless: "n/a",
 
-            // Route
-            AndroidSnapshotKeys.audioBackend: "AVAudioEngine_local",
-            AndroidSnapshotKeys.aaLinkType: "n/a_ios_no_aa",
-            AndroidSnapshotKeys.wirelessAaSuspected: "false",
+            // Route（對齊 Android aaLinkType；CarPlay = carplay_wired / carplay_wireless / local）
+            AndroidSnapshotKeys.audioBackend: model.carPlayConnected
+                ? "AVAudioEngine_carplay"
+                : "AVAudioEngine_local",
+            AndroidSnapshotKeys.aaLinkType: model.aaLinkType,
+            AndroidSnapshotKeys.wirelessAaSuspected: "\(model.wirelessCarPlaySuspected)",
 
             // Guided
             AndroidSnapshotKeys.guidedTestStepId: guidedTestStepId,

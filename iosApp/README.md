@@ -43,7 +43,7 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 | 路測腳本 | ✅ car_road_tuning_v1 | ✅ 同腳本 + 更全 log |
 | Session log | ✅ running_snapshot 同欄位名 | ✅ JSONL |
 | GPS / IMU | ✅ | ✅ |
-| Android Auto / CarPlay | ❌ 尚未 | ✅ AA |
+| Android Auto / CarPlay | ✅ CarPlay 對齊 AA（路由+模板；UI 需 Apple entitlement） | ✅ AA |
 | 本機喇叭 duplex | ✅ AVAudioEngine | ✅ |
 | 預編 IPA | ✅ `dist/CarANC-ios-kmp-debug.ipa` | — |
 

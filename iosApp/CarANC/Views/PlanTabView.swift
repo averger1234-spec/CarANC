@@ -57,7 +57,7 @@ struct PlanTabView: View {
                 LabeledContent("平台", value: "iOS（本機 AVAudioEngine）")
                 LabeledContent("Android 對應", value: "CarANC KMP shared DSP")
                 Link("GitHub 專案", destination: URL(string: "https://github.com/averger1234-spec/CarANC")!)
-                Text("CarPlay 音訊路由與完整 KMP framework 連結為下一階段。")
+                Text("CarPlay 已接上（對齊 AA）：車機模板可啟停／切等級；音訊走 KMP MultiBand。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
