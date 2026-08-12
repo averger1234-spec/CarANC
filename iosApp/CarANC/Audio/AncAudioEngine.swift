@@ -315,6 +315,11 @@ final class AncAudioEngine: ObservableObject {
             self.uiTickCount += 1
             if self.uiTickCount % 10 == 0, model.isRunning {
                 let linearRms = pow(10 as Float, raw / 20)
+                let bin = self.kmpProcessor?.speedNvhBinKmh ?? 0
+                let lowG = self.kmpProcessor?.speedNvhLowGain ?? 1
+                let midG = self.kmpProcessor?.speedNvhMidGain ?? 0.25
+                let totalA = self.kmpProcessor?.speedNvhTotalAnti ?? 1
+                let tableId = self.kmpProcessor?.speedNvhTableId ?? "none"
                 SessionLogger.shared.runningSnapshot(
                     model: model,
                     antiDb: anti,
@@ -326,13 +331,21 @@ final class AncAudioEngine: ObservableObject {
                     blockCount: blocks,
                     blockRms: linearRms,
                     lowBandEnergyIn: lowIn,
-                    lowBandEnergyAnti: lowAnti
+                    lowBandEnergyAnti: lowAnti,
+                    speedNvhBinKmh: bin,
+                    speedNvhLowGain: lowG,
+                    speedNvhMidGain: midG,
+                    speedNvhTotalAnti: totalA,
+                    speedNvhTableId: tableId
                 )
                 // Overlay real KMP diagnostics into next event
                 SessionLogger.shared.event("kmp_diag", [
                     AndroidSnapshotKeys.imuMicCoherence: String(format: "%.3f", coh),
                     AndroidSnapshotKeys.bankMatchQuality: String(format: "%.3f", bank),
                     AndroidSnapshotKeys.fixedBankOut: String(format: "%.4f", fixedOut),
+                    AndroidSnapshotKeys.speedNvhBinKmh: "\(bin)",
+                    AndroidSnapshotKeys.speedNvhTableId: tableId,
+                    AndroidSnapshotKeys.speedNvhTotalAnti: String(format: "%.2f", totalA),
                     "dsp": "kmp_MultiBandANCProcessor"
                 ])
             }

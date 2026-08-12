@@ -27,6 +27,12 @@ enum AndroidSnapshotKeys {
 
     static let nvhFocus = "nvhFocus"
     static let nvhTargetHz = "nvhTargetHz"
+    // Android 1.1.0 SpeedScheduledNvhGains
+    static let speedNvhBinKmh = "speedNvhBinKmh"
+    static let speedNvhLowGain = "speedNvhLowGain"
+    static let speedNvhMidGain = "speedNvhMidGain"
+    static let speedNvhTotalAnti = "speedNvhTotalAnti"
+    static let speedNvhTableId = "speedNvhTableId"
 
     static let vehicleSpeedKmh = "vehicleSpeedKmh"
     static let vehicleSpeedValid = "vehicleSpeedValid"
@@ -128,7 +134,12 @@ final class SessionLogger: ObservableObject {
         blockCount: Int64,
         blockRms: Float,
         lowBandEnergyIn: Float,
-        lowBandEnergyAnti: Float
+        lowBandEnergyAnti: Float,
+        speedNvhBinKmh: Int = 0,
+        speedNvhLowGain: Float = 1,
+        speedNvhMidGain: Float = 0.25,
+        speedNvhTotalAnti: Float = 1,
+        speedNvhTableId: String = "none"
     ) {
         snapshotCounter += 1
         let driving = model.vehicleSpeedValid && model.vehicleSpeedKmh > 40 && model.rumbleAccel > 0.5
@@ -166,9 +177,14 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.plantDelayForResidual: "n/a",
             "kpiSource": "ios_spectrum_proxy", // 分析時可知非 Android plant
 
-            // NVH
+            // NVH + Android 1.1.0 speed-scheduled gains (from KMP)
             AndroidSnapshotKeys.nvhFocus: model.nvhFocus.rawValue,
             AndroidSnapshotKeys.nvhTargetHz: nvhTargetLabel(model.nvhFocus),
+            AndroidSnapshotKeys.speedNvhBinKmh: "\(speedNvhBinKmh)",
+            AndroidSnapshotKeys.speedNvhLowGain: f2(speedNvhLowGain),
+            AndroidSnapshotKeys.speedNvhMidGain: f2(speedNvhMidGain),
+            AndroidSnapshotKeys.speedNvhTotalAnti: f2(speedNvhTotalAnti),
+            AndroidSnapshotKeys.speedNvhTableId: speedNvhTableId,
 
             // Vehicle / IMU
             AndroidSnapshotKeys.vehicleSpeedKmh: f1(model.vehicleSpeedKmh),

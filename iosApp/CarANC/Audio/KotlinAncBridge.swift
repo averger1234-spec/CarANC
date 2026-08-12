@@ -19,6 +19,12 @@ final class KotlinAncBridge {
     private(set) var bankMatchQuality: Float = 0
     private(set) var fixedBankOut: Float = 0
     private(set) var plantResidualReductionDb: Float = 0
+    // Android 1.1.0 SpeedScheduledNvhGains (via KMP MultiBand)
+    private(set) var speedNvhBinKmh: Int = 0
+    private(set) var speedNvhLowGain: Float = 1
+    private(set) var speedNvhMidGain: Float = 0.25
+    private(set) var speedNvhTotalAnti: Float = 1
+    private(set) var speedNvhTableId: String = "none"
 
     init(sampleRate: Int, bufferSize: Int, tier: UserTier) {
         self.bufferSize = bufferSize
@@ -83,6 +89,11 @@ final class KotlinAncBridge {
         imuMicCoherence = processor.getImuMicCoherenceQuality()
         bankMatchQuality = processor.getBankMatchQuality()
         fixedBankOut = processor.getLastFixedBankOut()
+        speedNvhBinKmh = Int(processor.getSpeedNvhBinKmh())
+        speedNvhLowGain = processor.getSpeedNvhLowGain()
+        speedNvhMidGain = processor.getSpeedNvhMidGain()
+        speedNvhTotalAnti = processor.getSpeedNvhTotalAnti()
+        speedNvhTableId = processor.getSpeedNvhTableId()
         refreshLimits()
         return out
     }
