@@ -39,7 +39,11 @@ data class NvhFocusResult(
     /** If true, aggressively mute HF anti (wind-chase kill). */
     val suppressHighAnti: Boolean,
     /** If true, favor IMU/road FF over mic adaptive. */
-    val preferStructuralFf: Boolean
+    val preferStructuralFf: Boolean,
+    /** Speed-scheduled gains (5 km/h bins) — primary path when mic is misaligned. */
+    val speedSchedule: SpeedNvhGainSchedule = SpeedScheduledNvhGains.gainsFor(
+        NvhFocusClass.IDLE, 0f, false, highLatency = true
+    )
 )
 
 @Keep
@@ -66,9 +70,9 @@ object CabinNvhFocus {
         val lowMid = (lowRatio + midRatio).coerceIn(0f, 1f)
         val highLat = estimatedLatencyMs >= 100f
 
-        // Idle: not tire/road/wind product path
-        if (!speedValid || spd < 12f) {
-            return NvhFocusResult(
+        val base: NvhFocusResult = when {
+            // Idle: not tire/road/wind product path
+            !speedValid || spd < 12f -> NvhFocusResult(
                 focus = NvhFocusClass.IDLE,
                 confidence = 0.9f,
                 targetHzLabel = "idle (no NVH target)",
@@ -78,47 +82,34 @@ object CabinNvhFocus {
                 suppressHighAnti = true,
                 preferStructuralFf = false
             )
-        }
-
-        // Wind-shear: high speed + spectrum dominated by HF + little structure
-        val windCue = spd >= 55f && highRatio >= 0.88f && lowMid < 0.12f && accel < 1.2f
-        if (windCue) {
-            return NvhFocusResult(
+            // Wind-shear: high speed + spectrum dominated by HF + little structure
+            spd >= 55f && highRatio >= 0.88f && lowMid < 0.12f && accel < 1.2f -> NvhFocusResult(
                 focus = NvhFocusClass.WIND_SHEAR,
                 confidence = (highRatio - 0.7f).coerceIn(0.4f, 1f),
                 targetHzLabel = "wind >${WIND_LO_HZ.toInt()}Hz (no adaptive HF)",
-                lowPriority = 0.35f,  // keep mild boom cancel only
+                lowPriority = 0.35f,
                 midPriority = 0.05f,
                 highPriority = 0f,
                 suppressHighAnti = true,
                 preferStructuralFf = true
             )
-        }
-
-        // Tire: structure vibration + mid-band presence, or strong accel roughness
-        val tireCue = spd >= 25f && (
-            midRatio >= 0.04f && midRatio >= lowRatio * 0.7f ||
-                accel >= 0.7f && lowMid >= 0.04f ||
-                spd >= 40f && lowMid >= 0.05f && midRatio >= 0.03f
-            )
-        if (tireCue && !windCue) {
-            val midPri = if (highLat) 0.35f else 0.7f
-            return NvhFocusResult(
+            // Tire: structure vibration + mid-band presence, or strong accel roughness
+            spd >= 25f && (
+                midRatio >= 0.04f && midRatio >= lowRatio * 0.7f ||
+                    accel >= 0.7f && lowMid >= 0.04f ||
+                    spd >= 40f && lowMid >= 0.05f && midRatio >= 0.03f
+                ) -> NvhFocusResult(
                 focus = NvhFocusClass.TIRE_NOISE,
                 confidence = (lowMid * 2f + (accel / 3f)).coerceIn(0.35f, 1f),
                 targetHzLabel = "tire ${TIRE_LO_HZ.toInt()}-${TIRE_HI_HZ.toInt()}Hz",
                 lowPriority = 1f,
-                midPriority = midPri,
+                midPriority = if (highLat) 0.35f else 0.7f,
                 highPriority = 0f,
                 suppressHighAnti = true,
                 preferStructuralFf = true
             )
-        }
-
-        // Road rumble: speed + low structure
-        val roadCue = spd >= 20f && (lowRatio >= 0.04f || accel >= 0.45f || lowMid >= 0.05f)
-        if (roadCue) {
-            return NvhFocusResult(
+            // Road rumble: speed + low structure
+            spd >= 20f && (lowRatio >= 0.04f || accel >= 0.45f || lowMid >= 0.05f) -> NvhFocusResult(
                 focus = NvhFocusClass.ROAD_RUMBLE,
                 confidence = (lowRatio * 3f + accel / 4f).coerceIn(0.35f, 1f),
                 targetHzLabel = "road ${ROAD_LO_HZ.toInt()}-${ROAD_HI_HZ.toInt()}Hz",
@@ -128,25 +119,43 @@ object CabinNvhFocus {
                 suppressHighAnti = true,
                 preferStructuralFf = true
             )
+            // Driving but unclear spectrum → mixed road/tire, never wind-chase
+            else -> NvhFocusResult(
+                focus = NvhFocusClass.MIXED_CABIN,
+                confidence = 0.3f,
+                targetHzLabel = "mixed tire/road (HF muted)",
+                lowPriority = 0.85f,
+                midPriority = if (highLat) 0.2f else 0.35f,
+                highPriority = 0f,
+                suppressHighAnti = true,
+                preferStructuralFf = true
+            )
         }
 
-        // Driving but unclear spectrum → still treat as mixed road/tire, never wind-chase
-        return NvhFocusResult(
-            focus = NvhFocusClass.MIXED_CABIN,
-            confidence = 0.3f,
-            targetHzLabel = "mixed tire/road (HF muted)",
-            lowPriority = 0.85f,
-            midPriority = if (highLat) 0.2f else 0.35f,
-            highPriority = 0f,
-            suppressHighAnti = true,
-            preferStructuralFf = true
+        // Attach 5 km/h speed schedule (primary gain path when mic is misaligned)
+        val schedule = SpeedScheduledNvhGains.gainsFor(
+            focus = base.focus,
+            speedKmh = spd,
+            speedValid = speedValid && spd >= 0f,
+            highLatency = highLat
+        )
+        return base.copy(
+            // Priorities follow speed table (mic-independent product core)
+            lowPriority = schedule.lowGain,
+            midPriority = schedule.midGain,
+            highPriority = schedule.highGain,
+            speedSchedule = schedule
         )
     }
 
-    /** Scale band gains for tire/road/wind product policy. */
+    /**
+     * Scale band gains: base dominant-band shape × speed-scheduled NVH priorities
+     * ([NvhFocusResult.lowPriority]/mid already come from 5 km/h tables).
+     * High is forced 0 when suppressHighAnti (wind / product policy).
+     */
     fun applyToBandGains(base: BandGains, nvh: NvhFocusResult): BandGains {
         return BandGains(
-            low = (base.low * nvh.lowPriority).coerceIn(0f, 1.2f),
+            low = (base.low * nvh.lowPriority).coerceIn(0f, 1.35f),
             mid = (base.mid * nvh.midPriority).coerceIn(0f, 1f),
             high = if (nvh.suppressHighAnti) 0f else (base.high * nvh.highPriority).coerceIn(0f, 0.2f)
         )

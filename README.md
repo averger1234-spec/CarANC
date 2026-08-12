@@ -5,6 +5,7 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
+**版號**：`version.properties`（目前 **1.1.0 / code 2**）· 改版說明見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 **跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
 
@@ -28,6 +29,8 @@ git push origin main
 
 | 文件 | 用途 |
 |------|------|
+| [`CHANGELOG.md`](CHANGELOG.md) | **改版紀錄**（每版改了什麼） |
+| [`version.properties`](version.properties) | `VERSION_NAME` / `VERSION_CODE` 唯一來源 |
 | [`MULTI_MACHINE_SYNC.md`](MULTI_MACHINE_SYNC.md) | 多機同步主指南 |
 | [`DISTRIBUTION.md`](DISTRIBUTION.md) | store / internal、簽名、版本號 |
 | [`PLAY_RELEASE_CHECKLIST.md`](PLAY_RELEASE_CHECKLIST.md) | Play 上架檢查清單 |
@@ -75,7 +78,8 @@ git pull origin main
 | **輪噪** | 80–350 Hz（Skoda 常 200–350） | **次主力**：mid-low + structural FF；延遲高時相位難 |
 | **風切** | 多在 **>500 Hz** | **不追消**：高頻 adaptive 關閉（追了只會吱吱/電報聲） |
 
-Log 看：`nvhFocus` = `ROAD_RUMBLE` / `TIRE_NOISE` / `WIND_SHEAR`；`nvhTargetHz`。
+**車速增益表（每 5 km/h）**：`SpeedScheduledNvhGains` — 依 `nvhFocus` + 車速對 low/mid/**totalAnti** 插值排程（mic 高延遲對不齊時的主增益路徑）。風切表會 **壓 totalAnti**，不會加 high。  
+Log：`nvhFocus`、`nvhTargetHz`、`speedNvhBinKmh`、`speedNvhLowGain`、`speedNvhMidGain`、`speedNvhTotalAnti`、`speedNvhTableId`。
 
 ---
 

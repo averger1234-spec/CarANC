@@ -120,6 +120,12 @@ class MultiBandANCProcessor(
     private var lastNvhFocus = com.example.caranc.shared.model.NvhFocusClass.MIXED_CABIN
     private var lastNvhTargetHzLabel = ""
     private var lastNvhSuppressHigh = true
+    /** Speed-scheduled total anti scale (5 km/h road/tire/wind tables). */
+    private var lastSpeedTotalAnti = 1f
+    private var lastSpeedBinKmh = 0
+    private var lastSpeedLowGain = 1f
+    private var lastSpeedMidGain = 0.25f
+    private var lastSpeedTableId = "none"
     private var resonancePeaks = emptyList<com.example.caranc.shared.model.ResonancePeak>()
     private var mimoProfile: CabinMimoProfile? = null
     private var mimoZoneCount = 1
@@ -376,11 +382,29 @@ class MultiBandANCProcessor(
 
     override fun applyClassifierResult(result: NoiseBandClassification) {
         // CYCLE3_EXTRA: use via context (supports injected/mock classifier).
-        bandGains = sessionContext.noiseBandClassifier.bandGains(result)
+        // Prefer full NVH result (includes 5 km/h speed schedule); re-schedule if missing.
+        val nvh = result.nvhResult ?: com.example.caranc.shared.model.CabinNvhFocus.classify(
+            speedKmh = vehicleSpeedKmh,
+            speedValid = vehicleSpeedValid,
+            lowRatio = result.lowEnergyRatio,
+            midRatio = result.midEnergyRatio,
+            highRatio = result.highEnergyRatio,
+            linearAccelMagnitude = rumbleAccelMag,
+            estimatedLatencyMs = estimatedLatencyMs
+        )
+        bandGains = sessionContext.noiseBandClassifier.bandGains(
+            result.copy(nvhResult = nvh, nvhFocus = nvh.focus, nvhTargetHzLabel = nvh.targetHzLabel)
+        )
         lastDominant = result.dominantBand
-        lastNvhFocus = result.nvhFocus
-        lastNvhTargetHzLabel = result.nvhTargetHzLabel
-        lastNvhSuppressHigh = result.nvhSuppressHighAnti
+        lastNvhFocus = nvh.focus
+        lastNvhTargetHzLabel = nvh.targetHzLabel
+        lastNvhSuppressHigh = nvh.suppressHighAnti
+        val sch = nvh.speedSchedule
+        lastSpeedTotalAnti = sch.totalAntiScale
+        lastSpeedBinKmh = sch.speedBinKmh
+        lastSpeedLowGain = sch.lowGain
+        lastSpeedMidGain = sch.midGain
+        lastSpeedTableId = sch.tableId
     }
 
     override fun updateSecondaryPath(model: FloatArray) {
@@ -908,7 +932,9 @@ class MultiBandANCProcessor(
                 weakDriveHiss -> combined * 0.45f
                 else -> combined
             }
-            output[i] = (gatedCombined * outputEventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
+            // Product core: speed-binned total anti (road/tire boost, wind duck) — less trust mic alone
+            val speedScaled = gatedCombined * lastSpeedTotalAnti.coerceIn(0.05f, 1.25f)
+            output[i] = (speedScaled * outputEventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
 
             if (freezeWeightUpdates > 0) {
                 freezeWeightUpdates--
@@ -1377,4 +1403,9 @@ class MultiBandANCProcessor(
     /** Product NVH focus: ROAD_RUMBLE / TIRE_NOISE / WIND_SHEAR / … */
     override fun getNvhFocus(): String = lastNvhFocus.name
     override fun getNvhTargetHzLabel(): String = lastNvhTargetHzLabel
+    override fun getSpeedNvhBinKmh(): Int = lastSpeedBinKmh
+    override fun getSpeedNvhLowGain(): Float = lastSpeedLowGain
+    override fun getSpeedNvhMidGain(): Float = lastSpeedMidGain
+    override fun getSpeedNvhTotalAnti(): Float = lastSpeedTotalAnti
+    override fun getSpeedNvhTableId(): String = lastSpeedTableId
 }

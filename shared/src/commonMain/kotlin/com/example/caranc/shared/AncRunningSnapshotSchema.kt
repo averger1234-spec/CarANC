@@ -38,6 +38,12 @@ object AncRunningSnapshotSchema {
     // NVH product focus
     const val NVH_FOCUS = "nvhFocus"
     const val NVH_TARGET_HZ = "nvhTargetHz"
+    // Speed-scheduled gains (5 km/h bins — road/tire/wind tables)
+    const val SPEED_NVH_BIN_KMH = "speedNvhBinKmh"
+    const val SPEED_NVH_LOW_GAIN = "speedNvhLowGain"
+    const val SPEED_NVH_MID_GAIN = "speedNvhMidGain"
+    const val SPEED_NVH_TOTAL_ANTI = "speedNvhTotalAnti"
+    const val SPEED_NVH_TABLE_ID = "speedNvhTableId"
 
     // Vehicle / IMU
     const val VEHICLE_SPEED_KMH = "vehicleSpeedKmh"

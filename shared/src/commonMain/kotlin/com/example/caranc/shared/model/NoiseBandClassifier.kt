@@ -22,7 +22,9 @@ data class NoiseBandClassification(
     /** Product: tire / road / wind focus (see CabinNvhFocus). */
     val nvhFocus: NvhFocusClass = NvhFocusClass.MIXED_CABIN,
     val nvhTargetHzLabel: String = "",
-    val nvhSuppressHighAnti: Boolean = true
+    val nvhSuppressHighAnti: Boolean = true,
+    /** Full NVH result including 5 km/h speed schedule (optional for legacy callers). */
+    val nvhResult: NvhFocusResult? = null
 )
 
 /**
@@ -52,15 +54,17 @@ class NoiseBandClassifier(
         estimatedLatencyMs: Float = 150f
     ): NoiseBandClassification {
         if (spectrum.isEmpty() || sampleRate <= 0) {
+            val idleNvh = CabinNvhFocus.classify(0f, false, 0.33f, 0.33f, 0.34f, 0f, estimatedLatencyMs)
             return NoiseBandClassification(
                 dominantBand = DominantNoiseBand.MIXED,
                 lowEnergyRatio = 0.33f,
                 midEnergyRatio = 0.33f,
                 highEnergyRatio = 0.34f,
                 confidence = 0f,
-                nvhFocus = NvhFocusClass.MIXED_CABIN,
-                nvhTargetHzLabel = "unknown",
-                nvhSuppressHighAnti = true
+                nvhFocus = idleNvh.focus,
+                nvhTargetHzLabel = idleNvh.targetHzLabel,
+                nvhSuppressHighAnti = idleNvh.suppressHighAnti,
+                nvhResult = idleNvh
             )
         }
 
@@ -139,42 +143,36 @@ class NoiseBandClassifier(
             confidence = confidence,
             nvhFocus = nvh.focus,
             nvhTargetHzLabel = nvh.targetHzLabel,
-            nvhSuppressHighAnti = nvh.suppressHighAnti
+            nvhSuppressHighAnti = nvh.suppressHighAnti,
+            nvhResult = nvh
         )
     }
 
+    /**
+     * Band gains = dominant-band shape × **speed-scheduled** road/tire/wind priorities
+     * (5 km/h bins in [SpeedScheduledNvhGains]). High always 0 (no wind chase).
+     */
     fun bandGains(classification: NoiseBandClassification): BandGains {
         val base = when (classification.dominantBand) {
             DominantNoiseBand.IDLE_LOW -> BandGains(low = 1f, mid = 0.15f, high = 0f)
-            // 路噪：全力 low；輪噪 mid 次之；風切 high 永不開（產品政策）
             DominantNoiseBand.ROAD_LOW -> BandGains(low = 1f, mid = 0.35f, high = 0f)
-            DominantNoiseBand.ROAD_MID -> BandGains(low = 0.85f, mid = 0.65f, high = 0f)  // tire 200-350 class
+            DominantNoiseBand.ROAD_MID -> BandGains(low = 0.85f, mid = 0.65f, high = 0f)
             DominantNoiseBand.MUSIC_BROAD -> BandGains(low = 0.7f, mid = 0.3f, high = 0f)
             DominantNoiseBand.MIXED -> BandGains(low = 0.9f, mid = 0.3f, high = 0f)
         }
-        val focus = NvhFocusResult(
+        val focus = classification.nvhResult ?: NvhFocusResult(
             focus = classification.nvhFocus,
             confidence = classification.confidence,
             targetHzLabel = classification.nvhTargetHzLabel,
-            lowPriority = when (classification.nvhFocus) {
-                NvhFocusClass.ROAD_RUMBLE -> 1f
-                NvhFocusClass.TIRE_NOISE -> 1f
-                NvhFocusClass.WIND_SHEAR -> 0.35f
-                NvhFocusClass.MIXED_CABIN -> 0.85f
-                NvhFocusClass.IDLE -> 0.2f
-            },
-            midPriority = when (classification.nvhFocus) {
-                NvhFocusClass.TIRE_NOISE -> 0.55f
-                NvhFocusClass.ROAD_RUMBLE -> 0.3f
-                NvhFocusClass.WIND_SHEAR -> 0.05f
-                NvhFocusClass.MIXED_CABIN -> 0.25f
-                NvhFocusClass.IDLE -> 0.05f
-            },
+            lowPriority = 0.85f,
+            midPriority = 0.25f,
             highPriority = 0f,
             suppressHighAnti = true,
-            preferStructuralFf = true
+            preferStructuralFf = true,
+            speedSchedule = SpeedScheduledNvhGains.gainsFor(
+                classification.nvhFocus, 0f, false, highLatency = true
+            )
         )
-        // Product rule: high always 0 — never chase wind/hiss with adaptive ANC
         return CabinNvhFocus.applyToBandGains(base, focus).copy(high = 0f)
     }
 

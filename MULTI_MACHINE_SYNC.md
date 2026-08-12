@@ -27,7 +27,8 @@ git log -5 --oneline
 | 你要做什麼 | 先讀哪個 md |
 |------------|-------------|
 | **換機同步流程（本檔）** | `MULTI_MACHINE_SYNC.md`（本節） |
-| 專案總覽 / iOS+Android 現況 | `README.md` →「最新進度（2026-08-11）」 |
+| **這版改了什麼** | `CHANGELOG.md` + `version.properties` |
+| 專案總覽 / iOS+Android 現況 | `README.md` →「最新進度」 |
 | Android 日常裝機 / 拉 log | `scripts/README.md` |
 | **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | iOS 專案 / 路測 log | `iosApp/README.md`、`iosApp/ROAD_TEST_VERIFY.md` |

@@ -61,11 +61,13 @@ APK 路徑：
 編輯根目錄 `version.properties`：
 
 ```
-VERSION_CODE=1
-VERSION_NAME=1.0.0
+VERSION_CODE=2
+VERSION_NAME=1.1.0
 ```
 
-每次上傳 Play（含內部測試）都必須 **VERSION_CODE + 1**。
+- 每次上傳 Play（含內部測試）都必須 **VERSION_CODE + 1**
+- 每次可路測的功能包：同步改 **VERSION_NAME**，並在 **`CHANGELOG.md`** 寫「改了什麼」
+- App 主畫面：`v{VERSION_NAME}`（internal 另顯示 `-internal`）
 
 ## 簽名備份
 

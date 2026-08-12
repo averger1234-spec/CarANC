@@ -1396,9 +1396,14 @@ class AudioEngine(
                         // Primary KPI for driving rumble (docs C): low-band <250Hz spectral reduction
                         "lowBandRumbleReduction" to lowBandReductionDb,
                         "primaryReductionKpi" to "lowBandRumbleReduction",
-                        // Product: 輪噪/路噪/風切
+                        // Product: 輪噪/路噪/風切 + 5 km/h speed-scheduled anti gains
                         "nvhFocus" to (ancProcessor?.getNvhFocus() ?: "MIXED_CABIN"),
                         "nvhTargetHz" to (ancProcessor?.getNvhTargetHzLabel() ?: ""),
+                        "speedNvhBinKmh" to (ancProcessor?.getSpeedNvhBinKmh() ?: 0),
+                        "speedNvhLowGain" to (ancProcessor?.getSpeedNvhLowGain() ?: 1f),
+                        "speedNvhMidGain" to (ancProcessor?.getSpeedNvhMidGain() ?: 0.25f),
+                        "speedNvhTotalAnti" to (ancProcessor?.getSpeedNvhTotalAnti() ?: 1f),
+                        "speedNvhTableId" to (ancProcessor?.getSpeedNvhTableId() ?: "none"),
                         // Closed-loop self-check (program band energy — not external phone recorder)
                         "rawLowBandDb" to lastRawLowBandDb,
                         "residualLowBandDb" to lastResidualLowBandDb,

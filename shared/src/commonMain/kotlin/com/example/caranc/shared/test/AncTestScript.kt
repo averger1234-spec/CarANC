@@ -318,6 +318,11 @@ object CarAncTestScript {
         "lowBandRumbleReduction",
         "primaryReductionKpi",
         "nvhFocus",
+        "speedNvhBinKmh",
+        "speedNvhLowGain",
+        "speedNvhMidGain",
+        "speedNvhTotalAnti",
+        "speedNvhTableId",
         "nvhTargetHz",
         "requireWiredAa",
         "lowBandMuScale",
@@ -364,15 +369,13 @@ object CarAncTestScript {
 
 object CarRoadTuningScript {
     const val SCRIPT_ID = "car_road_tuning_v1"
-    // 2026-07-22 core + literature (3c0016b / 73ba9bb / 67a77a0):
-    // - plant/maxCancel = measured only；latencyOverrideMs 僅 log A/B 標記
-    // - 高 lat + rumble → HIGH_LAT_PRED_BANK（predictive bipolar ref + neural latent bank + low FxLMS）
-    //   舊名 FF_PREVIEW_ONLY / magnitude→喇叭 已廢止（會出電台雜訊）
-    // - #6 delayless FDAF + #7 bank；bank 現為 soft-max cosine on neural latent
-    // - 驗證 KPI：lowBandRumbleReduction 主；imuMicCoherence / bankMatchQuality / neuralLatentEnabled
-    // - 實測請 USB 有線 AA；無線 projection 更差
-    // 驗證：latencyStrategy / imuMicCoherence / bankMatch* / fixedBankOut / lowBandRumbleReduction / 聽感無靜電
-    const val SCRIPT_NAME = "路噪自動調校（有效行駛秒數推進；紅燈不計）"
+    // === 2026-08 產品核心：路噪/輪噪/風切 + 車速每 5km/h 增益表 ===
+    // Mic 高延遲對不齊 → 主路徑 = SpeedScheduledNvhGains（road/tire/wind 表）× band gains × totalAnti
+    // 本腳本用來驗：速度 bin 是否跟著變、表 ID 是否對、低頻 KPI 是否比舊版有進步
+    // 必看 log：speedNvhBinKmh / speedNvhLowGain / speedNvhMidGain / speedNvhTotalAnti / speedNvhTableId / nvhFocus
+    // 主 KPI 仍：lowBandRumbleReduction；A/B：#4b baseline vs #6/#7
+    // plant/maxCancel=measured；ov 僅 log；USB 有線 AA；fdafDelayless + bank 輔
+    const val SCRIPT_NAME = "路噪/輪噪/風切·5km/h增益驗證（有效行駛秒數）"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -417,17 +420,16 @@ object CarRoadTuningScript {
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
             id = "tuning_prep",
-            title = "調校準備（快速）",
+            title = "準備：USB AA + 5km/h 增益表驗證說明",
             instructions = listOf(
-                "★ #9 建議 USB 有線 Android Auto（BT 無線更差）。A-fix：remote_submix → aaLinkType=projection_submix，不是 wireless",
-                "USB AA 後啟動 ANC；audio_init：audioBackend=AUDIOTRACK_AA_SUBMIX",
-                "車型/手機位置/情境填清楚（例：「Pixel + USB AA + 粗糙國道」）",
-                "★ placement：phone 放 floor/seat（勿中控/手上）。好 coupling：accelMag>0.5 + roughness>0.5 + imuMicCoherence>0.4",
-                "點「開始降噪」完成校正；開 ANC 應「安靜或低頻悶」而非電台靜電（極性/plant 已修）",
-                "同一條粗糙路 50–70km/h、嚴格低音樂（<20% 或 off）",
-                "每步「完成這步」套用 debug presets（ov 僅 log）",
-                "本腳本驗證 HIGH_LAT_PRED_BANK + neural latent bank + #6 FDAF；#4b=A/B。高 lat mid 關閉=正常",
-                "★ 推進方式：行駛步只累計「有效秒」（車速達標）；紅燈/怠速暫停不計，達標後自動下一步"
+                "★ USB 有線 Android Auto；aaLinkType 宜=projection_submix（不是 wireless）",
+                "啟動 ANC：audioBackend=AUDIOTRACK_AA_SUBMIX；開 ANC 應安靜/低頻悶、無電台靜電",
+                "placement=floor/seat（勿中控）；accel/roughness 有值才利於 NVH 分類",
+                "★ 本腳本核心：驗證 SpeedScheduledNvhGains（路噪/輪噪/風切 × 每5km/h）",
+                "行駛中 log 必出現：speedNvhBinKmh、speedNvhLowGain、speedNvhMidGain、speedNvhTotalAnti、speedNvhTableId、nvhFocus",
+                "預期：車速↑ → speedNvhBin 每5跳一格；road/tire 表 totalAnti 升；風切表 totalAnti 壓低",
+                "主 KPI 仍 lowBandRumbleReduction（#4b 當 A/B baseline）",
+                "★ 推進：僅累計「車速達標」有效秒；紅燈/怠速不計"
             ),
             durationSec = 20,
             requiresAncRunning = false,
@@ -438,7 +440,7 @@ object CarRoadTuningScript {
                 "wirelessAaSuspected=false",
                 "ANC已跑",
                 "placement=floor/seat",
-                "開ANC無電台靜電"
+                "知悉 speedNvh* 欄位"
             ),
             logPhases = listOf("audio_init", "calibration", "rpm_config", "running_snapshot", "wireless_aa_warning"),
             debugPresets = mapOf(
@@ -449,63 +451,80 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_4",
-            title = "#4 musicLow 對比（mu=1.7, freeze=11）— ov 僅 log 標記，plant=measured",
+            title = "#4 城區40–50：速度 bin 起步（road/tire 表）",
             instructions = listOf(
-                "系統已自動套用（mu=1.7…）；需累計約 50 秒「車速≥40」有效數據（紅燈不計）",
-                "AA 高 lat：看 latencyStrategy、lowBandRumbleReduction、imuMicCoherence",
-                "neuralLatentEnabled=true；bankMatchQuality 有值"
+                "維持約 40–50 km/h 粗糙路；累計 50 秒有效秒（≥40）",
+                "★ 查 speedNvhBinKmh 應為 40 或 45（每5一檔）",
+                "speedNvhTableId 多為 road_5kmh 或 tire_5kmh / mixed_5kmh（看 nvhFocus）",
+                "speedNvhTotalAnti 應明顯高於怠速（idle 表 ~0.2–0.4）",
+                "speedNvhLowGain 行駛應 > idle；記 lowBandRumbleReduction 作對照"
             ),
             durationSec = 50,
             minSpeedKmh = 40f,
             maxWallSec = 600,
             suggestedTier = UserTier.STANDARD,
             checklist = listOf(
-                "muMult=1.7", "ov=log-only", "musicLow=ON",
-                "latencyStrategy 已記錄", "neuralLatentEnabled=true", "tier=STANDARD"
+                "speedNvhBinKmh=40或45",
+                "speedNvhTableId 非 none",
+                "speedNvhTotalAnti 已記錄",
+                "nvhFocus 已記錄",
+                "tier=STANDARD"
             ),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.7f,
                 "freezeThreshold" to 11f,
                 "freezeConsec" to 2,
-                "latencyOverrideMs" to 120f,  // log-only tag (P0: does not drive plant)
+                "latencyOverrideMs" to 120f,
                 "tier" to "STANDARD"
             )
         ),
         TestScriptStep(
             id = "tuning_4b_Skoda",
-            title = "#4b musicLow 延伸（mu=1.6）— stable A/B baseline，ov 僅 log",
+            title = "#4b A/B baseline 45–55（比後續步驟的增益/KPI）",
             instructions = listOf(
-                "系統已自動套用（mu=1.6…）；需 50 秒有效行駛（車速≥40，紅燈不計）",
-                "A/B baseline：與後續 #6/#7 比 lowBandRumbleReduction"
+                "45–55 km/h；50 秒有效秒（≥40）— 此步當穩定 baseline",
+                "記錄本段 speedNvhBin / LowGain / TotalAnti 與 lowBandRumbleReduction 平均",
+                "後續 #6/#7 必須能對照：bin↑ 時 LowGain/TotalAnti 是否跟著表升",
+                "A/B：本步 vs #7 的 lowBandRumbleReduction + 主觀 rumble 0–10"
             ),
             durationSec = 50,
             minSpeedKmh = 40f,
             maxWallSec = 600,
             suggestedTier = UserTier.STANDARD,
-            checklist = listOf("muMult=1.6", "freezeTh=12", "ov=log-only", "musicLow=ON", "A/B baseline", "tier=STANDARD"),
+            checklist = listOf(
+                "A/B baseline 已跑",
+                "speedNvh* 有值",
+                "lowBandRumbleReduction 有記錄",
+                "tier=STANDARD"
+            ),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.6f,
                 "freezeThreshold" to 12f,
                 "freezeConsec" to 2,
-                "latencyOverrideMs" to 150f,  // log-only tag
+                "latencyOverrideMs" to 150f,
                 "musicLowAncEnabled" to true,
                 "tier" to "STANDARD"
             )
         ),
         TestScriptStep(
             id = "tuning_5_contrast",
-            title = "#5 musicLow OFF 對比（mu=2.2, freeze=9, c=2, override=0） - 證明 musicLow 重要",
+            title = "#5 musicLow OFF 對比（速度表仍應運作）",
             instructions = listOf(
-                "musicLow OFF 對比；需 45 秒有效行駛（車速≥40）",
-                "比較 #4/#4b：有無 musicLow 時 rumble 差異"
+                "musicLow OFF；40+ km/h 45 秒有效秒",
+                "速度增益表不依賴 musicLow：speedNvh* 仍應隨 speed 變",
+                "比較 #4/#4b：musicLow 對 lowBand KPI / 聽感差異（表本身不應歸零）"
             ),
             durationSec = 45,
             minSpeedKmh = 40f,
             maxWallSec = 600,
             suggestedTier = UserTier.LIGHT,
-            checklist = listOf("muMult=2.2", "freezeTh=9", "consec=2", "override=0", "musicLow=OFF", "tier=LIGHT (conservative auto)"),
+            checklist = listOf(
+                "musicLow=OFF",
+                "speedNvhTotalAnti 仍隨速",
+                "tier=LIGHT"
+            ),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 2.2f,
@@ -513,75 +532,105 @@ object CarRoadTuningScript {
                 "freezeConsec" to 2,
                 "latencyOverrideMs" to 0f,
                 "musicLowAncEnabled" to false,
-                "tier" to "LIGHT"  // tier change auto applies higher leakage etc; remove legacy debugLeakage
+                "tier" to "LIGHT"
             )
         ),
-        // Iter2-4 + S3: #6 mid-force contrast (roadMode forced + musicLow ON + mu for mid focus). Updated: stricter no-music instr + dominant force in DSP.
-        // Use forceNormal=false to allow road detection, musicLow ON, override low for maxC, mu high.
-        // Goal: isolate mid band rumble contrib vs #4/#4b; observe effectiveMidMu >0.5 , reduction on 250-350Hz. Use as A/B vs #4b stable (old unchanged).
         TestScriptStep(
             id = "tuning_6_midforce",
-            title = "#6 road+FDAF 對比（mu=1.8；ov僅log；驗 fdafDelayless + mid 若啟用）",
+            title = "#6 50–60：中速增益 + FDAF（vs #4b）",
             instructions = listOf(
-                "需 50 秒有效行駛（車速≥45）；#6 FDAF",
-                "fdafDelayless=true；高 lat mid 關=正常",
-                "A/B vs #4b：lowBandRumbleReduction + fixedBankOut"
+                "目標 50–60 km/h；50 秒有效秒（≥45）",
+                "★ speedNvhBinKmh 應 50 或 55；road/tire 表 TotalAnti 宜 ≥ #4 段",
+                "fdafDelayless=true；fixedBankOut 行駛宜非零",
+                "A/B vs #4b：lowBandRumbleReduction 是否更高或尖峰更多",
+                "nvhFocus 宜 ROAD_RUMBLE 或 TIRE_NOISE（非 IDLE）"
             ),
             durationSec = 50,
             minSpeedKmh = 45f,
             maxWallSec = 600,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "muMult=1.8", "fdafDelayless=true", "speed>50",
-                "lowBandRumble 有記錄", "無電台靜電", "tier=PRO"
+                "speedNvhBinKmh=50或55",
+                "speedNvhTotalAnti≥#4水準",
+                "fdafDelayless=true",
+                "nvhFocus=ROAD或TIRE",
+                "vs #4b KPI",
+                "tier=PRO"
             ),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing", "debug_presets_apply"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 1.8f,
                 "freezeThreshold" to 10f,
                 "freezeConsec" to 2,
-                "latencyOverrideMs" to 110f,  // log-only
+                "latencyOverrideMs" to 110f,
                 "musicLowAncEnabled" to true,
                 "forceNormalMode" to false,
                 "tier" to "PRO"
             )
         ),
-        // Iter4 + Subagent3 Extended #7 variant: strong road rumble (on top of #6): mu higher, ov=80 for maxC 300+ sim, stronger DSP mid focus (even music), classifier tweak for pure ROAD_MID even with music.
-        // Goal: deeper rumble gains, dominant=ROAD_MID/LOW, effMidMu 0.6+, reduction -4~-6dB in 200-350 (mid contrib). Prioritize shift from MUSIC_BROAD.
-        // Use with strict conditions (speed50+ rough low-music) + old prep/4/4b/5 UNCHANGED + #6 for A/B in one run. mid center 335Hz focus 300-350.
-        // All changes minimal+guarded (roadMode + speed>28 + energy + musicLow).
         TestScriptStep(
             id = "tuning_7_strong_road",
-            title = "#7 HIGH_LAT_PRED_BANK+neural bank 主驗（mu=2.05；USB AA）",
+            title = "#7 55–70 主驗：速度表峰值 + 路/輪 KPI（PRO）",
             instructions = listOf(
-                "主驗：需 55 秒有效行駛（車速≥50；紅燈不計）",
-                "閉環 KPI：outputPathActive=true；plantResidualReductionDb 行駛宜>0（plant 混合 residual↓）",
-                "另記：rawLowBandDb / plantResidualLowBandDb / bandE60–120；neuralLatent / bankMatch / imuMicCoherence",
-                "聽感：低頻悶、無電台靜電；A/B vs #4b；fixedBankOut 行駛宜非零"
+                "★ 主驗：55–70 km/h 粗糙路；55 秒有效秒（≥50）；低音樂",
+                "speedNvhBinKmh 應 55/60/65；tableId=road_5kmh 或 tire_5kmh",
+                "speedNvhLowGain 行駛宜 >1.0（表峰值區）；TotalAnti 宜 ~1.0–1.1",
+                "進步判準：#7 段 lowBandRumbleReduction 正值比例 / 尖峰 是否優於 #4b",
+                "outputPathActive=true；antiNoiseDb 行駛不應長期 -200",
+                "plantResidualReductionDb 有正值更好；聽感低頻悶↓、無靜電"
             ),
             durationSec = 55,
             minSpeedKmh = 50f,
             maxWallSec = 720,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "USB有線AA",
+                "speedNvhBin 55–65",
+                "speedNvhLowGain 記錄",
+                "speedNvhTotalAnti 記錄",
+                "nvhFocus 非 IDLE",
+                "lowBand KPI vs #4b",
                 "outputPathActive",
-                "plantResidualReductionDb 已記錄",
-                "rawLowBandDb 已記錄",
-                "neuralLatentEnabled=true",
-                "imuMicCoherence 已記錄",
-                "fixedBankOut 行駛",
                 "無電台靜電",
-                "speed>55 rough low-music",
-                "tier=PRO",
-                "vs #4b A/B"
+                "tier=PRO"
             ),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing", "debug_presets_apply"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 2.05f,
                 "freezeThreshold" to 9f,
                 "freezeConsec" to 2,
-                "latencyOverrideMs" to 80f,  // log-only
+                "latencyOverrideMs" to 80f,
+                "musicLowAncEnabled" to true,
+                "forceNormalMode" to false,
+                "tier" to "PRO"
+            )
+        ),
+        TestScriptStep(
+            id = "tuning_8_wind_guard",
+            title = "#8 高速風切防護：TotalAnti 應被壓（非加增益）",
+            instructions = listOf(
+                "若路況允許：70+ km/h 開闊路 40 秒有效秒（≥65）；無則跳過但 checklist 註 N/A",
+                "★ 風切策略：high=0；若 nvhFocus=WIND_SHEAR → speedNvhTableId=wind_5kmh",
+                "speedNvhTotalAnti 應明顯低於 #7 峰值（表設計 ≤0.45 級）",
+                "speedNvhMidGain 極低；不應為了風切猛加 anti",
+                "聽感：不應因高速更嘶/電報聲；可接受只保 mild low boom"
+            ),
+            durationSec = 40,
+            minSpeedKmh = 65f,
+            maxWallSec = 600,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf(
+                "高速段或N/A",
+                "若 WIND：tableId=wind_5kmh",
+                "TotalAnti 低於#7",
+                "無嘶聲/電報聲",
+                "tier=PRO"
+            ),
+            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
+            debugPresets = mapOf(
+                "lmsMuMultiplier" to 1.8f,
+                "freezeThreshold" to 10f,
+                "freezeConsec" to 2,
+                "latencyOverrideMs" to 0f,
                 "musicLowAncEnabled" to true,
                 "forceNormalMode" to false,
                 "tier" to "PRO"
@@ -589,26 +638,28 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束與匯出 + 準備下次迭代",
+            title = "結束匯出：對照表是否進步",
             instructions = listOf(
-                "停止降噪",
-                "用 GuidedTest finish「儲存到下載 / CarANC_Logs」或測試平台匯出",
-                "把完整 log 傳回分析（或 pull-latest-log.ps1）",
-                "scenario 註：tier / USB-AA / placement / speed / musicLow / 主觀靜電? / 主觀 rumble 0–10",
-                "必查欄位：outputPathActive, plantResidualReductionDb, rawLowBandDb, plantResidualLowBandDb, bandE60–120, imuMicCoherence, bankMatchQuality, neuralLatentEnabled, fixedBankOut, lowBandRumbleReduction, antiNoiseDb",
-                "PASS：outputPathActive + plantResidualReductionDb 行駛常>0 + 聽感低頻改善無雜訊；FAIL：有 anti 但 plantRed≤0 且聽感變吵",
-                "A/B：#4b vs #6 vs #7 的 lowBandRumbleReduction + 主觀",
-                "下一輪：固定 USB AA + floor",
-                "★ 約 10 秒壁鐘後自動結束 → 請存 log"
+                "停止降噪 → 儲存 Log（GuidedTest 或測試平台）",
+                "scenario 註：速度段 / placement / 主觀 rumble 0–10 / 靜電? / 風切?",
+                "★ 必查 progress 欄位：",
+                "  1) speedNvhBinKmh 是否隨 40→50→60 每5跳",
+                "  2) speedNvhTableId 是否 road/tire/wind/mixed（非 none）",
+                "  3) #7 vs #4b：speedNvhTotalAnti 與 lowBandRumbleReduction 正值比例",
+                "  4) 風切段 TotalAnti 是否被壓（不是加）",
+                "PASS：bin/表有變 + 行駛 anti 有出 + 低頻 KPI 優於#4b 或尖峰更多 + 無靜電",
+                "FAIL：speedNvh* 全無/全固定；或 TotalAnti 不隨速；或更嘶",
+                "把 log 給分析（pull-latest-log.ps1）"
             ),
             durationSec = 10,
             requiresAncRunning = false,
             wallClockOnly = true,
             maxWallSec = 30,
             checklist = listOf(
-                "腳本將自動結束",
-                "結束後儲存 Log",
-                "含 imuMicCoherence/bankMatch/neuralLatent"
+                "已存 Log",
+                "含 speedNvh* 全欄",
+                "含 nvhFocus",
+                "含 #4b vs #7 對照"
             ),
             logPhases = listOf("test_script_complete")
         )

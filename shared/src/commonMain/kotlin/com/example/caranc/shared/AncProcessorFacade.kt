@@ -139,6 +139,12 @@ interface AncProcessorFacade : AudioProcessor {
     /** Product: tire/road/wind — ROAD_RUMBLE / TIRE_NOISE / WIND_SHEAR / … */
     fun getNvhFocus(): String = "MIXED_CABIN"
     fun getNvhTargetHzLabel(): String = ""
+    /** 5 km/h speed-bin floor for NVH gain table. */
+    fun getSpeedNvhBinKmh(): Int = 0
+    fun getSpeedNvhLowGain(): Float = 1f
+    fun getSpeedNvhMidGain(): Float = 0.25f
+    fun getSpeedNvhTotalAnti(): Float = 1f
+    fun getSpeedNvhTableId(): String = "none"
 
     /** IMU↔mic low coherence proxy 0..1 (literature multi-coherence gate). */
     fun getImuMicCoherenceQuality(): Float = 0.5f

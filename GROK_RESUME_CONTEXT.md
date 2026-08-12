@@ -1,16 +1,17 @@
-﻿# 最新多機同步索引（2026-08-11）
+﻿# 最新多機同步索引（2026-08-12）
 
-**請先讀**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」。
+**請先讀**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」+ **`CHANGELOG.md`**。
 
 | 區塊 | 文件 |
 |------|------|
+| **改版紀錄** | `CHANGELOG.md` + `version.properties`（現 **1.1.0 / code 2**） |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
-近期 commit 方向：Play flavor 準備、iOS+KMP IPA、Sideloadly 腳本。  
+**1.1.0 重點**：`SpeedScheduledNvhGains`（路/輪/風 × 每 5 km/h）+ `car_road_tuning_v1` 驗證腳本。  
 keystore **不在** GitHub，多機自行拷貝。
 
 ---
