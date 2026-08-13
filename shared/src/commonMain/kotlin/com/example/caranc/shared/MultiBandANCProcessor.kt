@@ -141,6 +141,9 @@ class MultiBandANCProcessor(
     private val roadWiener = RoadNoiseWienerBank(sampleRate, sessionContext.roadNoiseReferenceModel)
     private val virtualSensing = VirtualSensingModel(sHat)
     private val multirateLow = MultirateLowBandFxLms(decimation = 4)
+    // Tire narrowband + wind multi-notch (speed/HF peaks) — active suppress beyond broadband LMS
+    private val narrowbandBank = com.example.caranc.shared.latency.AdaptiveNarrowbandBank(sampleRate)
+
     // #6: partitioned (4×64) + delayless FIR output for low band only
     private val fdafLow = FdafLowBandProcessor(
         blockSize = 64,
@@ -790,23 +793,34 @@ class MultiBandANCProcessor(
             // S3: stronger mid boost (2.15x) + direct mid error boost *1.28 (like low's *1.3) (even if music) when road+rumble+speed+energy.
             // min 0.58f , + *1.75 if ROAD dominant. Guarded by roadMode+speed>28+energy to avoid artifact in pure music/idle (C2 risk refine).
             // mid center now 335Hz (tuned for 300-350 rumble peak focus). Also log effective via lastMuScale. minimal safe changes.
-            // P0: FF_PREVIEW_ONLY / HIGH lat → shut mid adaptive (phase untenable at ~250ms); keep energy on low FF.
+            // P0: FF_PREVIEW_ONLY / HIGH lat → shut mid adaptive (except WIND active chase).
+            val windFocusNow = lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.WIND_SHEAR
             val midEnabledEff = !ffPreviewOnly && (latencyLimits.midEnabled ||
-                (roadMode && musicLowAncEnabled))
+                (roadMode && musicLowAncEnabled) || windFocusNow)
             val rawMidMu = if (midEnabledEff) {
+                val midLatGain = if (windFocusNow) {
+                    latencyLimits.midGain.coerceAtLeast(0.55f)
+                } else {
+                    latencyLimits.midGain
+                }
                 effectiveMuScale(midBand, floorMode, roadMode) *
-                    bandGains.mid *
+                    bandGains.mid.coerceAtLeast(if (windFocusNow) 0.4f else 0f) *
                     voiceProtector.midBandMuScale(callFloorMode || callActive) *
                     eventScale *
-                    latencyLimits.midGain *
+                    midLatGain *
                     LatencyAwareBandLimiter.bandMuScale(
-                        midBand.centerHz, measuredLatencyMs, roadRumble = (roadMode && musicLowAncEnabled)
-                    )
+                        midBand.centerHz,
+                        measuredLatencyMs,
+                        roadRumble = (roadMode && musicLowAncEnabled) || windFocusNow
+                    ).let { if (windFocusNow) it.coerceAtLeast(0.4f) else it }
             } else {
                 0f
             }
             val roadMusicMidBoost = if (roadMode && musicLowAncEnabled && vehicleSpeedKmh > 28f) 2.15f else 1.0f
             var midMu = rawMidMu * roadMusicMidBoost
+            if (windFocusNow && midMu < 0.5f) {
+                midMu = 0.5f
+            }
             if (roadMode && musicLowAncEnabled && vehicleSpeedKmh > 28f && midMu < 0.58f) {
                 midMu = 0.58f  // ensure minimum mid contrib for rumble dominant even at high AA lat (S3 ext ambitious)
             }
@@ -832,7 +846,21 @@ class MultiBandANCProcessor(
                 0f
             }
 
-            val highMu = if (!ffPreviewOnly && latencyLimits.highEnabled) {
+            // Wind chase: force high-band LMS even when latency limiter disables high (product: 压风切).
+            val highMu = if (windFocusNow && !ffPreviewOnly) {
+                val windHighGain = bandGains.high.coerceAtLeast(0.45f)
+                effectiveMuScale(highBand, floorMode, roadMode) *
+                    windHighGain *
+                    voiceProtector.highBandMuScale(callFloorMode || callActive) *
+                    eventScale *
+                    // Bypass latency high kill; mild scale only
+                    0.85f *
+                    LatencyAwareBandLimiter.bandMuScale(
+                        highBand.centerHz,
+                        measuredLatencyMs,
+                        roadRumble = true // permissive cutoff for wind HF centers
+                    ).coerceAtLeast(0.35f)
+            } else if (!ffPreviewOnly && latencyLimits.highEnabled) {
                 effectiveMuScale(highBand, floorMode, roadMode) *
                     bandGains.high *
                     voiceProtector.highBandMuScale(callFloorMode || callActive) *
@@ -846,7 +874,7 @@ class MultiBandANCProcessor(
                 highBand.processSample(
                     sample = bands.high,
                     muScale = highMu,
-                    freezeUpdates = freeze,
+                    freezeUpdates = freeze && !windFocusNow, // keep adapting on wind
                     errorSample = virtualBands.high
                 )
             } else {
@@ -869,10 +897,24 @@ class MultiBandANCProcessor(
             val fixedScale = 1f // lastFixedBankOut already includes bankScale
             val fdafMix = if (estimatedLatencyMs > HIGH_LATENCY_MS) 0.22f else 0.45f
             val adaptMix = 1f
-            // High lat: mute mid/high anti (phase untenable → hiss). Keep low adaptive only.
-            val midMix = if (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode) 0f else midOut
-            val highMix = if (estimatedLatencyMs > HIGH_LATENCY_MS) 0f else highOut
-            lastEffectiveMidMuLogged = if (midMix == 0f && estimatedLatencyMs > HIGH_LATENCY_MS) 0f else midBand.lastMuScale
+            // High lat: mute mid/high for rumble-only; **wind chase keeps mid/high** (product: 压风切).
+            val midMix = if (windFocusNow) {
+                midOut
+            } else if (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode) {
+                0f
+            } else {
+                midOut
+            }
+            val highMix = if (windFocusNow) {
+                highOut
+            } else if (estimatedLatencyMs > HIGH_LATENCY_MS) {
+                0f
+            } else {
+                highOut
+            }
+            lastEffectiveMidMuLogged =
+                if (midMix == 0f && estimatedLatencyMs > HIGH_LATENCY_MS && !windFocusNow) 0f
+                else midBand.lastMuScale
 
             val lmsY = (lowOut + nativeLowOut) * bandGains.low * latencyLimits.lowGain * adaptMix +
                 midMix + highMix
@@ -908,32 +950,43 @@ class MultiBandANCProcessor(
                 else -> -lmsY + preAnti + engineFf * 0.25f
             }
 
-            // Tire/road/wind: lowpass HF; wind-shear ducks hard (cannot cancel aero at AA delay).
-            val windFocus = lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.WIND_SHEAR
-            if (windFocus || lastNvhSuppressHigh ||
-                (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode && vehicleSpeedKmh > 20f)
+            // Road/tire high-lat: optional lowpass HF. Wind: **do not** lowpass-kill (active HF chase).
+            val windFocus = windFocusNow
+            if (!windFocus && (lastNvhSuppressHigh ||
+                    (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode && vehicleSpeedKmh > 20f))
             ) {
-                combined = lowPassOutput(combined) * (if (windFocus) 0.45f else 1f)
+                combined = lowPassOutput(combined)
             }
 
             val outputEventScale = if (musicDominantRumbleMode && rumbleEnergyProxy > 0.2f) {
                 (eventScale * 0.5f + 0.5f).coerceAtMost(1f)
             } else eventScale
 
-            // Idle: only mute micro-hiss. Wind focus: keep mild low boom only (no HF chase → less telegraph).
+            // Idle micro-hiss only. Wind: full combined (no 0.4x duck).
             val lowExcitationNoRumble = vehicleSpeedKmh < 10f && rumbleAccelMag < 0.4f && rumbleEnergyProxy < 0.15f && !effectiveRumbleMode
-            val weakDriveHiss = vehicleSpeedKmh in 10f..35f && rumbleAccelMag < 0.35f && rumbleEnergyProxy < 0.12f &&
+            val weakDriveHiss = !windFocus && vehicleSpeedKmh in 10f..35f && rumbleAccelMag < 0.35f && rumbleEnergyProxy < 0.12f &&
                 estimatedLatencyMs > HIGH_LATENCY_MS
             val absCombined = if (combined >= 0f) combined else -combined
             val gatedCombined = when {
                 lowExcitationNoRumble && absCombined < 0.008f -> 0f
                 lowExcitationNoRumble -> combined * 0.85f
-                windFocus -> combined * 0.4f
                 weakDriveHiss -> combined * 0.45f
                 else -> combined
             }
-            // Product core: speed-binned total anti (road/tire boost, wind duck) — less trust mic alone
-            val speedScaled = gatedCombined * lastSpeedTotalAnti.coerceIn(0.05f, 1.25f)
+            // Speed table: wind totalAnti now boosts (see SpeedScheduledNvhGains), not ducks
+            var speedScaled = gatedCombined * lastSpeedTotalAnti.coerceIn(0.05f, 1.35f)
+
+            // ★ Tire 3-notch + Wind 6-notch: real anti mix (not gain-only). Error ≈ residual after broadband.
+            val notchErr = virtualError - speedScaled * 0.35f
+            val notchAnti = narrowbandBank.process(
+                errorSample = notchErr,
+                focus = lastNvhFocus,
+                speedKmh = vehicleSpeedKmh,
+                speedValid = vehicleSpeedValid,
+                freeze = freeze
+            )
+            speedScaled = (speedScaled + notchAnti).coerceIn(-1.2f, 1.2f)
+
             output[i] = (speedScaled * outputEventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
 
             if (freezeWeightUpdates > 0) {
@@ -1408,4 +1461,11 @@ class MultiBandANCProcessor(
     override fun getSpeedNvhMidGain(): Float = lastSpeedMidGain
     override fun getSpeedNvhTotalAnti(): Float = lastSpeedTotalAnti
     override fun getSpeedNvhTableId(): String = lastSpeedTableId
+
+    /** Tire narrowband + wind multi-notch diagnostics (for log / script). */
+    override fun getTireNotchEnergy(): Float = narrowbandBank.lastTireNotchEnergy
+    override fun getWindNotchEnergy(): Float = narrowbandBank.lastWindNotchEnergy
+    override fun getTireNotchF0Hz(): Float = narrowbandBank.lastTireF0Hz
+    override fun getWindNotchActiveCount(): Int = narrowbandBank.lastWindActiveCount
+    override fun getNotchMixAnti(): Float = narrowbandBank.lastMixAnti
 }

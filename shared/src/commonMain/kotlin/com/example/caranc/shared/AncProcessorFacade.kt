@@ -146,6 +146,13 @@ interface AncProcessorFacade : AudioProcessor {
     fun getSpeedNvhTotalAnti(): Float = 1f
     fun getSpeedNvhTableId(): String = "none"
 
+    /** Tire 3-notch + wind 6-notch diagnostics (1.2.3+). */
+    fun getTireNotchEnergy(): Float = 0f
+    fun getWindNotchEnergy(): Float = 0f
+    fun getTireNotchF0Hz(): Float = 0f
+    fun getWindNotchActiveCount(): Int = 0
+    fun getNotchMixAnti(): Float = 0f
+
     /** IMU↔mic low coherence proxy 0..1 (literature multi-coherence gate). */
     fun getImuMicCoherenceQuality(): Float = 0.5f
     /** Bank latent soft-max peak mass 0..1 (US2025-style match quality). */

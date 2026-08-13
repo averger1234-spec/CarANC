@@ -7,13 +7,12 @@ import kotlin.math.min
 /**
  * **Speed-scheduled anti gains** for product NVH (road / tire / wind).
  *
- * Motivation: under AA high latency the mic path is poorly phase-aligned, so we treat
- * known spectral targets (low road boom, mid-low tire, HF wind = do-not-chase) as a
- * **feedforward gain schedule vs vehicle speed**, every [BIN_KMH] km/h, rather than
- * relying on mic LMS alone.
+ * Feedforward gain schedule vs vehicle speed (every [BIN_KMH] km/h), less trust mic alone.
+ * Units: relative scales on band gains / final anti (not absolute dB).
  *
- * Units: relative scales multiplied onto band gains / final anti (not absolute dB).
- * Wind never gets high-band boost; total anti is ducked at high speed when wind-class.
+ * **Wind (WIND_SHEAR)**: product requirement is **active suppression** (push mid/high + totalAnti),
+ * not "protect only / do-not-chase". Artifacts are managed in the processor (leakage/clip/freeze),
+ * not by zeroing wind effort.
  */
 @Keep
 data class SpeedNvhGainSchedule(
@@ -21,7 +20,7 @@ data class SpeedNvhGainSchedule(
     val speedBinKmh: Int,
     val lowGain: Float,
     val midGain: Float,
-    /** Product: stay ~0 for wind / HF chase kill. */
+    /** High-band scale; wind uses non-zero to chase aero hiss. */
     val highGain: Float,
     /** Multiplies final anti sample (after band mix). */
     val totalAntiScale: Float,
@@ -93,30 +92,39 @@ object SpeedScheduledNvhGains {
         0.84f, 0.82f
     )
 
-    // Wind shear: HF not cancelled — duck total anti, keep only mild low boom
+    // Wind shear: ACTIVE chase — raise mid/high/total with speed (highway aero). Product: 压下去.
     private val WIND_LOW = floatArrayOf(
-        0.12f, 0.12f, 0.12f, 0.15f, 0.18f,
-        0.22f, 0.25f, 0.28f, 0.30f, 0.32f,
-        0.35f, 0.35f, 0.35f, 0.35f, 0.34f,
-        0.33f, 0.32f, 0.32f, 0.30f, 0.30f,
-        0.28f, 0.28f, 0.26f, 0.26f, 0.25f,
-        0.25f, 0.24f
+        0.20f, 0.22f, 0.25f, 0.35f, 0.45f,
+        0.55f, 0.62f, 0.70f, 0.78f, 0.85f,
+        0.90f, 0.95f, 1.00f, 1.05f, 1.08f,
+        1.10f, 1.12f, 1.12f, 1.10f, 1.08f,
+        1.05f, 1.02f, 1.00f, 0.98f, 0.96f,
+        0.95f, 0.94f
     )
     private val WIND_MID = floatArrayOf(
-        0.02f, 0.02f, 0.02f, 0.03f, 0.03f,
-        0.04f, 0.04f, 0.04f, 0.05f, 0.05f,
-        0.05f, 0.05f, 0.05f, 0.05f, 0.04f,
-        0.04f, 0.04f, 0.03f, 0.03f, 0.03f,
-        0.03f, 0.02f, 0.02f, 0.02f, 0.02f,
-        0.02f, 0.02f
+        0.08f, 0.10f, 0.12f, 0.18f, 0.25f,
+        0.32f, 0.40f, 0.48f, 0.55f, 0.62f,
+        0.68f, 0.72f, 0.75f, 0.78f, 0.80f,
+        0.82f, 0.82f, 0.80f, 0.78f, 0.75f,
+        0.72f, 0.70f, 0.68f, 0.65f, 0.62f,
+        0.60f, 0.58f
+    )
+    /** High-band schedule — only applied for WIND (other foci keep high≈0 at apply site). */
+    private val WIND_HIGH = floatArrayOf(
+        0.05f, 0.06f, 0.08f, 0.12f, 0.18f,
+        0.25f, 0.32f, 0.40f, 0.48f, 0.55f,
+        0.62f, 0.68f, 0.72f, 0.75f, 0.78f,
+        0.80f, 0.82f, 0.82f, 0.80f, 0.78f,
+        0.75f, 0.72f, 0.70f, 0.68f, 0.65f,
+        0.62f, 0.60f
     )
     private val WIND_TOTAL = floatArrayOf(
-        0.25f, 0.25f, 0.25f, 0.28f, 0.30f,
-        0.32f, 0.35f, 0.38f, 0.40f, 0.42f,
-        0.42f, 0.40f, 0.38f, 0.36f, 0.35f,
-        0.34f, 0.33f, 0.32f, 0.32f, 0.30f,
-        0.30f, 0.28f, 0.28f, 0.26f, 0.26f,
-        0.25f, 0.25f
+        0.40f, 0.45f, 0.50f, 0.60f, 0.70f,
+        0.80f, 0.88f, 0.95f, 1.00f, 1.05f,
+        1.08f, 1.10f, 1.12f, 1.12f, 1.10f,
+        1.08f, 1.06f, 1.05f, 1.04f, 1.02f,
+        1.00f, 0.98f, 0.96f, 0.95f, 0.94f,
+        0.93f, 0.92f
     )
 
     // Mixed cabin: between road and tire, HF muted
@@ -194,33 +202,46 @@ object SpeedScheduledNvhGains {
         var low = lerpTable(lowT, spd)
         var mid = lerpTable(midT, spd)
         var total = lerpTable(totalT, spd)
-
-        // AA high latency: mid is hard to phase-align — soft-cap tire/road mid
-        if (highLatency) {
-            mid = when (focus) {
-                NvhFocusClass.TIRE_NOISE -> min(mid, 0.42f)
-                NvhFocusClass.ROAD_RUMBLE -> min(mid, 0.28f)
-                NvhFocusClass.MIXED_CABIN -> min(mid, 0.32f)
-                NvhFocusClass.WIND_SHEAR -> min(mid, 0.05f)
-                NvhFocusClass.IDLE -> min(mid, 0.08f)
-            }
+        // Wind: schedule high-band effort. Other foci: keep high off in the table.
+        var high = if (focus == NvhFocusClass.WIND_SHEAR) {
+            lerpTable(WIND_HIGH, spd)
+        } else {
+            0f
         }
 
-        // Product: never schedule HF adaptive chase
-        val high = 0f
-
-        // Wind: extra total duck (mic-misaligned HF must not get louder)
-        if (focus == NvhFocusClass.WIND_SHEAR) {
-            total = min(total, 0.45f)
-            low = min(low, 0.40f)
+        // High latency: still **active suppress** all three product targets (not mid-kill).
+        // Soft caps only limit clip risk — never zero mid for tire/road/wind.
+        if (highLatency) {
+            mid = when (focus) {
+                NvhFocusClass.TIRE_NOISE -> min(mid, 0.78f)   // tire = mid weapon
+                NvhFocusClass.ROAD_RUMBLE -> min(mid, 0.48f)  // road keeps some mid cabin
+                NvhFocusClass.MIXED_CABIN -> min(mid, 0.55f)
+                NvhFocusClass.WIND_SHEAR -> mid
+                NvhFocusClass.IDLE -> min(mid, 0.08f)
+            }
+            when (focus) {
+                NvhFocusClass.WIND_SHEAR -> {
+                    high = min(high, 0.85f)
+                    total = total.coerceAtLeast(0.85f)
+                }
+                NvhFocusClass.TIRE_NOISE -> {
+                    total = total.coerceAtLeast(0.9f)
+                    mid = mid.coerceAtLeast(0.45f)
+                }
+                NvhFocusClass.ROAD_RUMBLE -> {
+                    total = total.coerceAtLeast(0.95f)
+                    low = low.coerceAtLeast(0.85f)
+                }
+                else -> { }
+            }
         }
 
         return SpeedNvhGainSchedule(
             speedBinKmh = speedBinFloorKmh(spd),
             lowGain = low.coerceIn(0f, 1.35f),
-            midGain = mid.coerceIn(0f, 0.85f),
-            highGain = high,
-            totalAntiScale = total.coerceIn(0.05f, 1.25f),
+            midGain = mid.coerceIn(0f, 1.0f),
+            highGain = high.coerceIn(0f, 1.0f),
+            totalAntiScale = total.coerceIn(0.05f, 1.35f),
             tableId = tableId
         )
     }

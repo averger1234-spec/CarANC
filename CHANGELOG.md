@@ -17,6 +17,59 @@
 
 ---
 
+## [1.2.3] — 2026-08-13 · Android code 5 · 輪噪 notch + 風切多 notch
+
+**下一刀做完**：不只開 mid/high 出力，而是 **真的窄帶/多 notch 注入 anti**。
+
+### 算法
+
+| 模組 | 內容 |
+|------|------|
+| `AdaptiveNarrowbandBank` | 新建：sin/cos 雙權重 leaky LMS |
+| **輪噪** | 3 條 notch，中心頻隨車速（約 160–400 Hz） |
+| **風切** | 6 條固定 HF notch（550/750/1000/1400/1800/2400 Hz） |
+| 混合 | 與 broadband 輸出相加（`notchMixAnti`），soft-clip |
+
+### Log（必收）
+
+- `tireNotchEnergy`、`tireNotchF0Hz`
+- `windNotchEnergy`、`windNotchActiveCount`
+- `notchMixAnti`
+- 仍收：`nvhFocus`、`speedNvh*`、`lowBandRumbleReduction`、主觀 0–10
+
+### 腳本
+
+- `target_tire`：看 `tireNotchEnergy`↑、主觀嗡↓  
+- `target_wind`：看 `windNotchEnergy`↑、`windNotchActiveCount`、主觀風↓  
+
+---
+
+## [1.2.2] — 2026-08-13 · Android code 4 · 三目標主動壓制 + 腳本重寫
+
+**硬需求**：路噪 / 輪噪 / 風切 **都要壓**（各用 low / mid / high 武器），不是風切「只防護」。
+
+### 算法
+
+| 目標 | 武器 | 改動 |
+|------|------|------|
+| **路噪** | low (+mid 輔助) | 高延遲仍保證 LowGain/TotalAnti 下限；標籤 active low |
+| **輪噪** | mid | 高延遲 mid 上限 0.78、下限抬升；標籤 active mid |
+| **風切** | mid+**high** | WIND 表抬 high/total；suppressHigh=false；processor 不 duck、強制 high LMS |
+
+### 測試腳本 `car_road_tuning_v1`
+
+重寫為 5 步：**prep → target_road → target_tire → target_wind → finish**  
+每步寫明 **要收集的 log 欄位 + 主觀 0–10 + PASS/FAIL 線索**（見 `AncTestScript.kt` 註解）。  
+iOS `GuidedTestScript.swift` 步驟 ID 對齊。
+
+### 路測怎麼對版
+
+1. install **v1.2.2**；跑新腳本三段  
+2. 分析按 `guidedTestStepId` 切：`target_road` / `target_tire` / `target_wind`  
+3. 風：`TotalAnti≥0.85`；路：`lowBand`+悶感；輪：`MidGain`+嗡感  
+
+---
+
 ## [1.2.1] — 2026-08-12 · Android code 3 · iOS build 14
 
 **路測主題**：新版依賴車速 → **無 GPS 時 GPS 掉線保持 + IMU 代車速**，避免 SpeedScheduled 整段 idle。

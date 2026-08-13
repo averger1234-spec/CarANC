@@ -150,15 +150,17 @@ class NoiseBandClassifier(
 
     /**
      * Band gains = dominant-band shape × **speed-scheduled** road/tire/wind priorities
-     * (5 km/h bins in [SpeedScheduledNvhGains]). High always 0 (no wind chase).
+     * (5 km/h bins). High is non-zero only for **WIND_SHEAR active chase**.
      */
     fun bandGains(classification: NoiseBandClassification): BandGains {
+        val wind = classification.nvhFocus == NvhFocusClass.WIND_SHEAR ||
+            classification.nvhResult?.focus == NvhFocusClass.WIND_SHEAR
         val base = when (classification.dominantBand) {
-            DominantNoiseBand.IDLE_LOW -> BandGains(low = 1f, mid = 0.15f, high = 0f)
-            DominantNoiseBand.ROAD_LOW -> BandGains(low = 1f, mid = 0.35f, high = 0f)
-            DominantNoiseBand.ROAD_MID -> BandGains(low = 0.85f, mid = 0.65f, high = 0f)
-            DominantNoiseBand.MUSIC_BROAD -> BandGains(low = 0.7f, mid = 0.3f, high = 0f)
-            DominantNoiseBand.MIXED -> BandGains(low = 0.9f, mid = 0.3f, high = 0f)
+            DominantNoiseBand.IDLE_LOW -> BandGains(low = 1f, mid = 0.15f, high = if (wind) 0.5f else 0f)
+            DominantNoiseBand.ROAD_LOW -> BandGains(low = 1f, mid = 0.35f, high = if (wind) 0.55f else 0f)
+            DominantNoiseBand.ROAD_MID -> BandGains(low = 0.85f, mid = 0.65f, high = if (wind) 0.65f else 0f)
+            DominantNoiseBand.MUSIC_BROAD -> BandGains(low = 0.7f, mid = 0.35f, high = if (wind) 0.7f else 0f)
+            DominantNoiseBand.MIXED -> BandGains(low = 0.9f, mid = 0.35f, high = if (wind) 0.6f else 0f)
         }
         val focus = classification.nvhResult ?: NvhFocusResult(
             focus = classification.nvhFocus,
@@ -166,14 +168,20 @@ class NoiseBandClassifier(
             targetHzLabel = classification.nvhTargetHzLabel,
             lowPriority = 0.85f,
             midPriority = 0.25f,
-            highPriority = 0f,
-            suppressHighAnti = true,
-            preferStructuralFf = true,
+            highPriority = if (wind) 0.7f else 0f,
+            suppressHighAnti = !wind,
+            preferStructuralFf = !wind,
             speedSchedule = SpeedScheduledNvhGains.gainsFor(
                 classification.nvhFocus, 0f, false, highLatency = true
             )
         )
-        return CabinNvhFocus.applyToBandGains(base, focus).copy(high = 0f)
+        val scaled = CabinNvhFocus.applyToBandGains(base, focus)
+        // Only non-wind paths force high off
+        return if (focus.focus == NvhFocusClass.WIND_SHEAR) {
+            scaled
+        } else {
+            scaled.copy(high = 0f)
+        }
     }
 
     private fun bandEnergies(spectrum: FloatArray, sampleRate: Int): Triple<Float, Float, Float> {

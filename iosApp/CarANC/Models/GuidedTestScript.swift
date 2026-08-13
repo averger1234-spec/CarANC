@@ -18,127 +18,91 @@ struct GuidedTestStep: Identifiable {
 
 enum CarRoadTuningScript {
     static let scriptId = "car_road_tuning_v1"
-    static let scriptName = "實車路噪調校（僅路噪 · 有效行駛秒數）"
+    /// 對齊 Android 三目標主動壓制（路 low / 輪 mid / 風 high）
+    static let scriptName = "三目標壓制·路噪/輪噪/風切（有效行駛秒）"
 
     static let steps: [GuidedTestStep] = [
         GuidedTestStep(
             id: "tuning_prep",
-            title: "調校準備（快速）",
+            title: "準備：三目標壓制",
             instructions: [
-                "iOS：本機喇叭 / 車用藍牙（注意延遲）；Android AA 路徑請用 Android 版",
-                "車型 / 手機位置填清楚（建議 floor/seat，勿中控/手上）",
-                "點「開始降噪」完成校正；開 ANC 應安靜或低頻悶，非電台靜電",
-                "同一條路 50–70 km/h、音樂小聲或關",
-                "★ 行駛步只累計「車速達標」有效秒；紅燈/怠速不計"
+                "路噪(low)／輪噪(mid)／風切(high) 都要壓；floor/seat 放置；音樂關",
+                "iOS：本機或 CarPlay；Android AA 請用 Android 版測 projection_submix",
+                "每步主觀 0–10（該噪音煩的程度；開 ANC 後是否變輕）"
             ],
-            durationSec: 20,
-            suggestedTier: nil,
+            durationSec: 25,
+            suggestedTier: .pro,
             requiresAncRunning: false,
-            checklist: ["ANC 已啟動", "placement=floor/seat", "開 ANC 無電台靜電"],
+            checklist: ["placement=floor/seat", "音樂關", "ANC可啟動"],
             minSpeedKmh: 0,
             wallClockOnly: true,
             maxWallSec: 90,
-            debugPresets: ["forceNormalMode": "true", "musicLowAncEnabled": "true", "tier": "STANDARD"]
+            debugPresets: ["musicLowAncEnabled": "true", "tier": "PRO"]
         ),
         GuidedTestStep(
-            id: "tuning_4",
-            title: "#4 musicLow 對比（mu=1.7）",
+            id: "target_road",
+            title: "① 路噪 ROAD（low）",
             instructions: [
-                "累計約 50 秒「車速 ≥40」有效數據（紅燈不計）",
-                "觀察延遲、低頻 KPI、主觀 rumble",
-                "聽感：低頻沙沙是否下降"
-            ],
-            durationSec: 50,
-            suggestedTier: .standard,
-            requiresAncRunning: true,
-            checklist: ["mu 偏高", "musicLow=ON", "tier=STANDARD", "有有效行駛秒"],
-            minSpeedKmh: 40,
-            wallClockOnly: false,
-            maxWallSec: 600,
-            debugPresets: ["lmsMuMultiplier": "1.7", "musicLowAncEnabled": "true", "tier": "STANDARD"]
-        ),
-        GuidedTestStep(
-            id: "tuning_4b",
-            title: "#4b A/B baseline（mu=1.6）",
-            instructions: [
-                "50 秒有效行駛（車速 ≥40）",
-                "A/B baseline：與後續 #6/#7 比較低頻 KPI 與聽感"
-            ],
-            durationSec: 50,
-            suggestedTier: .standard,
-            requiresAncRunning: true,
-            checklist: ["mu=1.6", "musicLow=ON", "A/B baseline", "tier=STANDARD"],
-            minSpeedKmh: 40,
-            wallClockOnly: false,
-            maxWallSec: 600,
-            debugPresets: ["lmsMuMultiplier": "1.6", "musicLowAncEnabled": "true", "tier": "STANDARD"]
-        ),
-        GuidedTestStep(
-            id: "tuning_5",
-            title: "#5 musicLow OFF 對比",
-            instructions: [
-                "musicLow OFF 對比；45 秒有效行駛（≥40）",
-                "比較 #4/#4b：關 musicLow 時 rumble 差異"
-            ],
-            durationSec: 45,
-            suggestedTier: .light,
-            requiresAncRunning: true,
-            checklist: ["musicLow=OFF", "tier=LIGHT", "對比聽感"],
-            minSpeedKmh: 40,
-            wallClockOnly: false,
-            maxWallSec: 600,
-            debugPresets: ["lmsMuMultiplier": "2.2", "musicLowAncEnabled": "false", "tier": "LIGHT"]
-        ),
-        GuidedTestStep(
-            id: "tuning_6",
-            title: "#6 路噪加強（mu=1.8 · PRO）",
-            instructions: [
-                "50 秒有效行駛（車速 ≥45）",
-                "A/B vs #4b：低頻 KPI + 主觀 rumble",
-                "無電台靜電"
-            ],
-            durationSec: 50,
-            suggestedTier: .pro,
-            requiresAncRunning: true,
-            checklist: ["tier=PRO", "speed>45", "無電台靜電", "低頻有記錄"],
-            minSpeedKmh: 45,
-            wallClockOnly: false,
-            maxWallSec: 600,
-            debugPresets: ["lmsMuMultiplier": "1.8", "musicLowAncEnabled": "true", "tier": "PRO"]
-        ),
-        GuidedTestStep(
-            id: "tuning_7",
-            title: "#7 主驗（mu=2.05 · PRO · ≥50km/h）",
-            instructions: [
-                "主驗：55 秒有效行駛（車速 ≥50；紅燈不計）",
-                "聽感：低頻悶、無電台靜電；A/B vs #4b",
-                "記下主觀 rumble 0–10、是否嘶聲"
+                "粗糙路 45–60 km/h；55 秒有效秒（≥45）",
+                "期望 ROAD_RUMBLE / road_5kmh；收集 lowBandRumbleReduction、speedNvhLowGain、TotalAnti",
+                "主觀：低頻悶 0–10"
             ],
             durationSec: 55,
             suggestedTier: .pro,
             requiresAncRunning: true,
-            checklist: ["tier=PRO", "speed>50", "低頻改善?", "無雜訊", "vs #4b"],
+            checklist: ["nvhFocus多ROAD", "TotalAnti高", "主觀悶0-10"],
+            minSpeedKmh: 45,
+            wallClockOnly: false,
+            maxWallSec: 720,
+            debugPresets: ["lmsMuMultiplier": "2.0", "musicLowAncEnabled": "true", "tier": "PRO"]
+        ),
+        GuidedTestStep(
+            id: "target_tire",
+            title: "② 輪噪 TIRE（mid）",
+            instructions: [
+                "55–75 km/h；55 秒有效秒（≥50）",
+                "期望 TIRE 或 mid 抬；收集 MidGain、主觀嗡 0–10"
+            ],
+            durationSec: 55,
+            suggestedTier: .pro,
+            requiresAncRunning: true,
+            checklist: ["Mid有出力", "主觀嗡0-10"],
             minSpeedKmh: 50,
             wallClockOnly: false,
             maxWallSec: 720,
             debugPresets: ["lmsMuMultiplier": "2.05", "musicLowAncEnabled": "true", "tier": "PRO"]
         ),
         GuidedTestStep(
-            id: "tuning_finish",
-            title: "結束與匯出",
+            id: "target_wind",
+            title: "③ 風切 WIND（high·主動）",
             instructions: [
-                "停止降噪",
-                "在「測試平台」或本頁匯出 session log",
-                "scenario 註：tier / 連線方式 / placement / speed / 主觀 rumble 0–10",
-                "把 log 傳回分析"
+                "70+ km/h；50 秒有效秒（≥65）",
+                "★ 主動壓制：TotalAnti 應≥0.85（不是舊版壓低）",
+                "主觀風感 0–10；若更嘶也要記"
             ],
-            durationSec: 10,
+            durationSec: 50,
+            suggestedTier: .pro,
+            requiresAncRunning: true,
+            checklist: ["WIND或N/A", "TotalAnti≥0.85", "主觀風0-10"],
+            minSpeedKmh: 65,
+            wallClockOnly: false,
+            maxWallSec: 720,
+            debugPresets: ["lmsMuMultiplier": "2.1", "musicLowAncEnabled": "true", "tier": "PRO"]
+        ),
+        GuidedTestStep(
+            id: "tuning_finish",
+            title: "結束匯出",
+            instructions: [
+                "停 ANC → 匯出 log；scenario 寫三段主觀分",
+                "PASS：三段都有壓制證據 + 主觀變輕；FAIL：TotalAnti該高不高或只更嘶"
+            ],
+            durationSec: 12,
             suggestedTier: nil,
             requiresAncRunning: false,
-            checklist: ["已停止 ANC", "已匯出 Log"],
+            checklist: ["已匯出Log", "三段主觀已寫"],
             minSpeedKmh: 0,
             wallClockOnly: true,
-            maxWallSec: 30,
+            maxWallSec: 40,
             debugPresets: [:]
         )
     ]
