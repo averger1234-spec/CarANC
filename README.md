@@ -48,7 +48,7 @@ git push origin main
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| **Android 版號** | **`1.2.3` / code `5`** · 主畫面 `v1.2.1` | ✅ |
+| **Android 版號** | **`1.2.3` / code `5`** · 主畫面 `v1.2.3` | ✅ |
 | **iOS 版號** | **`1.2.3` (build 15)** · 狀態頁 **`v1.2.3 (15)`** | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |

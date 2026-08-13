@@ -1,6 +1,6 @@
 # iOS 實車驗證與 Log 指南
 
-**現行對版**：**App 狀態頁 `v1.2.3 (15)`** · log `appVersion=1.2.1` `build=14`  
+**現行對版**：**App 狀態頁 `v1.2.3 (15)`** · log `appVersion=1.2.3` `build=15`  
 **Log 欄位名與 Android `running_snapshot` 同一套**（見 `shared/.../AncRunningSnapshotSchema.kt`、`ANDROID_REUSE.md`）。  
 缺能力填 `n/a`，不改名。
 
