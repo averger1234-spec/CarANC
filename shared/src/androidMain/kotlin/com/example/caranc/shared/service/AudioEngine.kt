@@ -1407,12 +1407,14 @@ class AudioEngine(
                         "speedNvhMidGain" to (ancProcessor?.getSpeedNvhMidGain() ?: 0.25f),
                         "speedNvhTotalAnti" to (ancProcessor?.getSpeedNvhTotalAnti() ?: 1f),
                         "speedNvhTableId" to (ancProcessor?.getSpeedNvhTableId() ?: "none"),
-                        // 1.2.3: tire 3-notch + wind 6-notch active suppress
+                        // 1.2.3–1.2.5: tire/wind notches + road boom lock KPIs
                         "tireNotchEnergy" to (ancProcessor?.getTireNotchEnergy() ?: 0f),
                         "windNotchEnergy" to (ancProcessor?.getWindNotchEnergy() ?: 0f),
                         "tireNotchF0Hz" to (ancProcessor?.getTireNotchF0Hz() ?: 0f),
                         "windNotchActiveCount" to (ancProcessor?.getWindNotchActiveCount() ?: 0),
                         "notchMixAnti" to (ancProcessor?.getNotchMixAnti() ?: 0f),
+                        "roadNotchEnergy" to (ancProcessor?.getRoadNotchEnergy() ?: 0f),
+                        "roadBoomWeightEnergy" to (ancProcessor?.getRoadBoomWeightEnergy() ?: 0f),
                         // Closed-loop self-check (program band energy — not external phone recorder)
                         "rawLowBandDb" to lastRawLowBandDb,
                         "residualLowBandDb" to lastResidualLowBandDb,

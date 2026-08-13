@@ -152,6 +152,10 @@ interface AncProcessorFacade : AudioProcessor {
     fun getTireNotchF0Hz(): Float = 0f
     fun getWindNotchActiveCount(): Int = 0
     fun getNotchMixAnti(): Float = 0f
+    /** 1.2.5: adaptive road boom notch energy (should rise after lock). */
+    fun getRoadNotchEnergy(): Float = 0f
+    /** 1.2.5: boom LMS weight energy — primary lock KPI for 悶. */
+    fun getRoadBoomWeightEnergy(): Float = 0f
 
     /** IMU↔mic low coherence proxy 0..1 (literature multi-coherence gate). */
     fun getImuMicCoherenceQuality(): Float = 0.5f

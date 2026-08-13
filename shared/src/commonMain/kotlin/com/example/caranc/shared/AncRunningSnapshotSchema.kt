@@ -44,12 +44,16 @@ object AncRunningSnapshotSchema {
     const val SPEED_NVH_MID_GAIN = "speedNvhMidGain"
     const val SPEED_NVH_TOTAL_ANTI = "speedNvhTotalAnti"
     const val SPEED_NVH_TABLE_ID = "speedNvhTableId"
-    // Tire 3-notch + wind 6-notch (1.2.3)
+    // Tire 3-notch + wind 6-notch (1.2.3) + road boom (1.2.5)
     const val TIRE_NOTCH_ENERGY = "tireNotchEnergy"
     const val WIND_NOTCH_ENERGY = "windNotchEnergy"
     const val TIRE_NOTCH_F0_HZ = "tireNotchF0Hz"
     const val WIND_NOTCH_ACTIVE_COUNT = "windNotchActiveCount"
     const val NOTCH_MIX_ANTI = "notchMixAnti"
+    /** Adaptive road boom energy (weight-gated complex LMS). */
+    const val ROAD_NOTCH_ENERGY = "roadNotchEnergy"
+    /** Sum |w| on boom channels — rises when phase locks (~65Hz 悶). */
+    const val ROAD_BOOM_WEIGHT_ENERGY = "roadBoomWeightEnergy"
 
     // Vehicle / IMU
     const val VEHICLE_SPEED_KMH = "vehicleSpeedKmh"

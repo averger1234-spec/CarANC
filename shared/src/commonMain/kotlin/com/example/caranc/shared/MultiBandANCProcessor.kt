@@ -1504,6 +1504,6 @@ class MultiBandANCProcessor(
     override fun getWindNotchActiveCount(): Int = narrowbandBank.lastWindActiveCount
     override fun getNotchMixAnti(): Float = narrowbandBank.lastMixAnti
     /** Boom adaptive energy (weight-gated). Should rise when 悶 phase locks. */
-    fun getRoadNotchEnergy(): Float = narrowbandBank.lastRoadNotchEnergy
-    fun getRoadBoomWeightEnergy(): Float = narrowbandBank.lastRoadWeightEnergy
+    override fun getRoadNotchEnergy(): Float = narrowbandBank.lastRoadNotchEnergy
+    override fun getRoadBoomWeightEnergy(): Float = narrowbandBank.lastRoadWeightEnergy
 }

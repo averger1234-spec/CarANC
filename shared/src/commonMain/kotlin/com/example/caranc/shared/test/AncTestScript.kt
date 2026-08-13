@@ -337,6 +337,10 @@ object CarAncTestScript {
         "tireNotchF0Hz",
         "windNotchActiveCount",
         "notchMixAnti",
+        // 1.2.5 boom lock (悶)
+        "roadNotchEnergy",
+        "roadBoomWeightEnergy",
+        "effectiveLowMu",
         "speedSource",
         "speedFusion",
         "aaLinkType",
@@ -385,22 +389,27 @@ object CarAncTestScript {
 }
 
 object CarRoadTuningScript {
+    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.5-aligned. */
     const val SCRIPT_ID = "car_road_tuning_v1"
     /**
-     * === 2026-08-13 三目標主動壓制驗證 ===
-     * 產品硬需求：路噪 / 輪噪 / 風切 **都要壓**（各自武器：low / mid / high），不是風切「只防護」。
+     * === 2026-08-13 / 1.2.5 三目標 + 悶感鎖相驗證 ===
+     * 產品：路噪 / 輪噪 / 風切都要壓。1.2.5 主力改為 **low 解鎖 + 鎖相 boom notch**（禁假 open-loop）。
      *
      * 必收集 log（每步 running_snapshot 聚簇）：
-     * - 共通：nvhFocus, speedNvhTableId, speedNvhBinKmh, speedNvhLowGain, speedNvhMidGain,
-     *          speedNvhTotalAnti, speedKmh, speedSource, aaLinkType, estimatedLatencyMs,
-     *          antiNoiseDb, outputPathActive, tier
-     * - 路噪：lowBandRumbleReduction, bandE60/80/100/120Db, residualLowBandDb, plantResidual*
-     * - 輪噪：speedNvhMidGain, effectiveMidMu, **tireNotchEnergy**, **tireNotchF0Hz**, notchMixAnti
-     * - 風切：speedNvhTotalAnti(應高), **windNotchEnergy**, **windNotchActiveCount**, notchMixAnti, bandHighRatio
+     * - 共通：nvhFocus, speedNvh*, speedKmh, speedSource, aaLinkType, estimatedLatencyMs,
+     *          antiNoiseDb, outputPathActive, tier, **effectiveLowMu**
+     * - 路噪/悶（1.2.5 核心）：**roadBoomWeightEnergy**, **roadNotchEnergy**, notchMixAnti,
+     *          lowBandRumbleReduction, bandE60/80/100/120Db, residualLowBandDb, plantResidual*
+     * - 輪噪：tireNotchEnergy, tireNotchF0Hz, notchMixAnti, speedNvhMidGain
+     * - 風切：高延遲 AA 下 wind notch **可能為 0**（刻意禁 HF 沙）；看 TotalAnti + 主觀；低延遲才看 windNotch*
+     *
+     * **外部對齊（強烈建議）**：
+     * - 另機/同一手機錄音 target_road 關ANC 20s + 開ANC 40s（同路段同速）→ 匯出 m4a 給頻譜 A/B
+     * - App 內 bandE60/80/100/120 是程式端粗頻譜，**不能取代**艙內外錄
      *
      * 主觀：每步 0–10（該目標噪音「有多煩」；開 ANC 後是否變輕）
      */
-    const val SCRIPT_NAME = "三目標壓制·路噪/輪噪/風切（有效行駛秒）"
+    const val SCRIPT_NAME = "三目標壓制·路/輪/風 + 1.2.5悶鎖相"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -445,24 +454,25 @@ object CarRoadTuningScript {
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
             id = "tuning_prep",
-            title = "準備：三目標壓制實驗",
+            title = "準備：1.2.5 悶鎖相 + 三目標",
             instructions = listOf(
-                "★ 目標：路噪(low)／輪噪(mid)／風切(high) 都要「壓下去」——各自武器，不是只防護",
+                "★ 版號確認主畫面 v1.2.5；目標：路悶(low+boom)／輪(mid)／風 — 禁假 anti 沙沙",
                 "USB 有線 AA；aaLinkType=projection_submix；wirelessAaSuspected=false",
-                "★ placement=floor/seat（勿中控）；userAncGain=1；音樂關或極小",
-                "啟動 ANC → PRO；確認 antiNoiseDb 行駛非長期 -200、outputPathActive",
-                "之後三步：固定路段做 關ANC 10s 主觀分 → 開ANC 有效秒 → 再開/關對照",
-                "每步 userNote 寫：主觀0-10（該噪音煩的程度，開後是否變輕）"
+                "★ placement=floor/seat（勿中控）；userAncGain=0.8~1；音樂關",
+                "啟動 ANC → PRO；outputPathActive；antiNoiseDb 行駛非長期 -200",
+                "★ 備好第二支手機（或同機）錄音：target_road 將做 關ANC/開ANC 頻譜對照",
+                "每步 userNote：主觀0-10 + 有無沙沙（沙=FAIL，即使有輸出）"
             ),
             durationSec = 25,
             requiresAncRunning = false,
             wallClockOnly = true,
             maxWallSec = 90,
             checklist = listOf(
+                "版號v1.2.5",
                 "USB有線AA",
                 "placement=floor/seat",
                 "音樂關",
-                "知悉三目標武器",
+                "備外部錄音",
                 "ANC可啟動"
             ),
             logPhases = listOf("audio_init", "calibration", "running_snapshot", "aa_connected"),
@@ -475,24 +485,29 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "target_road",
-            title = "① 路噪壓制 ROAD（low 武器）",
+            title = "① 路噪/悶 ROAD（low + 鎖相 boom）",
             instructions = listOf(
-                "路況：粗糙路面 45–60 km/h（低頻悶／底噪）；累計 55 秒有效秒（≥45）",
-                "期望 nvhFocus=ROAD_RUMBLE、tableId=road_5kmh、speedNvhBin≈45/50/55",
-                "★ 收集：lowBandRumbleReduction、speedNvhLowGain、speedNvhTotalAnti、bandE60/80/100Db、antiNoiseDb",
-                "★ 主觀：低頻悶 0–10（先關ANC感受 → 開ANC 有效秒期間再評）",
-                "PASS 線索：TotalAnti≥0.95、LowGain 高、lowBand 有正尖峰、悶感變輕"
+                "路況：粗糙路面 45–60 km/h（低頻悶）；累計 60 秒有效秒（≥45）",
+                "期望 nvhFocus=ROAD_RUMBLE、tableId=road_5kmh",
+                "★ 1.2.5 必收（對齊改進）：effectiveLowMu（高延遲應明顯>舊版近0）、roadBoomWeightEnergy（行駛後上升=鎖相）、roadNotchEnergy、notchMixAnti",
+                "★ 仍收：lowBandRumbleReduction、bandE60/80/100/120Db、speedNvhLowGain、antiNoiseDb",
+                "★ 外部錄音：關ANC 20s → 開ANC 40s（同路段）；檔名註 road_off/on",
+                "★ 主觀悶 0–10；若沙沙為主、悶不變 = FAIL（假 anti）",
+                "PASS：WeightEnergy 上升 + 悶變輕；或 lowBand 有正尖峰 + 主觀悶↓"
             ),
-            durationSec = 55,
+            durationSec = 60,
             minSpeedKmh = 45f,
             maxWallSec = 720,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
                 "nvhFocus多ROAD",
-                "tableId=road_5kmh",
-                "TotalAnti≥0.9",
-                "lowBand有記錄",
-                "主觀悶感0-10",
+                "effectiveLowMu有值",
+                "roadBoomWeightEnergy有上升",
+                "roadNotch/notchMix有記錄",
+                "bandE60-120有記錄",
+                "外部錄音關開各一段",
+                "主觀悶0-10",
+                "有無沙沙",
                 "tier=PRO"
             ),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
@@ -540,24 +555,23 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "target_wind",
-            title = "③ 風切壓制 WIND（high 武器·主動追）",
+            title = "③ 風切 WIND（高延遲：主觀優先）",
             instructions = listOf(
-                "路況：70+ km/h 開闊路／風大切；50 秒有效秒（≥65）；無法則註 N/A 但仍記主觀",
-                "★ WIND=主動壓制：nvhFocus=WIND_SHEAR、tableId=wind_5kmh、TotalAnti≥0.85",
-                "★ 必收 notch：windNotchEnergy、windNotchActiveCount、notchMixAnti（6 頻多 notch）",
-                "★ 主觀：風噪/高頻沙 0–10；更嘶也要寫",
-                "PASS：windNotchEnergy>0 + ActiveCount>0 + 風感↓；FAIL：notch 全0 或只更吵"
+                "路況：70+ km/h；50 秒有效秒（≥65）；無法則註 N/A",
+                "★ 1.2.5：AA 高延遲(~180ms+) **刻意關 HF wind notch**（防沙沙）；windNotchEnergy 可為 0 不判 FAIL",
+                "★ 仍收：nvhFocus、speedNvhTotalAnti、bandHighRatio、antiNoiseDb、notchMixAnti",
+                "★ 主觀：風感 0–10；更嘶/沙沙必寫（若更沙 = 假 anti 回歸）",
+                "PASS（高延遲）：主觀風↓或持平且不更沙；PASS（低延遲）：windNotch* >0 可加分"
             ),
             durationSec = 50,
             minSpeedKmh = 65f,
             maxWallSec = 720,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "nvhFocus=WIND(或N/A)",
-                "TotalAnti≥0.85",
-                "windNotchEnergy>0",
+                "nvhFocus有記錄",
+                "latencyMs有記錄",
                 "主觀風感0-10",
-                "有無更嘶",
+                "有無更嘶沙",
                 "tier=PRO"
             ),
             logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
@@ -573,24 +587,26 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束：三目標對照 + 匯出",
+            title = "結束：1.2.5 對照 + 匯出",
             instructions = listOf(
-                "停止 ANC → 儲存/分享 Log；scenario 寫 placement + 三段主觀分",
-                "★ 分析必切三段 guidedTestStepId：target_road / target_tire / target_wind",
-                "路噪 PASS：ROAD 為主 + lowBand 有正 + 主觀悶↓",
-                "輪噪 PASS：mid 增益/mu 有 + 主觀嗡↓",
-                "風切 PASS：WIND + TotalAnti≥0.85 + 主觀風↓（非只「不更吵」）",
-                "FAIL：任一段 TotalAnti 該高不高 / 全段 nvhFocus=IDLE / anti 永久-200 / 只更嘶無壓",
-                "把 log 交 pull-latest-log 分析"
+                "停止 ANC → 儲存/分享 Log；scenario 寫 placement + 三段主觀 + 有無沙沙",
+                "★ 分析切 guidedTestStepId：target_road / target_tire / target_wind",
+                "★ 1.2.5 路噪 PASS：effectiveLowMu 高延遲段明顯 + roadBoomWeightEnergy 上升 + 主觀悶↓（非只 anti 有輸出）",
+                "輪噪 PASS：tireNotch* 或主觀嗡↓；FAIL=只更嘶",
+                "風切：高延遲 windNotch=0 可接受；FAIL=更沙沙",
+                "★ 一併交：session log + road 關/開 外部錄音（若有）",
+                "pull-latest-log 後對齊 bandE60–120 與錄音頻譜"
             ),
-            durationSec = 12,
+            durationSec = 15,
             requiresAncRunning = false,
             wallClockOnly = true,
-            maxWallSec = 40,
+            maxWallSec = 50,
             checklist = listOf(
                 "已存Log",
-                "三段主觀分已寫",
-                "含speedNvh*與nvhFocus",
+                "三段主觀+沙沙已寫",
+                "含roadBoomWeightEnergy",
+                "含effectiveLowMu",
+                "外部錄音已備(可選)",
                 "placement已註"
             ),
             logPhases = listOf("test_script_complete")

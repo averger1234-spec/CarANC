@@ -39,6 +39,13 @@
 - `notchMixAnti` / road weight 隨行駛上升（鎖相後）
 - 主觀：同路段開/關 ANC，**低頻悶**應可辨（非沙沙）
 
+### 測試腳本對齊（car_road_tuning_v1 · 內容 1.2.5）
+
+- 	arget_road：effectiveLowMu + roadBoomWeightEnergy + roadNotchEnergy；外部錄音 關20s/開40s
+- 	arget_wind：高延遲 wind notch=0 可接受
+- log 新增：roadNotchEnergy、roadBoomWeightEnergy
+- bandE60–120 = 粗 KPI；艙內 m4a 為頻譜金標
+
 ---
 ## [1.2.4] — 2026-08-13 · Android code 6 · 路低悶 + 核心禁假 anti 雜訊
 
