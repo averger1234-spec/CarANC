@@ -316,6 +316,11 @@ final class AncAudioEngine: ObservableObject {
             model.midEnabled = mid
             model.highEnabled = high
             model.estimatedLatencyMs = lat
+            model.tireNotchEnergy = self.kmpProcessor?.tireNotchEnergy ?? 0
+            model.windNotchEnergy = self.kmpProcessor?.windNotchEnergy ?? 0
+            model.tireNotchF0Hz = self.kmpProcessor?.tireNotchF0Hz ?? 0
+            model.windNotchActiveCount = self.kmpProcessor?.windNotchActiveCount ?? 0
+            model.notchMixAnti = self.kmpProcessor?.notchMixAnti ?? 0
 
             if speed.valid && speed.kmh >= 15 {
                 if model.phase == .running || model.phase == .driving {
@@ -369,6 +374,11 @@ final class AncAudioEngine: ObservableObject {
                     AndroidSnapshotKeys.speedNvhBinKmh: "\(bin)",
                     AndroidSnapshotKeys.speedNvhTableId: tableId,
                     AndroidSnapshotKeys.speedNvhTotalAnti: String(format: "%.2f", totalA),
+                    AndroidSnapshotKeys.tireNotchEnergy: String(format: "%.4f", self.kmpProcessor?.tireNotchEnergy ?? 0),
+                    AndroidSnapshotKeys.windNotchEnergy: String(format: "%.4f", self.kmpProcessor?.windNotchEnergy ?? 0),
+                    AndroidSnapshotKeys.tireNotchF0Hz: String(format: "%.1f", self.kmpProcessor?.tireNotchF0Hz ?? 0),
+                    AndroidSnapshotKeys.windNotchActiveCount: "\(self.kmpProcessor?.windNotchActiveCount ?? 0)",
+                    AndroidSnapshotKeys.notchMixAnti: String(format: "%.4f", self.kmpProcessor?.notchMixAnti ?? 0),
                     "dsp": "kmp_MultiBandANCProcessor"
                 ])
             }

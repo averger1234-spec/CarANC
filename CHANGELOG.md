@@ -42,6 +42,13 @@
 - `target_tire`：看 `tireNotchEnergy`↑、主觀嗡↓  
 - `target_wind`：看 `windNotchEnergy`↑、`windNotchActiveCount`、主觀風↓  
 
+### iOS（build 15 · 對齊本版）
+
+- 重編 `CarANCShared.framework`（含 AdaptiveNarrowbandBank）
+- 狀態頁 **`v1.2.3 (15)`**；log 含 tire/wind notch 欄位
+- 導引腳本步驟 ID／秒數／自動進階對齊 `GuidedTestController` + `CarRoadTuningScript`
+- 說明：iOS 仍為 Swift 鏡像腳本（非直接跑 KMP Controller）；autoAdvance 行為已對齊
+
 ---
 
 ## [1.2.2] — 2026-08-13 · Android code 4 · 三目標主動壓制 + 腳本重寫

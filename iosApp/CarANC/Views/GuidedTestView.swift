@@ -39,8 +39,16 @@ struct GuidedTestView: View {
             Text(runner.statusLine)
                 .font(.subheadline)
                 .foregroundStyle(runner.active ? .primary : .secondary)
+            if runner.active, !runner.pauseReason.isEmpty {
+                Text(runner.pauseReason)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
             if runner.active {
                 ProgressView(value: runner.progress)
+                Text(runner.autoAdvance ? "模式：自動進階（有效秒）" : "模式：手動下一步")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding()
@@ -51,9 +59,12 @@ struct GuidedTestView: View {
 
     private var intro: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("對齊 Android 主腳本（僅路噪調校）")
+            Text("對齊 Android `CarRoadTuningScript` + `GuidedTestController`")
                 .font(.subheadline.weight(.semibold))
-            Text("步驟概覽：")
+            Text("自動進階：有效行駛秒達標（或 maxWall）→ 下一步（同 Android autoAdvance=true）")
+                .font(.caption)
+                .foregroundStyle(.cyan)
+            Text("步驟概覽（1.2.3 三目標 + notch）：")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             ForEach(Array(CarRoadTuningScript.steps.enumerated()), id: \.element.id) { idx, step in
@@ -64,14 +75,14 @@ struct GuidedTestView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(step.title).font(.subheadline)
                         Text(step.wallClockOnly
-                             ? "壁鐘 \(step.durationSec)s"
-                             : "有效行駛 \(step.durationSec)s（≥\(Int(step.minSpeedKmh)) km/h）")
+                             ? "壁鐘 \(step.durationSec)s · 自動"
+                             : "有效 \(step.durationSec)s（≥\(Int(step.minSpeedKmh))）· 自動")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
-            Text("開始前請先在「狀態」頁啟動降噪（prep 除外可後開）。")
+            Text("建議先在「狀態」啟動降噪。行駛步車速不足會暫停累秒（紅燈不計）。")
                 .font(.caption)
                 .foregroundStyle(.orange)
         }

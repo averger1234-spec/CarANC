@@ -1,6 +1,6 @@
 # iOS 實車驗證與 Log 指南
 
-**現行對版**：**App 狀態頁 `v1.2.1 (14)`** · log `appVersion=1.2.1` `build=14`  
+**現行對版**：**App 狀態頁 `v1.2.3 (15)`** · log `appVersion=1.2.1` `build=14`  
 **Log 欄位名與 Android `running_snapshot` 同一套**（見 `shared/.../AncRunningSnapshotSchema.kt`、`ANDROID_REUSE.md`）。  
 缺能力填 `n/a`，不改名。
 
@@ -67,3 +67,14 @@
 | `none` | 無 |
 
 DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路測看 `speedValidForRoadTest` 與 `speedSource=gps`。
+
+## 1.2.3 notch（輪／風）
+
+| 欄位 | 含義 |
+|------|------|
+| `tireNotchEnergy` | 輪噪窄帶能量 |
+| `tireNotchF0Hz` | 輪噪 notch 中心頻 |
+| `windNotchEnergy` / `windNotchActiveCount` | 風切多 notch |
+| `notchMixAnti` | notch 混入 anti 量 |
+
+腳本步驟與 Android 相同：`tuning_prep` → `target_road` → `target_tire` → `target_wind` → `tuning_finish`；**有效秒達標自動進階**。

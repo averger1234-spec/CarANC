@@ -33,6 +33,12 @@ enum AndroidSnapshotKeys {
     static let speedNvhMidGain = "speedNvhMidGain"
     static let speedNvhTotalAnti = "speedNvhTotalAnti"
     static let speedNvhTableId = "speedNvhTableId"
+    // 1.2.3 AdaptiveNarrowbandBank
+    static let tireNotchEnergy = "tireNotchEnergy"
+    static let windNotchEnergy = "windNotchEnergy"
+    static let tireNotchF0Hz = "tireNotchF0Hz"
+    static let windNotchActiveCount = "windNotchActiveCount"
+    static let notchMixAnti = "notchMixAnti"
 
     static let vehicleSpeedKmh = "vehicleSpeedKmh"
     static let vehicleSpeedValid = "vehicleSpeedValid"
@@ -185,6 +191,13 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.speedNvhMidGain: f2(speedNvhMidGain),
             AndroidSnapshotKeys.speedNvhTotalAnti: f2(speedNvhTotalAnti),
             AndroidSnapshotKeys.speedNvhTableId: speedNvhTableId,
+
+            // 1.2.3 notch
+            AndroidSnapshotKeys.tireNotchEnergy: f3(model.tireNotchEnergy),
+            AndroidSnapshotKeys.windNotchEnergy: f3(model.windNotchEnergy),
+            AndroidSnapshotKeys.tireNotchF0Hz: f1(model.tireNotchF0Hz),
+            AndroidSnapshotKeys.windNotchActiveCount: "\(model.windNotchActiveCount)",
+            AndroidSnapshotKeys.notchMixAnti: f3(model.notchMixAnti),
 
             // Vehicle / IMU（gps | gps_hold | imu_proxy）
             AndroidSnapshotKeys.vehicleSpeedKmh: f1(model.vehicleSpeedKmh),
