@@ -48,6 +48,12 @@
 - **腳本 ID 未改號**（仍 `car_road_tuning_v1`，方便舊 log 比對）；顯示名稱含「1.2.5悶鎖相」
 
 ---
+### iOS（build 16 · 對齊本版）
+
+- 重編 `CarANCShared.framework`（1.2.5 low 解鎖 + 鎖相 boom notch）
+- 狀態頁 **`v1.2.5 (16)`**；log：`roadNotchEnergy`、`roadBoomWeightEnergy`、`effectiveLowMu`
+- 導引腳本名稱／步驟文案對齊 Android 1.2.5（`target_road` 60s + boom KPI）
+
 ## [1.2.4] — 2026-08-13 · Android code 6 · 路低悶 + 核心禁假 anti 雜訊
 
 **核心審計（用戶聽感：無反向消悶、只有沙沙雜訊）**

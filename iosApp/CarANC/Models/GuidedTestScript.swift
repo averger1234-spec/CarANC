@@ -18,28 +18,30 @@ struct GuidedTestStep: Identifiable {
 
 enum CarRoadTuningScript {
     static let scriptId = "car_road_tuning_v1"
-    /// 與 Android `CarRoadTuningScript.SCRIPT_NAME` 一致
-    static let scriptName = "三目標壓制·路噪/輪噪/風切（有效行駛秒）"
+    /// 與 Android `CarRoadTuningScript.SCRIPT_NAME` 一致（1.2.5）
+    static let scriptName = "三目標壓制·路/輪/風 + 1.2.5悶鎖相"
 
-    /// 與 Android 1.2.3 `CarRoadTuningScript.steps` 對齊（含 notch 收集說明）
+    /// 與 Android 1.2.5 `CarRoadTuningScript.steps` 對齊
     static let steps: [GuidedTestStep] = [
         GuidedTestStep(
             id: "tuning_prep",
-            title: "準備：三目標壓制實驗",
+            title: "準備：1.2.5 悶鎖相 + 三目標",
             instructions: [
-                "★ 目標：路噪(low)／輪噪(mid)／風切(high) 都要壓——各自武器，不是只防護",
-                "iOS：本機或 CarPlay；Android 路測請用有線 AA（projection_submix）",
+                "★ 版號確認 v1.2.5；目標：路悶(low+boom)／輪(mid)／風 — 禁假 anti 沙沙",
+                "iOS：本機或 CarPlay；Android 請用有線 AA",
                 "★ placement=floor/seat；音樂關；userAncGain≈1",
-                "啟動 ANC → PRO；確認 antiNoiseDb 行駛非長期靜音、outputPathActive",
-                "之後三步：有效秒自動進階；每步主觀 0–10（關→開）"
+                "啟動 ANC → PRO；outputPathActive；anti 非長期靜音",
+                "★ 備外部錄音：target_road 關ANC 20s + 開ANC 40s",
+                "每步主觀 0–10；沙沙=FAIL"
             ],
             durationSec: 25,
             suggestedTier: .pro,
             requiresAncRunning: false,
             checklist: [
+                "版號v1.2.5",
                 "placement=floor/seat",
                 "音樂關",
-                "知悉三目標武器",
+                "備外部錄音",
                 "ANC可啟動"
             ],
             minSpeedKmh: 0,
@@ -54,23 +56,26 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "target_road",
-            title: "① 路噪壓制 ROAD（low 武器）",
+            title: "① 路噪/悶 ROAD（low + 鎖相 boom）",
             instructions: [
-                "粗糙路 45–60 km/h；55 秒有效秒（≥45）— 達標自動下一步",
-                "期望 ROAD_RUMBLE、road_5kmh、speedNvhBin≈45/50/55",
-                "★ 收集：lowBandRumbleReduction、speedNvhLowGain、speedNvhTotalAnti、antiNoiseDb",
-                "★ 主觀：低頻悶 0–10（先關 ANC → 開 ANC）",
-                "PASS：TotalAnti≥0.95、LowGain 高、lowBand 有正、悶感↓"
+                "粗糙路 45–60 km/h；60 秒有效秒（≥45）— 自動進階",
+                "期望 ROAD_RUMBLE、road_5kmh",
+                "★ 1.2.5 必收：effectiveLowMu、roadBoomWeightEnergy（上升=鎖相）、roadNotchEnergy、notchMixAnti",
+                "★ 仍收：lowBandRumbleReduction、speedNvhLowGain、antiNoiseDb",
+                "★ 外部：關ANC 20s → 開ANC 40s",
+                "PASS：WeightEnergy↑ + 悶↓；沙沙為主=FAIL"
             ],
-            durationSec: 55,
+            durationSec: 60,
             suggestedTier: .pro,
             requiresAncRunning: true,
             checklist: [
                 "nvhFocus多ROAD",
-                "tableId=road_5kmh",
-                "TotalAnti≥0.9",
-                "lowBand有記錄",
-                "主觀悶感0-10",
+                "effectiveLowMu有值",
+                "roadBoomWeightEnergy有上升",
+                "roadNotch/notchMix有記錄",
+                "外部錄音關開各一段",
+                "主觀悶0-10",
+                "有無沙沙",
                 "tier=PRO"
             ],
             minSpeedKmh: 45,
@@ -90,11 +95,10 @@ enum CarRoadTuningScript {
             id: "target_tire",
             title: "② 輪噪壓制 TIRE（mid 武器）",
             instructions: [
-                "55–75 km/h；55 秒有效秒（≥50）— 自動進階",
-                "期望 TIRE_NOISE 或 mid 抬；tableId=tire_5kmh 或 road 混 mid",
+                "55–75 km/h；55 秒有效秒（≥50）",
                 "★ 收集：tireNotchEnergy、tireNotchF0Hz、notchMixAnti、speedNvhMidGain",
-                "★ 主觀：輪胎嗡 0–10",
-                "PASS：tireNotchEnergy>0 + 嗡感↓；FAIL：notch 全 0"
+                "★ 主觀嗡 0–10",
+                "PASS：tireNotchEnergy>0 + 嗡↓"
             ],
             durationSec: 55,
             suggestedTier: .pro,
@@ -102,7 +106,6 @@ enum CarRoadTuningScript {
             checklist: [
                 "nvhFocus=TIRE或ROAD",
                 "tireNotchEnergy>0",
-                "tireNotchF0有值",
                 "主觀嗡感0-10",
                 "tier=PRO"
             ],
@@ -121,23 +124,21 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "target_wind",
-            title: "③ 風切壓制 WIND（high·主動）",
+            title: "③ 風切 WIND（高延遲：主觀優先）",
             instructions: [
-                "70+ km/h；50 秒有效秒（≥65）— 自動進階",
-                "★ 主動壓制：WIND_SHEAR、wind_5kmh、TotalAnti≥0.85",
-                "★ 必收：windNotchEnergy、windNotchActiveCount、notchMixAnti（6 頻）",
-                "★ 主觀：風感 0–10；更嘶也寫",
-                "PASS：windNotchEnergy>0 + ActiveCount>0 + 風↓"
+                "70+ km/h；50 秒有效秒（≥65）",
+                "★ 1.2.5：高延遲刻意關 HF wind notch（防沙）；windNotch 可為 0",
+                "★ 仍收：TotalAnti、antiNoiseDb；主觀風 0–10；更沙必寫",
+                "PASS（高延遲）：風↓或不更沙"
             ],
             durationSec: 50,
             suggestedTier: .pro,
             requiresAncRunning: true,
             checklist: [
-                "nvhFocus=WIND(或N/A)",
-                "TotalAnti≥0.85",
-                "windNotchEnergy>0",
+                "nvhFocus有記錄",
+                "latencyMs有記錄",
                 "主觀風感0-10",
-                "有無更嘶",
+                "有無更嘶沙",
                 "tier=PRO"
             ],
             minSpeedKmh: 65,
@@ -155,26 +156,26 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "tuning_finish",
-            title: "結束：三目標對照 + 匯出",
+            title: "結束：1.2.5 對照 + 匯出",
             instructions: [
-                "停止 ANC → 匯出 Log；scenario 寫 placement + 三段主觀",
-                "★ 分析切 guidedTestStepId：target_road / target_tire / target_wind",
-                "路：lowBand+悶↓；輪：tireNotch*+嗡↓；風：windNotch*+TotalAnti≥0.85",
-                "FAIL：TotalAnti 該高不高 / 全段 IDLE / anti 靜音 / 只更嘶"
+                "停 ANC → 匯出 Log；三段主觀 + 有無沙沙",
+                "★ 路噪 PASS：effectiveLowMu 高延遲段明顯 + roadBoomWeightEnergy↑ + 悶↓",
+                "輪：tireNotch* 或嗡↓；風：高延遲 windNotch=0 可接受，FAIL=更沙",
+                "一併交外部 road 關/開錄音（若有）"
             ],
-            durationSec: 12,
+            durationSec: 15,
             suggestedTier: nil,
             requiresAncRunning: false,
             checklist: [
                 "已存Log",
                 "三段主觀分已寫",
-                "含speedNvh*與nvhFocus",
-                "含tire/wind notch 欄位",
+                "含roadBoomWeightEnergy",
+                "含effectiveLowMu",
                 "placement已註"
             ],
             minSpeedKmh: 0,
             wallClockOnly: true,
-            maxWallSec: 40,
+            maxWallSec: 50,
             debugPresets: [:]
         )
     ]
@@ -334,7 +335,10 @@ final class GuidedTestRunner: ObservableObject {
             AndroidSnapshotKeys.nvhFocus: model?.nvhFocus.rawValue ?? "?",
             "speedSource": model?.speedSource ?? "?",
             "tireNotchEnergy": String(format: "%.4f", model?.tireNotchEnergy ?? 0),
-            "windNotchEnergy": String(format: "%.4f", model?.windNotchEnergy ?? 0)
+            "windNotchEnergy": String(format: "%.4f", model?.windNotchEnergy ?? 0),
+            "roadNotchEnergy": String(format: "%.4f", model?.roadNotchEnergy ?? 0),
+            "roadBoomWeightEnergy": String(format: "%.4f", model?.roadBoomWeightEnergy ?? 0),
+            "effectiveLowMu": String(format: "%.4f", model?.effectiveLowMu ?? 0)
         ])
         appendLog(
             "step_done id=\(step.id) valid=\(validSec) wall=\(wallSec) auto=\(auto) note=\(note) " +
@@ -410,19 +414,18 @@ final class GuidedTestRunner: ObservableObject {
         === GUIDED SCRIPT ===
         script=\(CarRoadTuningScript.scriptId)
         name=\(CarRoadTuningScript.scriptName)
-        align=android_CarRoadTuningScript_v1.2.3
+        align=android_CarRoadTuningScript_v1.2.5
         autoAdvance=\(autoAdvance)
         stepIndex=\(stepIndex) finished=\(finished)
 
-        === HOW TO VERIFY (1.2.3 三目標 + notch) ===
+        === HOW TO VERIFY (1.2.5 悶鎖相 + 三目標) ===
         PASS:
-          - target_road: lowBand↑ / TotalAnti 高 / 主觀悶↓
-          - target_tire: tireNotchEnergy>0 / MidGain / 主觀嗡↓
-          - target_wind: windNotchEnergy>0 / ActiveCount>0 / TotalAnti≥0.85 / 主觀風↓
-          - speedSource=gps|gps_hold|imu_proxy；valid 秒有累積
-          - 步驟達標會 auto_valid_drive 自動進階（對齊 Android GuidedTestController）
+          - target_road: effectiveLowMu 高延遲段明顯、roadBoomWeightEnergy↑、悶↓（非沙沙）
+          - target_tire: tireNotchEnergy / 嗡↓
+          - target_wind: 高延遲 windNotch=0 可接受；不更沙
+          - 步驟 auto_valid_drive 自動進階
         FAIL:
-          - notch 全 0、anti 長期 -140、valid 全 0、只更嘶
+          - 只有 anti 輸出但悶不變 / 沙沙為主 / boom weight 不升
 
         === SCRIPT EVENT LINES ===
         """

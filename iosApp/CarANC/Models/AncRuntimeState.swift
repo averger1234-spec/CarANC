@@ -52,12 +52,16 @@ final class AncAppModel: ObservableObject {
     @Published var imuProxyKmh: Float = 0
     @Published var speedValidForRoadTest = false
     @Published var rumbleAccel: Float = 0
-    // 1.2.3 notch diagnostics
+    // 1.2.3–1.2.5 notch / boom diagnostics
     @Published var tireNotchEnergy: Float = 0
     @Published var windNotchEnergy: Float = 0
     @Published var tireNotchF0Hz: Float = 0
     @Published var windNotchActiveCount: Int = 0
     @Published var notchMixAnti: Float = 0
+    @Published var roadNotchEnergy: Float = 0
+    @Published var roadBoomWeightEnergy: Float = 0
+    @Published var effectiveLowMu: Float = 0
+    @Published var effectiveMidMu: Float = 0
     @Published var estimatedLatencyMs: Float = 0
     @Published var maxCancelHz: Float = 150
     @Published var nvhFocus: NvhFocus = .idle

@@ -1,6 +1,6 @@
 # iOS 實車驗證與 Log 指南
 
-**現行對版**：**App 狀態頁 `v1.2.3 (15)`** · log `appVersion=1.2.3` `build=15`  
+**現行對版**：**App 狀態頁 `v1.2.5 (16)`** · log `appVersion=1.2.3` `build=15`  
 **Log 欄位名與 Android `running_snapshot` 同一套**（見 `shared/.../AncRunningSnapshotSchema.kt`、`ANDROID_REUSE.md`）。  
 缺能力填 `n/a`，不改名。
 
@@ -78,3 +78,14 @@ DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路�
 | `notchMixAnti` | notch 混入 anti 量 |
 
 腳本步驟與 Android 相同：`tuning_prep` → `target_road` → `target_tire` → `target_wind` → `tuning_finish`；**有效秒達標自動進階**。
+
+## 1.2.5 悶鎖相 KPI
+
+| 欄位 | 含義 |
+|------|------|
+| `effectiveLowMu` | 高延遲段應明顯 > 舊版近 0 |
+| `roadBoomWeightEnergy` | boom LMS 權重能量（鎖相後上升） |
+| `roadNotchEnergy` | 路噪 boom notch 能量 |
+| `notchMixAnti` | notch 混入 anti |
+
+腳本顯示名：`三目標壓制·路/輪/風 + 1.2.5悶鎖相`；`target_road` 有效秒 **60**（≥45 km/h）。

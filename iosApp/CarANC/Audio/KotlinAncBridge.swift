@@ -25,12 +25,16 @@ final class KotlinAncBridge {
     private(set) var speedNvhMidGain: Float = 0.25
     private(set) var speedNvhTotalAnti: Float = 1
     private(set) var speedNvhTableId: String = "none"
-    // 1.2.3 AdaptiveNarrowbandBank
+    // 1.2.3–1.2.5 AdaptiveNarrowbandBank
     private(set) var tireNotchEnergy: Float = 0
     private(set) var windNotchEnergy: Float = 0
     private(set) var tireNotchF0Hz: Float = 0
     private(set) var windNotchActiveCount: Int = 0
     private(set) var notchMixAnti: Float = 0
+    private(set) var roadNotchEnergy: Float = 0
+    private(set) var roadBoomWeightEnergy: Float = 0
+    private(set) var effectiveLowMu: Float = 0
+    private(set) var effectiveMidMu: Float = 0
 
     init(sampleRate: Int, bufferSize: Int, tier: UserTier) {
         self.bufferSize = bufferSize
@@ -105,6 +109,10 @@ final class KotlinAncBridge {
         tireNotchF0Hz = processor.getTireNotchF0Hz()
         windNotchActiveCount = Int(processor.getWindNotchActiveCount())
         notchMixAnti = processor.getNotchMixAnti()
+        roadNotchEnergy = processor.getRoadNotchEnergy()
+        roadBoomWeightEnergy = processor.getRoadBoomWeightEnergy()
+        effectiveLowMu = processor.getLastEffectiveLowMu()
+        effectiveMidMu = processor.getLastEffectiveMidMu()
         refreshLimits()
         return out
     }

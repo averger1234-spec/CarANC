@@ -39,6 +39,10 @@ enum AndroidSnapshotKeys {
     static let tireNotchF0Hz = "tireNotchF0Hz"
     static let windNotchActiveCount = "windNotchActiveCount"
     static let notchMixAnti = "notchMixAnti"
+    static let roadNotchEnergy = "roadNotchEnergy"
+    static let roadBoomWeightEnergy = "roadBoomWeightEnergy"
+    static let effectiveLowMu = "effectiveLowMu"
+    static let effectiveMidMu = "effectiveMidMu"
 
     static let vehicleSpeedKmh = "vehicleSpeedKmh"
     static let vehicleSpeedValid = "vehicleSpeedValid"
@@ -59,8 +63,6 @@ enum AndroidSnapshotKeys {
     static let weightFrozen = "weightFrozen"
     static let processingMode = "processingMode"
     static let tier = "tier"
-    static let effectiveLowMu = "effectiveLowMu"
-    static let effectiveMidMu = "effectiveMidMu"
 
     static let imuMicCoherence = "imuMicCoherence"
     static let bankMatchQuality = "bankMatchQuality"
@@ -192,12 +194,14 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.speedNvhTotalAnti: f2(speedNvhTotalAnti),
             AndroidSnapshotKeys.speedNvhTableId: speedNvhTableId,
 
-            // 1.2.3 notch
+            // 1.2.3–1.2.5 notch / boom
             AndroidSnapshotKeys.tireNotchEnergy: f3(model.tireNotchEnergy),
             AndroidSnapshotKeys.windNotchEnergy: f3(model.windNotchEnergy),
             AndroidSnapshotKeys.tireNotchF0Hz: f1(model.tireNotchF0Hz),
             AndroidSnapshotKeys.windNotchActiveCount: "\(model.windNotchActiveCount)",
             AndroidSnapshotKeys.notchMixAnti: f3(model.notchMixAnti),
+            AndroidSnapshotKeys.roadNotchEnergy: f3(model.roadNotchEnergy),
+            AndroidSnapshotKeys.roadBoomWeightEnergy: f3(model.roadBoomWeightEnergy),
 
             // Vehicle / IMU（gps | gps_hold | imu_proxy）
             AndroidSnapshotKeys.vehicleSpeedKmh: f1(model.vehicleSpeedKmh),
@@ -225,8 +229,8 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.weightFrozen: "false",
             AndroidSnapshotKeys.processingMode: model.phase == .driving ? "ROAD_NOISE_GPS" : "NORMAL",
             AndroidSnapshotKeys.tier: model.tier.rawValue,
-            AndroidSnapshotKeys.effectiveLowMu: "n/a",
-            AndroidSnapshotKeys.effectiveMidMu: "n/a",
+            AndroidSnapshotKeys.effectiveLowMu: f3(model.effectiveLowMu),
+            AndroidSnapshotKeys.effectiveMidMu: f3(model.effectiveMidMu),
 
             // Bank / FDAF / coherence — Android modules; KMP 接上後改真值
             AndroidSnapshotKeys.imuMicCoherence: "n/a",

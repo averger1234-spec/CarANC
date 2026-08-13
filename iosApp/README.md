@@ -13,8 +13,8 @@ SwiftUI + AVAudioEngine 本機主動降噪 App，對齊 Android 產品策略（�
 | `app/` | **Android only** | Compose UI、AA、install-debug、Play flavor |
 | `iosApp/` | **iOS only** | Xcode / SwiftUI / 本機 AVAudioEngine |
 | `shared/` | **共用 KMP** | 演算法與 commercial；Android 完整、iosMain 有 actual |
-| `version.properties` | Android 版號 | 目前 **1.2.3 / code 5** · 主畫面 `v1.2.3` |
-| `iosApp/.../Info.plist` + Xcode | iOS 版號 | 目前 **1.2.3 (15)** · **狀態頁顯示 `v1.2.3 (15)`** |
+| `version.properties` | Android 版號 | 目前 **1.2.5 / code 7** · 主畫面 `v1.2.3` |
+| `iosApp/.../Info.plist` + Xcode | iOS 版號 | 目前 **1.2.5 (16)** · **狀態頁顯示 `v1.2.5 (16)`** |
 
 推 GitHub 時 **一次 push 兩邊都在**；改 iOS 不影響 Android APK 建置，反之亦然。  
 Commit 訊息建議標前綴：`ios:` / `android:` / `shared:`。
@@ -39,7 +39,7 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 
 | 能力 | iOS 現況 | Android |
 |------|----------|---------|
-| 版號顯示 | ✅ 狀態頁 `v1.2.3 (15)` | ✅ 主畫面 `v1.2.3` |
+| 版號顯示 | ✅ 狀態頁 `v1.2.5 (16)` | ✅ 主畫面 `v1.2.3` |
 | 無車速備用 | ✅ gps_hold + imu_proxy | ✅ 同 `VehicleSpeedFusion` |
 | 多頻段 DSP | ✅ **KMP `MultiBandANCProcessor`** + SpeedScheduled | ✅ 同核心 |
 | `speedNvh*` log | ✅ | ✅ |
@@ -48,11 +48,11 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 | GPS / IMU | ✅ | ✅ |
 | Android Auto / CarPlay | ✅ CarPlay 對齊 AA（見 `CARPLAY.md`） | ✅ AA |
 | 本機喇叭 duplex | ✅ AVAudioEngine | ✅ |
-| 預編 IPA | ✅ `dist/…ipa` **1.2.3 (15)** | — |
+| 預編 IPA | ✅ `dist/…ipa` **1.2.5 (16)** | — |
 
 ### 路測對版（必看）
 
-1. 打開 App → **狀態** 頁右上角 / 副標：**`v1.2.3 (15)`**  
+1. 打開 App → **狀態** 頁右上角 / 副標：**`v1.2.5 (16)`**  
 2. Session log 開頭：`appVersion=1.2.0` `build=13`  
 3. 改功能後：`CFBundleVersion` +1，功能包再升 marketing，並寫 `CHANGELOG.md`
 
