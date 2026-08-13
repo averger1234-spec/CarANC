@@ -1,11 +1,11 @@
-﻿# CarANC
+# CarANC
 
 **手機即裝即用車內主動降噪（Active Noise Cancellation）**
 
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**版號**：Android **`version.properties` → 1.2.3 / code 5** · iOS **Info.plist → 1.2.3 (15)**（KMP notch 已重編進 IPA）· 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+**版號**：Android **`version.properties` → 1.2.5 / code 7** · iOS **Info.plist → 1.2.3 (15)**（1.2.4 KMP 待重編 IPA）· 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 
 **跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
@@ -48,7 +48,7 @@ git push origin main
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| **Android 版號** | **`1.2.3` / code `5`** · 主畫面 `v1.2.3` | ✅ |
+| **Android 版號** | **`1.2.5` / code `7`** · 主畫面 `v1.2.5` | ✅ |
 | **iOS 版號** | **`1.2.3` (build 15)** · 狀態頁 **`v1.2.3 (15)`** | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
@@ -67,7 +67,7 @@ git push origin main
 
 ```bash
 git pull origin main
-# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.1.0
+# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.5
 # iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.3 (15)
 ```
 

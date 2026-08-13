@@ -195,10 +195,11 @@ class MultiBandANCProcessor(
     // CYCLE3_EXTRA: native impl (NativeLowBandProcessor JNI/C++ LMS prototype) added. See latency/NativeLowBandProcessor.kt + cpp/.
     // Build notes + CMake in shared/build.gradle.kts. Not hot-switched yet.
 
+    // centerHz used for latency band scale; cabin boom target is ~40–120 (rec peak ~65Hz)
     private val lowBand = BandFxLms(
         label = "low",
-        centerHz = 190f,
-        baseMuScale = 1f
+        centerHz = 85f,
+        baseMuScale = 1.15f
     )
     private val midBand = BandFxLms(
         label = "mid",
@@ -711,17 +712,24 @@ class MultiBandANCProcessor(
             lastRumbleVibBoost = rumbleVibBoost
             lastEffectiveLowMu = effectiveLowMu
 
-            // True FxLMS low path: adapt continues under high lat (weaker mu), never freeze forever.
+            // True FxLMS low path — 1.2.5: high-lat was *0.28 (and damp*0.08) → ~2% mu = no boom cancel.
+            // AA still limits BW, but low-band + boom notches MUST keep learning hard on 40–120Hz 悶.
+            val boomFocusNow = lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE ||
+                lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.TIRE_NOISE ||
+                (lastEffectiveRumbleMode && vehicleSpeedKmh >= 25f)
             val lowOut = multirateLow.processSample(lowSampleForLowBand) { decimated ->
-                val useLowErrBoost = musicLowAncEnabled && vehicleSpeedKmh > 12f
+                val useLowErrBoost = (musicLowAncEnabled && vehicleSpeedKmh > 12f) || boomFocusNow
                 val vq3 = kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f)
                 val suppressionBoost = 1.0f + (vq3 * 0.5f).coerceAtMost(0.5f)
-                val lowError = if (useLowErrBoost) virtualBands.low * suppressionBoost else virtualBands.low
-                // High lat: reduce mu but keep learning; bank carries most FF (patent latent match).
+                // Prefer low-band residual for boom (not fullband virtual)
+                val lowErrorBase = virtualBands.low
+                val lowError = if (useLowErrBoost) lowErrorBase * (suppressionBoost * if (boomFocusNow) 1.25f else 1f) else lowErrorBase
                 val lowMuToUse = when {
-                    highLat && lastEffectiveRumbleMode -> effectiveLowMu * 0.28f
-                    highLat -> effectiveLowMu * 0.35f
-                    estimatedLatencyMs > 150f -> effectiveLowMu * 0.55f
+                    // High-lat boom: keep majority of mu (narrowband + low FIR is the product path)
+                    highLat && boomFocusNow -> effectiveLowMu * 0.78f
+                    highLat && lastEffectiveRumbleMode -> effectiveLowMu * 0.62f
+                    highLat -> effectiveLowMu * 0.50f
+                    estimatedLatencyMs > 150f -> effectiveLowMu * 0.70f
                     else -> effectiveLowMu
                 }
                 lowBand.processSample(
@@ -735,24 +743,29 @@ class MultiBandANCProcessor(
             fdafLow.adaptEnabled = !freeze
             fdafLow.delaylessOutput = true
             val fdafIn = lowSampleForLowBand
+            // High-lat AA: FDAF cold-start / delayless on delayed mic → hiss; keep very light
             val fdafScale = when {
-                highLat -> 0.28f * lastCoherenceQuality.coerceAtLeast(0.4f)
-                estimatedLatencyMs > 150f -> 0.5f
+                highLat -> 0.10f * lastCoherenceQuality.coerceAtLeast(0.35f)
+                estimatedLatencyMs > 150f -> 0.45f
                 else -> 0.75f
             }
             val fdafOut = fdafLow.push(fdafIn) * fdafScale
 
-            // Latent road bank (US2025-style): primary assist under high lat + rumble
+            // Latent road bank: only when we have *learned* bins. Default prior FIR is handcrafted
+            // alternating envelope — filtering mic with it injects sand, not cabin reverse.
             fixedBankXRing[fixedBankXIdx] = lowSampleForLowBand
             fixedBankXIdx = (fixedBankXIdx + 1) % fixedBankXRing.size
-            val useFixedBank = (lastEffectiveRumbleMode && vehicleSpeedKmh > 30f && rumbleEnergyProxy > 0.15f) ||
-                (highLat && vehicleSpeedKmh > 40f)
+            val bankLearned = preLearnedBank.learnedBinCount()
+            val useFixedBank = bankLearned > 0 && (
+                (lastEffectiveRumbleMode && vehicleSpeedKmh > 30f && rumbleEnergyProxy > 0.15f) ||
+                    (highLat && vehicleSpeedKmh > 40f)
+                )
             val bankScale = when {
-                highLat && lastEffectiveRumbleMode -> 0.72f
-                highLat -> 0.5f
-                lastEffectiveRumbleMode -> 0.55f
-                else -> 0.35f
-            }
+                highLat && lastEffectiveRumbleMode -> 0.45f
+                highLat -> 0.28f
+                lastEffectiveRumbleMode -> 0.50f
+                else -> 0.30f
+            } * (if (bankLearned >= 3) 1f else 0.55f)
             val fixedBankOut = if (useFixedBank) {
                 preLearnedBank.fixedFilterSample(
                     speedKmh = vehicleSpeedKmh,
@@ -882,7 +895,9 @@ class MultiBandANCProcessor(
             }
 
             val engineFf = engineComb.feedforwardSample(lowSample) * engineComb.blendGain(idleMode)
-            val roadFf = if (roadMode) {
+            // CORE: RoadNoiseWiener is free-running multi-tone synth (phase unlocked to cabin).
+            // Under AA high-lat it is structural speaker noise, not reverse boom cancel → mute it.
+            val roadFf = if (roadMode && !highLat) {
                 roadWiener.feedforwardSample(lowSample) * roadWiener.blendGain()
             } else {
                 0f
@@ -893,9 +908,9 @@ class MultiBandANCProcessor(
             // - FDAF, fixed bank, engine comb, road Wiener already return speaker anti (−synth)
             // Mixing pre-anti paths into adaptiveCombined then negating again double-flips them
             // into +noise (user: residual louder / radio static). Keep LMS y and pre-anti separate.
-            // fixedBankOut already scaled in bankScale; preAnti mix weights FDAF lightly under high lat
-            val fixedScale = 1f // lastFixedBankOut already includes bankScale
-            val fdafMix = if (estimatedLatencyMs > HIGH_LATENCY_MS) 0.22f else 0.45f
+            val fixedScale = 1f
+            // High-lat: FDAF delayless FIR on delayed mic ≈ sand; keep tiny assist only
+            val fdafMix = if (highLat) 0.08f else 0.45f
             val adaptMix = 1f
             // High lat: mute mid/high for rumble-only; **wind chase keeps mid/high** (product: 压风切).
             val midMix = if (windFocusNow) {
@@ -973,19 +988,38 @@ class MultiBandANCProcessor(
                 weakDriveHiss -> combined * 0.45f
                 else -> combined
             }
-            // Speed table: wind totalAnti now boosts (see SpeedScheduledNvhGains), not ducks
-            var speedScaled = gatedCombined * lastSpeedTotalAnti.coerceIn(0.05f, 1.35f)
+            // 1.2.5: road/boom under AA needs headroom on *low* anti (not HF sand)
+            val boomFocusOut = lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE ||
+                lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.TIRE_NOISE ||
+                (lastEffectiveRumbleMode && vehicleSpeedKmh >= 25f)
+            var totalScale = lastSpeedTotalAnti.coerceIn(0.05f, if (highLat) 1.20f else 1.30f)
+            if (boomFocusOut && vehicleSpeedKmh >= 20f) {
+                // Extra push for 悶 on both low-lat and high-lat (weights/notch gated)
+                totalScale = (totalScale * if (highLat) 1.12f else 1.10f).coerceAtMost(1.30f)
+            }
+            var speedScaled = gatedCombined * totalScale
 
-            // ★ Tire 3-notch + Wind 6-notch: real anti mix (not gain-only). Error ≈ residual after broadband.
-            val notchErr = virtualError - speedScaled * 0.35f
+            // ★ Adaptive boom notches (complex LMS) — primary 悶 weapon under AA.
+            // Error = low-band residual (not fullband) so phase locks to cabin boom ~65Hz.
+            val lowBoomErr = virtualBands.low - speedScaled * 0.12f
             val notchAnti = narrowbandBank.process(
-                errorSample = notchErr,
+                errorSample = lowBoomErr,
                 focus = lastNvhFocus,
                 speedKmh = vehicleSpeedKmh,
                 speedValid = vehicleSpeedValid,
-                freeze = freeze
+                freeze = freeze,
+                allowOpenLoop = false,
+                highLatency = highLat,
+                boomPriority = boomFocusOut
             )
-            speedScaled = (speedScaled + notchAnti).coerceIn(-1.2f, 1.2f)
+            // Weight-gated inside bank; mix stronger when boom priority
+            val notchMix = when {
+                boomFocusOut && highLat -> 1.20f
+                boomFocusOut -> 1.05f
+                highLat -> 0.70f
+                else -> 0.90f
+            }
+            speedScaled = (speedScaled + notchAnti * notchMix).coerceIn(-1.20f, 1.20f)
 
             output[i] = (speedScaled * outputEventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
 
@@ -1109,10 +1143,11 @@ class MultiBandANCProcessor(
         // roadMode at low spd rare (thresholds); rumble drive unaffected. Helps telegraph w/o touching effMidMu 0.6+ at speed.
         val idleMuScale = if (vehicleSpeedKmh < 8f && !roadMode) 0.32f else 1f
 
-        // P0: HIGH lat + rumble → heavy damp on adaptive (esp. low); mid/high already gated off in process().
+        // 1.2.5: old low damp 0.08 under high-lat rumble killed boom cancel (user: no 悶 change).
+        // Keep mid/high killed; **low must stay strong** — AA BW is low-only, not "no adaptive".
         val highLatAdaptiveDamp = when {
-            estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode && band.label == "low" -> 0.08f
-            estimatedLatencyMs > 150f && lastEffectiveRumbleMode && band.label == "low" -> 0.35f
+            estimatedLatencyMs > HIGH_LATENCY_MS && band.label == "low" -> 0.90f
+            estimatedLatencyMs > 150f && band.label == "low" -> 0.95f
             estimatedLatencyMs > HIGH_LATENCY_MS && band.label != "low" -> 0.05f
             else -> 1f
         }
@@ -1468,4 +1503,7 @@ class MultiBandANCProcessor(
     override fun getTireNotchF0Hz(): Float = narrowbandBank.lastTireF0Hz
     override fun getWindNotchActiveCount(): Int = narrowbandBank.lastWindActiveCount
     override fun getNotchMixAnti(): Float = narrowbandBank.lastMixAnti
+    /** Boom adaptive energy (weight-gated). Should rise when 悶 phase locks. */
+    fun getRoadNotchEnergy(): Float = narrowbandBank.lastRoadNotchEnergy
+    fun getRoadBoomWeightEnergy(): Float = narrowbandBank.lastRoadWeightEnergy
 }

@@ -1,34 +1,106 @@
-# CarANC 改版紀錄（Changelog）
+# CarANC 版本紀錄 / Changelog
 
-**版號來源**
+**版本來源**
 
 | 平台 | 檔案 | 主畫面顯示 |
 |------|------|------------|
-| **Android** | 根目錄 `version.properties`（`VERSION_NAME` + `VERSION_CODE`） | `v{VERSION_NAME}`（internal 另有 `-internal`） |
-| **iOS** | `iosApp/CarANC/Info.plist` + Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | **`v{marketing} (build)`**（狀態頁右上角） |
+| **Android** | 專案根 `version.properties`（`VERSION_NAME` + `VERSION_CODE`） | `v{VERSION_NAME}`（internal 另加 `-internal`） |
+| **iOS** | `iosApp/CarANC/Info.plist` + Xcode `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | **`v{marketing} (build)`**（右上角） |
 
 規則：
 
 - 每次 **Play 上傳**（含內部測試）：Android `VERSION_CODE` **必須 +1**
-- 每次 **iOS 可路測 IPA**：`CFBundleVersion`（build）**必須 +1**
-- 每次 **可路測的功能包**：`VERSION_NAME` / iOS marketing **遞增**，並在本檔新增一節
-- 共用 DSP／schema 功能：兩邊 **marketing 版號宜對齊**；**僅 iOS 平台功能**（如 CarPlay）可 iOS marketing 超前
-- Commit 建議：`feat:` / `fix:` / `docs:` + 本檔同步
+- 每次 **iOS 實車／IPA**：`CFBundleVersion`（build）**必須 +1**
+- 每次 **實車測試功能包**：`VERSION_NAME` / iOS marketing **同步**，並在本檔新增章節
+- 共用 DSP／schema 功能：兩端 **marketing 宜對齊**；純 iOS 平台功能（如 CarPlay）可 iOS marketing 超前
+- Commit 建議：`feat:` / `fix:` / `docs:` + 版本同步
+
+---
+
+
+## [1.2.5] — 2026-08-13 · Android code 7 · 悶感主力：解鎖 low + 鎖相 boom notch
+
+**為什麼一直原地踏步**：高延遲 rumble 時 `highLatAdaptiveDamp(low)=0.08` × `lowMu×0.28` ≈ **只剩 2% 學習率**，真消悶路徑幾乎關掉；同時假 open-loop 又造成沙沙。關掉假 anti 後悶感仍無進步 = 低頻 adaptive 被自己掐死。
+
+### 1.2.5 改什麼（針對 悶，不是再加噪）
+
+| 項 | 內容 |
+|----|------|
+| low 解鎖 | high-lat low damp **0.08→0.90**；rumble lowMu **0.28→0.78** |
+| low 中心 | 190Hz → **85Hz**（對齊錄音 ~65Hz 悶） |
+| Boom notch | 3 線 complex LMS（~45–115Hz）；**權重 gate**（未鎖相不播） |
+| Error | notch 用 **low-band residual** 學相位 |
+| 混音 | boom 高延遲 mix **1.2×**；禁止 open-loop sin |
+| 仍禁 | Wiener 自由合成、空 bank prior、HF wind under AA |
+
+### 路測 KPI
+
+- `effectiveLowMu` 應明顯高於 1.2.4 高延遲段
+- `notchMixAnti` / road weight 隨行駛上升（鎖相後）
+- 主觀：同路段開/關 ANC，**低頻悶**應可辨（非沙沙）
+
+---
+## [1.2.4] — 2026-08-13 · Android code 6 · 路低悶 + 核心禁假 anti 雜訊
+
+**核心審計（用戶聽感：無反向消悶、只有沙沙雜訊）**
+
+| 結論 | 說明 |
+|------|------|
+| AA 會播 anti | 不「認／不認」ANC；PCM 原樣出喇叭 |
+| App 有反相 | BandFxLms → speaker = −y；單測可消純音 |
+| **真問題** | 多條 **自由振盪／空 prior** 路徑結構上是 **加噪**，不是反向消悶 |
+
+已閘死（高延遲 AA）：
+- **open-loop notch sin floor**（相位未鎖 = 注入沙沙）
+- **RoadNoiseWiener** 自由多音合成
+- **PreLearned 空 bin default prior** FIR 濾 mic
+- **FDAF** 高延遲混音壓到極輕；風 HF notch 高延遲關閉
+- 僅保留 **低頻 adaptive LMS −y** + 有 learned 的 bank
+
+### 原 1.2.4 路／輪／風表（仍保留分類與 speed 表）
+
+
+**現場依據**：車艙錄音 peak ~65Hz、能量 ~95% 在 <150Hz；log 1.2.3 `notchMixAnti` 近 0（LMS 在 AA 延遲下權重長不起來）。
+
+### 算法下一刀
+
+| 目標 | 改動 |
+|------|------|
+| **路噪** | 鎖 low：ROAD 表抬 low/total；mid 再壓；`ROAD_RUMBLE` total×1.15；**2 路 boom notch**（~48–110Hz）+ **open-loop floor** |
+| **輪噪** | 分類更易進 TIRE（mid≥0.018 或高速）；TIRE 表 mid 抬；notch 混音加權×2.4；open-loop 在 TIRE 更強 |
+| **風切** | 有 notch 且 **能量／混音夠**：≥70km/h 即開 6 notch；open-loop + windGain 抬；WIND total/high 表抬 |
+
+### 關鍵模組
+
+- `CabinNvhFocus`：tire before road；pureWind 更嚴；預設 road-low prior
+- `AdaptiveNarrowbandBank`：road/tire/wind open-loop + adaptive；mixScale 1.9–2.55
+- `MultiBandANCProcessor`：notch 混入 ×1.25、clip ±1.40、error 自減 0.12
+- `SpeedScheduledNvhGains`：ROAD_LOW/TOTAL、TIRE_MID、WIND_HIGH/TOTAL 1.2.4 表
+
+### 路測對照（log）
+
+- 路：`nvhFocus=ROAD_RUMBLE`、`speedNvhLowGain` 高、`notchMixAnti` **明顯 >0**（不應再 ~0.002）
+- 輪：`target_tire` 時 `nvhFocus=TIRE_NOISE` 比例↑、`tireNotchEnergy`/`tireNotchF0Hz` 有值
+- 風：`windNotchEnergy>0`、`windNotchActiveCount>0`、`notchMixAnti` 非零
+
+### 版本
+
+- Android：`1.2.4` code **6**
 
 ---
 
 ## [1.2.3] — 2026-08-13 · Android code 5 · 輪噪 notch + 風切多 notch
 
-**下一刀做完**：不只開 mid/high 出力，而是 **真的窄帶/多 notch 注入 anti**。
+**下一刀重點**：不靠 mid/high 增益 alone，而是 **窄帶／多 notch 注入 anti**。
 
 ### 算法
 
 | 模組 | 內容 |
 |------|------|
-| `AdaptiveNarrowbandBank` | 新建：sin/cos 雙權重 leaky LMS |
-| **輪噪** | 3 條 notch，中心頻隨車速（約 160–400 Hz） |
+| `AdaptiveNarrowbandBank` | 新建：sin/cos 參考 + leaky LMS |
+| **輪噪** | 3 條 notch，中心頻率隨車速（~160–400 Hz） |
 | **風切** | 6 條固定 HF notch（550/750/1000/1400/1800/2400 Hz） |
-| 混合 | 與 broadband 輸出相加（`notchMixAnti`），soft-clip |
+| 混音 | 加到 broadband 輸出之後（`notchMixAnti`）、soft-clip |
 
 ### Log（必收）
 
@@ -39,18 +111,17 @@
 
 ### 腳本
 
-- `target_tire`：看 `tireNotchEnergy`↑、主觀嗡↓  
-- `target_wind`：看 `windNotchEnergy`↑、`windNotchActiveCount`、主觀風↓  
+- `target_tire`：看 `tireNotchEnergy`、主觀嗡感
+- `target_wind`：看 `windNotchEnergy`、`windNotchActiveCount`、主觀風切
 
-### iOS（build 15 · 對齊本版）
+### iOS（build 15 · 對齊算法）
 
 - 重編 `CarANCShared.framework`（含 AdaptiveNarrowbandBank）
-- 狀態頁 **`v1.2.3 (15)`**；log 含 tire/wind notch 欄位
-- 導引腳本步驟 ID／秒數／自動進階對齊 `GuidedTestController` + `CarRoadTuningScript`
-- 說明：iOS 仍為 Swift 鏡像腳本（非直接跑 KMP Controller）；autoAdvance 行為已對齊
+- 顯示版本 **`v1.2.3 (15)`**；log 含 tire/wind notch 欄位
+- 導測腳本步驟 ID／寫入欄位與 Android 對齊 `GuidedTestController` + `CarRoadTuningScript`
+- 說明：iOS 仍為 Swift 導測腳本（未直接綁 KMP Controller），autoAdvance 行為已對齊
 
 ---
-
 ## [1.2.2] — 2026-08-13 · Android code 4 · 三目標主動壓制 + 腳本重寫
 
 **硬需求**：路噪 / 輪噪 / 風切 **都要壓**（各用 low / mid / high 武器），不是風切「只防護」。

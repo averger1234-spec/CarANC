@@ -69,6 +69,22 @@ object CabinNvhFocus {
         val lowMid = (lowRatio + midRatio).coerceIn(0f, 1f)
         val highLat = estimatedLatencyMs >= 100f
 
+        // 2026-08-13 cabin rec: energy ~95% below 150Hz, peak ~65Hz → road-low is default drive focus.
+        // Prior log: TIRE almost never selected (mid drowned by low) → tire cues must NOT require mid≈low.
+        val pureWind =
+            spd >= 60f && highRatio >= 0.55f && lowMid < 0.25f && midRatio < 0.08f
+        // Easier tire: any meaningful mid + drive speed, even if low still dominates (AA mic reality).
+        val tireCue =
+            spd >= 35f && midRatio >= 0.018f && highRatio < 0.92f && (
+                midRatio >= 0.025f ||
+                    accel >= 0.45f ||
+                    spd >= 50f && midRatio >= 0.018f ||
+                    spd >= 70f // highway: prefer tire notch path unless pure wind
+                )
+        // Road boom lock: low energy or structure (recording-aligned)
+        val roadCue =
+            spd >= 18f && (lowRatio >= 0.03f || accel >= 0.35f || lowMid >= 0.04f)
+
         val base: NvhFocusResult = when {
             // Idle: not tire/road/wind product path
             !speedValid || spd < 12f -> NvhFocusResult(
@@ -81,49 +97,45 @@ object CabinNvhFocus {
                 suppressHighAnti = true,
                 preferStructuralFf = false
             )
-            // Wind-shear: high speed + spectrum dominated by HF + little structure → ACTIVE chase
-            spd >= 55f && highRatio >= 0.88f && lowMid < 0.12f && accel < 1.2f -> NvhFocusResult(
+            // Wind only when HF clearly dominates (stricter than before — avoid stealing tire/road)
+            pureWind -> NvhFocusResult(
                 focus = NvhFocusClass.WIND_SHEAR,
-                confidence = (highRatio - 0.7f).coerceIn(0.4f, 1f),
-                targetHzLabel = "wind >${WIND_LO_HZ.toInt()}Hz (active HF chase)",
-                lowPriority = 0.9f,
-                midPriority = 0.75f,
-                highPriority = 0.8f,
+                confidence = (highRatio - 0.4f).coerceIn(0.4f, 1f),
+                targetHzLabel = "wind >${WIND_LO_HZ.toInt()}Hz (active multi-notch)",
+                lowPriority = 0.85f,
+                midPriority = 0.7f,
+                highPriority = 0.85f,
                 suppressHighAnti = false,
                 preferStructuralFf = false
             )
-            // Tire: active mid suppress (not soft protect)
-            spd >= 25f && (
-                midRatio >= 0.04f && midRatio >= lowRatio * 0.7f ||
-                    accel >= 0.7f && lowMid >= 0.04f ||
-                    spd >= 40f && lowMid >= 0.05f && midRatio >= 0.03f
-                ) -> NvhFocusResult(
+            // Tire before road when mid present (so 200–350 path + 3-notch engage)
+            tireCue -> NvhFocusResult(
                 focus = NvhFocusClass.TIRE_NOISE,
-                confidence = (lowMid * 2f + (accel / 3f)).coerceIn(0.35f, 1f),
-                targetHzLabel = "tire ${TIRE_LO_HZ.toInt()}-${TIRE_HI_HZ.toInt()}Hz (active mid)",
-                lowPriority = 1f,
-                midPriority = if (highLat) 0.72f else 0.9f,
+                confidence = (midRatio * 4f + accel / 4f + (spd / 200f)).coerceIn(0.35f, 1f),
+                targetHzLabel = "tire ${TIRE_LO_HZ.toInt()}-${TIRE_HI_HZ.toInt()}Hz (active mid+notch)",
+                lowPriority = 1.05f, // keep boom cancel while tire notches run
+                midPriority = if (highLat) 0.82f else 0.95f,
                 highPriority = 0f,
-                suppressHighAnti = true, // tire weapon = mid, not HF
+                suppressHighAnti = true,
                 preferStructuralFf = true
             )
-            // Road rumble: active low suppress
-            spd >= 20f && (lowRatio >= 0.04f || accel >= 0.45f || lowMid >= 0.05f) -> NvhFocusResult(
+            // Road rumble: lock low (cabin boom ~50–120Hz from field recording)
+            roadCue -> NvhFocusResult(
                 focus = NvhFocusClass.ROAD_RUMBLE,
                 confidence = (lowRatio * 3f + accel / 4f).coerceIn(0.35f, 1f),
-                targetHzLabel = "road ${ROAD_LO_HZ.toInt()}-${ROAD_HI_HZ.toInt()}Hz (active low)",
-                lowPriority = 1f,
-                midPriority = if (highLat) 0.4f else 0.55f,
+                targetHzLabel = "road ${ROAD_LO_HZ.toInt()}-${ROAD_HI_HZ.toInt()}Hz (lock low boom)",
+                lowPriority = 1.15f,
+                midPriority = if (highLat) 0.22f else 0.4f, // lock low: less mid bleed
                 highPriority = 0f,
-                suppressHighAnti = true, // road weapon = low (+ mid assist)
+                suppressHighAnti = true,
                 preferStructuralFf = true
             )
-            // Driving but unclear spectrum → mixed road/tire, never wind-chase
+            // Driving but unclear → treat as road-low (recording prior), not wind
             else -> NvhFocusResult(
-                focus = NvhFocusClass.MIXED_CABIN,
-                confidence = 0.3f,
-                targetHzLabel = "mixed tire/road (HF muted)",
-                lowPriority = 0.85f,
+                focus = NvhFocusClass.ROAD_RUMBLE,
+                confidence = 0.35f,
+                targetHzLabel = "road default (low-lock prior)",
+                lowPriority = 1.05f,
                 midPriority = if (highLat) 0.2f else 0.35f,
                 highPriority = 0f,
                 suppressHighAnti = true,

@@ -1,16 +1,18 @@
-﻿# 最新多機同步索引（2026-08-12）
+# 最新多機同步索引（2026-08-12）
 
 **請先讀**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」+ **`CHANGELOG.md`**。
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.3 / code 5** · iOS **1.2.3 (15)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.5 / code 7** · iOS **1.2.3 (15)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
+**1.2.5 重點**：解鎖 high-lat low mu（0.08→0.90）+ 鎖相 boom 3-notch；禁假 open-loop 沙沙。  
+**1.2.4 重點**：核心審計假 anti（Wiener/open-loop/空 bank）閘死。  
 **1.1.0 重點**：`SpeedScheduledNvhGains`（路/輪/風 × 每 5 km/h）+ `car_road_tuning_v1`。  
 **1.2.0 重點（iOS）**：CarPlay 對齊 AA；見 `iosApp/CARPLAY.md`。  
 **1.2.1 重點（雙端）**：無車速備用 — `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`）；log `speedSource` / UI 顯示。  

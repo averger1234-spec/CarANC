@@ -40,56 +40,57 @@ object SpeedScheduledNvhGains {
      *
      * Index i = speed/5. Example: 47 km/h → between idx 9 (45) and 10 (50).
      */
-    // Road boom / structure (40–200 Hz class) — primary product target
+    // Road boom (40–200 Hz) — lock low for subjective 悶 (cabin rec peak ~65Hz)
+    // 1.2.4: raise cruise low/total so broadband + notch both push boom
     private val ROAD_LOW = floatArrayOf(
-        /*0*/ 0.12f, /*5*/ 0.14f, /*10*/ 0.18f, /*15*/ 0.35f, /*20*/ 0.55f,
-        /*25*/ 0.70f, /*30*/ 0.85f, /*35*/ 0.95f, /*40*/ 1.05f, /*45*/ 1.12f,
-        /*50*/ 1.18f, /*55*/ 1.20f, /*60*/ 1.22f, /*65*/ 1.22f, /*70*/ 1.20f,
-        /*75*/ 1.18f, /*80*/ 1.15f, /*85*/ 1.12f, /*90*/ 1.10f, /*95*/ 1.08f,
-        /*100*/ 1.05f, /*105*/ 1.02f, /*110*/ 1.00f, /*115*/ 0.98f, /*120*/ 0.95f,
-        /*125*/ 0.93f, /*130*/ 0.90f
+        /*0*/ 0.14f, /*5*/ 0.16f, /*10*/ 0.24f, /*15*/ 0.50f, /*20*/ 0.78f,
+        /*25*/ 0.95f, /*30*/ 1.08f, /*35*/ 1.18f, /*40*/ 1.26f, /*45*/ 1.30f,
+        /*50*/ 1.34f, /*55*/ 1.34f, /*60*/ 1.32f, /*65*/ 1.30f, /*70*/ 1.28f,
+        /*75*/ 1.26f, /*80*/ 1.22f, /*85*/ 1.18f, /*90*/ 1.14f, /*95*/ 1.12f,
+        /*100*/ 1.10f, /*105*/ 1.06f, /*110*/ 1.04f, /*115*/ 1.02f, /*120*/ 1.00f,
+        /*125*/ 0.98f, /*130*/ 0.96f
     )
     private val ROAD_MID = floatArrayOf(
-        0.05f, 0.05f, 0.06f, 0.10f, 0.15f,
-        0.18f, 0.22f, 0.25f, 0.28f, 0.30f,
-        0.32f, 0.32f, 0.30f, 0.28f, 0.26f,
-        0.24f, 0.22f, 0.20f, 0.18f, 0.16f,
-        0.15f, 0.14f, 0.13f, 0.12f, 0.12f,
-        0.11f, 0.10f
+        0.04f, 0.04f, 0.05f, 0.07f, 0.09f,
+        0.10f, 0.12f, 0.13f, 0.14f, 0.14f,
+        0.14f, 0.13f, 0.12f, 0.12f, 0.11f,
+        0.10f, 0.10f, 0.09f, 0.09f, 0.08f,
+        0.08f, 0.07f, 0.07f, 0.07f, 0.06f,
+        0.06f, 0.06f
     )
     private val ROAD_TOTAL = floatArrayOf(
-        0.25f, 0.28f, 0.35f, 0.50f, 0.65f,
-        0.78f, 0.88f, 0.95f, 1.00f, 1.05f,
-        1.08f, 1.10f, 1.10f, 1.08f, 1.06f,
-        1.04f, 1.02f, 1.00f, 0.98f, 0.96f,
+        0.28f, 0.32f, 0.42f, 0.62f, 0.82f,
+        0.98f, 1.08f, 1.16f, 1.22f, 1.26f,
+        1.28f, 1.28f, 1.26f, 1.24f, 1.20f,
+        1.16f, 1.14f, 1.12f, 1.08f, 1.05f,
+        1.02f, 1.00f, 0.98f, 0.96f, 0.94f,
+        0.92f, 0.90f
+    )
+
+    // Tire tread / mid-low (80–350) — easier mid weapon when classifier hits TIRE
+    private val TIRE_LOW = floatArrayOf(
+        0.12f, 0.14f, 0.16f, 0.32f, 0.52f,
+        0.70f, 0.85f, 0.95f, 1.02f, 1.08f,
+        1.10f, 1.12f, 1.12f, 1.10f, 1.08f,
+        1.05f, 1.02f, 1.00f, 0.98f, 0.96f,
         0.94f, 0.92f, 0.90f, 0.88f, 0.86f,
         0.85f, 0.84f
     )
-
-    // Tire tread / mid-low (80–350, Skoda often 200–350) — secondary; mid capped under high latency at apply site
-    private val TIRE_LOW = floatArrayOf(
-        0.12f, 0.14f, 0.16f, 0.30f, 0.48f,
-        0.65f, 0.80f, 0.92f, 1.00f, 1.05f,
-        1.08f, 1.10f, 1.10f, 1.08f, 1.05f,
-        1.02f, 1.00f, 0.98f, 0.96f, 0.94f,
-        0.92f, 0.90f, 0.88f, 0.86f, 0.85f,
-        0.84f, 0.82f
-    )
     private val TIRE_MID = floatArrayOf(
-        0.05f, 0.06f, 0.08f, 0.15f, 0.25f,
-        0.38f, 0.48f, 0.55f, 0.60f, 0.62f,
-        0.64f, 0.65f, 0.64f, 0.62f, 0.58f,
-        0.55f, 0.52f, 0.48f, 0.45f, 0.42f,
-        0.40f, 0.38f, 0.35f, 0.33f, 0.32f,
-        0.30f, 0.28f
+        0.06f, 0.07f, 0.10f, 0.18f, 0.30f,
+        0.45f, 0.55f, 0.62f, 0.68f, 0.72f,
+        0.74f, 0.75f, 0.74f, 0.72f, 0.68f,
+        0.64f, 0.60f, 0.55f, 0.52f, 0.48f,
+        0.45f, 0.42f, 0.40f, 0.38f, 0.36f,
+        0.34f, 0.32f
     )
     private val TIRE_TOTAL = floatArrayOf(
-        0.25f, 0.28f, 0.32f, 0.48f, 0.62f,
-        0.75f, 0.88f, 0.95f, 1.02f, 1.06f,
-        1.08f, 1.10f, 1.10f, 1.08f, 1.05f,
-        1.02f, 1.00f, 0.98f, 0.96f, 0.94f,
-        0.92f, 0.90f, 0.88f, 0.86f, 0.85f,
-        0.84f, 0.82f
+        0.25f, 0.28f, 0.34f, 0.52f, 0.68f,
+        0.82f, 0.95f, 1.02f, 1.08f, 1.12f,
+        1.14f, 1.15f, 1.15f, 1.12f, 1.10f,
+        1.06f, 1.04f, 1.02f, 1.00f, 0.98f,
+        0.96f, 0.94f, 0.92f, 0.90f, 0.88f,
+        0.86f, 0.85f
     )
 
     // Wind shear: ACTIVE chase — raise mid/high/total with speed (highway aero). Product: 压下去.
@@ -111,20 +112,20 @@ object SpeedScheduledNvhGains {
     )
     /** High-band schedule — only applied for WIND (other foci keep high≈0 at apply site). */
     private val WIND_HIGH = floatArrayOf(
-        0.05f, 0.06f, 0.08f, 0.12f, 0.18f,
-        0.25f, 0.32f, 0.40f, 0.48f, 0.55f,
-        0.62f, 0.68f, 0.72f, 0.75f, 0.78f,
-        0.80f, 0.82f, 0.82f, 0.80f, 0.78f,
-        0.75f, 0.72f, 0.70f, 0.68f, 0.65f,
-        0.62f, 0.60f
+        0.06f, 0.08f, 0.10f, 0.15f, 0.22f,
+        0.30f, 0.38f, 0.48f, 0.55f, 0.62f,
+        0.68f, 0.74f, 0.78f, 0.82f, 0.85f,
+        0.88f, 0.90f, 0.90f, 0.88f, 0.85f,
+        0.82f, 0.78f, 0.75f, 0.72f, 0.70f,
+        0.68f, 0.65f
     )
     private val WIND_TOTAL = floatArrayOf(
-        0.40f, 0.45f, 0.50f, 0.60f, 0.70f,
-        0.80f, 0.88f, 0.95f, 1.00f, 1.05f,
-        1.08f, 1.10f, 1.12f, 1.12f, 1.10f,
-        1.08f, 1.06f, 1.05f, 1.04f, 1.02f,
-        1.00f, 0.98f, 0.96f, 0.95f, 0.94f,
-        0.93f, 0.92f
+        0.42f, 0.48f, 0.55f, 0.65f, 0.75f,
+        0.85f, 0.95f, 1.02f, 1.08f, 1.12f,
+        1.15f, 1.16f, 1.18f, 1.18f, 1.15f,
+        1.12f, 1.10f, 1.08f, 1.06f, 1.04f,
+        1.02f, 1.00f, 0.98f, 0.96f, 0.95f,
+        0.94f, 0.93f
     )
 
     // Mixed cabin: between road and tire, HF muted
@@ -229,8 +230,8 @@ object SpeedScheduledNvhGains {
                     mid = mid.coerceAtLeast(0.45f)
                 }
                 NvhFocusClass.ROAD_RUMBLE -> {
-                    total = total.coerceAtLeast(0.95f)
-                    low = low.coerceAtLeast(0.85f)
+                    total = total.coerceAtLeast(1.00f)
+                    low = low.coerceAtLeast(0.95f)
                 }
                 else -> { }
             }
