@@ -4,13 +4,14 @@
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.7 / code 9** · iOS **1.2.6 (18)** 腳本對齊 1.2.7 |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.9 / code 11** · iOS **1.2.6 (18)** 腳本對齊 1.2.7 |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
+**1.2.9 重點**：P2 PlantPathStore + boomPlantCorr；1.2.8 antiE/tone/艙錄/IMU。
 **1.2.7 重點**：CabinBoomPressure 悶音壓 + 導測強制 PRO + boomPressureOut；腳本 car_road_tuning 1.2.7 文案。
 **1.2.6 重點**：spectrum_kpi + forceNvhFocus。
 **1.2.5 重點**：解鎖 high-lat low mu（0.08→0.90）+ 鎖相 boom 3-notch；禁假 open-loop 沙沙。  

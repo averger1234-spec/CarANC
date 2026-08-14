@@ -74,6 +74,10 @@ object AncRunningSnapshotSchema {
     const val LATENCY_HIGH_ENABLED = "latencyHighEnabled"
     const val LATENCY_STRATEGY = "latencyStrategy"
     const val PLANT_ELECTRICAL_DELAY_SAMPLES = "plantElectricalDelaySamples"
+    /** Alias logged as plantDelaySamples; same electrical plant D. */
+    const val PLANT_DELAY_SAMPLES = "plantDelaySamples"
+    /** Boom-band opposition corr mic×anti (positive ≈ opposing). */
+    const val BOOM_PLANT_CORR = "boomPlantCorr"
 
     // Learning / DSP path
     const val LMS_LOW_UPDATES = "lmsLowUpdates"

@@ -20,6 +20,20 @@
 
 
 
+
+## [1.2.9] — 2026-08-14 · Android code 11 · P2 plant ŝ delay 寫入 + boomPlantCorr
+
+| 項 | 內容 |
+|----|------|
+| **PlantPathStore** | 依 profileId+route 持久化 electricalDelaySamples / probeCorrMs |
+| **probe 更新** | runtime 相關延遲 → `refinePlantDelayFromProbe` + `plant_path_saved` |
+| **啟動載入** | `plant_path_loaded` 恢復上次 plant D |
+| **boomPlantCorr** | mic low × anti 對立相關 EMA（log） |
+| **腳本** | 1.2.9 文案；finish 收 plantDelay / boomPlantCorr |
+
+含 1.2.8：antiE*、50Hz tone、艙錄、IMU 軸、music gate。
+
+---
 ## [1.2.8] — 2026-08-14 · Android code 10 · 路徑診斷 + antiE 分帶 + 艙錄 + IMU 軸
 
 **修改紀錄確認**：此前 **未** 做 antiE* / 50Hz tone / 腳本自動艙錄 / ImuAxis ref / entertainment 分級。

@@ -14,6 +14,7 @@ import com.example.caranc.shared.model.CabinProfileStore
 import com.example.caranc.shared.model.CabinResonanceDetector
 import com.example.caranc.shared.model.CabinTransferModel
 import com.example.caranc.shared.model.CabinZoneId
+import com.example.caranc.shared.model.PlantPathStore
 // (CYCLE3: direct NoiseBandClassifier import removed; use sessionContext.noiseBandClassifier instead)
 import com.example.caranc.shared.model.ProfileAgingMonitor
 import com.example.caranc.shared.signal.MediaPlaybackCapture
@@ -415,6 +416,25 @@ class AudioEngine(
                 )
                 ancProcessor?.applyCabinModel(applyMimoTrial(cabinModel))
                 currentLatency?.let { applyMeasuredLatencyToProcessor(getEffectiveLatencyForSet(it.totalMs), it) }
+                // 1.2.9 P2: load persisted plant electrical delay for this profile+route
+                val routeLabel0 = routeAfterPlay.route.routeLabel
+                val plantSnap = PlantPathStore.loadBest(appContext, cabinProfileId, routeLabel0)
+                if (plantSnap != null && plantSnap.electricalDelaySamples > 64) {
+                    val applied = ancProcessor?.refinePlantDelayFromProbe(plantSnap.electricalDelaySamples)
+                        ?: plantSnap.electricalDelaySamples
+                    AncSessionLogger.log(
+                        phase = "plant_path_loaded",
+                        fields = mapOf(
+                            "profileId" to cabinProfileId,
+                            "routeLabel" to routeLabel0,
+                            "electricalDelaySamples" to plantSnap.electricalDelaySamples,
+                            "appliedSamples" to applied,
+                            "probeCorrMs" to plantSnap.probeCorrMs,
+                            "cabinAcousticDelaySamples" to plantSnap.cabinAcousticDelaySamples,
+                            "updatedEpochMs" to plantSnap.updatedEpochMs
+                        )
+                    )
+                }
                 ancProcessor?.setPersonalRumbleBias(AncTestPreferences.getPersonalRumbleBias(appContext))  // ensure personal bias applied early (acoustic ID follows phone)
                 logMimoProfile(cabinModel)
                 logLatencyOptimization()
@@ -999,13 +1019,46 @@ class AudioEngine(
                                     currentLatency
                                 )
                                 ancProcessor?.setProbeCorrMs(sessionContext.perfMetrics.lastProbeCorrMs)
+                                // 1.2.9 P2: write ŝ plant electrical delay from probe + persist
+                                val srProbe = audioRecord?.sampleRate ?: 44100
+                                val plantSamp = (meas * srProbe / 1000f).toInt().coerceIn(64, 20000)
+                                val appliedPlant = ancProcessor?.refinePlantDelayFromProbe(plantSamp) ?: plantSamp
+                                val routeLab = currentRoute?.routeLabel ?: "unknown"
+                                PlantPathStore.save(
+                                    appContext,
+                                    PlantPathStore.PlantPathSnapshot(
+                                        profileId = cabinProfileId,
+                                        routeLabel = routeLab,
+                                        electricalDelaySamples = appliedPlant,
+                                        probeCorrMs = meas,
+                                        cabinAcousticDelaySamples = acousticDelaySamples,
+                                        updatedEpochMs = System.currentTimeMillis()
+                                    )
+                                )
                                 AncSessionLogger.log(
                                     phase = "runtime_latency_correlated",
                                     fields = mapOf(
                                         "measuredMs" to meas,
                                         "smoothedMs" to runtimeMeasuredLatencyMs,
                                         "block" to blockCount,
-                                        "corrComputeMs" to corrDtMs   // CYCLE3_EXTRA: probe corr time metric
+                                        "corrComputeMs" to corrDtMs,
+                                        "plantDelaySamplesApplied" to appliedPlant,
+                                        "plantDelayMs" to (appliedPlant * 1000f / srProbe),
+                                        "plantPathSaved" to true,
+                                        "routeLabel" to routeLab,
+                                        "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f)
+                                    )
+                                )
+                                AncSessionLogger.log(
+                                    phase = "plant_path_saved",
+                                    fields = mapOf(
+                                        "profileId" to cabinProfileId,
+                                        "routeLabel" to routeLab,
+                                        "electricalDelaySamples" to appliedPlant,
+                                        "probeCorrMs" to meas,
+                                        "cabinAcousticDelaySamples" to acousticDelaySamples,
+                                        "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f),
+                                        "note" to "P2_sHat_plant_delay_persisted"
                                     )
                                 )
                             }
@@ -1422,6 +1475,8 @@ class AudioEngine(
                     "antiLfDominatesHf" to lfDominates,
                     "antiNoiseDb" to antiNoiseDb,
                     "boomPressureOut" to (ancProcessor?.getBoomPressureOut() ?: 0f),
+                    "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f),
+                    "plantDelaySamples" to (ancProcessor?.getPlantElectricalDelaySamples() ?: 0),
                     "speedKmh" to speed.speedKmh,
                     "nvhFocus" to (ancProcessor?.getNvhFocus() ?: "?"),
                     "forcedNvhFocus" to (com.example.caranc.shared.GuidedNvhOverride.forcedFocusName ?: "auto"),
@@ -1521,6 +1576,8 @@ class AudioEngine(
                         "roadNotchEnergy" to (ancProcessor?.getRoadNotchEnergy() ?: 0f),
                         "roadBoomWeightEnergy" to (ancProcessor?.getRoadBoomWeightEnergy() ?: 0f),
                         "boomPressureOut" to (ancProcessor?.getBoomPressureOut() ?: 0f),
+                        "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f),
+                        "plantDelaySamples" to (ancProcessor?.getPlantElectricalDelaySamples() ?: 0),
                         "forcedNvhFocus" to (com.example.caranc.shared.GuidedNvhOverride.forcedFocusName ?: "auto"),
                         // Closed-loop self-check (program band energy — not external phone recorder)
                         "rawLowBandDb" to lastRawLowBandDb,

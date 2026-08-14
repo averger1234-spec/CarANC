@@ -350,6 +350,9 @@ object CarAncTestScript {
         "antiE500_2k",
         "antiLfDominatesHf",
         "diagToneHz",
+        "plantDelaySamples",
+        "boomPlantCorr",
+        "plantElectricalDelaySamples",
         "speedSource",
         "speedFusion",
         "aaLinkType",
@@ -416,7 +419,7 @@ object CarRoadTuningScript {
      *
      * 主觀：每步 0–10；路步重點「悶有無變／低頻有無在動」；電子雜音=FAIL
      */
-    const val SCRIPT_NAME = "三目標·1.2.8診斷tone+antiE+艙錄+IMU"
+    const val SCRIPT_NAME = "三目標·1.2.9 P2 plantD+診斷+antiE"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -463,11 +466,11 @@ object CarRoadTuningScript {
             id = "tuning_prep",
             title = "準備：1.2.8 診斷+艙錄+PRO",
             instructions = listOf(
-                "★ 版號 **v1.2.8**；腳本自動 PRO",
+                "★ 版號 **v1.2.9**；腳本自動 PRO",
                 "USB 有線 AA；placement=floor/seat；音樂關",
-                "啟動 ANC；下一步會播 **50Hz 診斷 tone**（聽車機有無低音）",
-                "路步會 **自動錄艙 m4a**（關/開各一段）",
-                "log 看 antiE40_80 vs antiE500_2k（送出頻帶是否正確）"
+                "啟動 ANC；下一步 **50Hz tone**；路步自動艙錄",
+                "log：antiE*、plantDelaySamples、boomPlantCorr（P2 ŝ 延遲）",
+                "校準後會寫 plant_path_saved；下次啟動 plant_path_loaded"
             ),
             durationSec = 20,
             requiresAncRunning = false,
@@ -475,9 +478,10 @@ object CarRoadTuningScript {
             maxWallSec = 60,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "版號v1.2.8",
+                "版號v1.2.9",
                 "tier=PRO",
                 "USB AA",
+                "知plantD",
                 "ANC可啟動"
             ),
             logPhases = listOf("audio_init", "aa_connected", "test_script_start"),
@@ -649,12 +653,12 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束：1.2.8 對照匯出",
+            title = "結束：1.2.9 對照匯出",
             instructions = listOf(
-                "停 ANC → 存 Log；scenario 寫：50Hz有無聽到、off/on 悶對照、電子噪?",
-                "★ 分析：antiE40_80 vs antiE500_2k；diag_tone；cabin_*.m4a 40–80Hz",
-                "PASS：50Hz可聽 + antiE 低頻主導 +（艙錄或主觀悶有差）",
-                "FAIL：50Hz完全沒有低音 / antiE HF≫LF / 純電子噪"
+                "停 ANC → 存 Log；scenario：50Hz、off/on 悶、電子噪",
+                "★ antiE*；plant_path_saved/loaded；boomPlantCorr；cabin m4a 40–80",
+                "PASS：50Hz可聽 + antiE 低頻主導 + plantDelay 有寫入",
+                "FAIL：50Hz無低音 / HF≫LF / plantDelay 永不更新"
             ),
             durationSec = 15,
             requiresAncRunning = false,
@@ -662,13 +666,13 @@ object CarRoadTuningScript {
             maxWallSec = 50,
             checklist = listOf(
                 "已存Log",
-                "50Hz結果已寫",
+                "50Hz結果",
                 "含antiE*",
+                "含plantDelay/boomPlantCorr",
                 "含cabin_record",
-                "tier=PRO",
-                "placement已註"
+                "tier=PRO"
             ),
-            logPhases = listOf("test_script_complete", "spectrum_kpi")
+            logPhases = listOf("test_script_complete", "spectrum_kpi", "plant_path_saved")
         )
     )
 

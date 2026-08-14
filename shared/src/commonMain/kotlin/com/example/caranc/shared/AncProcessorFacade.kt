@@ -53,6 +53,13 @@ interface AncProcessorFacade : AudioProcessor {
     fun getLatencyStrategy(): String = "NORMAL"
     fun getPlantElectricalDelaySamples(): Int = 0
     fun getMeasuredLatencyMs(): Float = 0f
+    /**
+     * 1.2.9 P2: refine electrical plant delay from probe correlation (samples @ process rate).
+     * Blends with existing estimate and returns the applied sample count.
+     */
+    fun refinePlantDelayFromProbe(probeDelaySamples: Int): Int = getPlantElectricalDelaySamples()
+    /** Last boom-band corr |anti vs mic| at plant lag (0..1-ish). */
+    fun getBoomPlantCorr(): Float = 0f
 
     // Dynamic real end-to-end latency from probe (used to tune RumblePreviewPredictor horizon and feedforward weights).
     fun setProbeCorrMs(probeCorrMs: Float) {}

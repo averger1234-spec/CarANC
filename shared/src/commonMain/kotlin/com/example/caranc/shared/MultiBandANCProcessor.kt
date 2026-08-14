@@ -184,6 +184,9 @@ class MultiBandANCProcessor(
     private var latencyTrackMs = 0f
     private var latencyFrameworkMs = 35f
     private var latencyStrategy = "NORMAL"
+    /** 1.2.9: EMA corr of low anti vs low mic at plant lag (diagnostic for ŝ alignment). */
+    private var boomPlantCorrEma = 0f
+    private var lastBoomPlantCorr = 0f
     private var learningCaptured = false
 
     // Dedicated RumblePreviewPredictor (architecture change for AA high-latency rumble).
@@ -290,6 +293,40 @@ class MultiBandANCProcessor(
     override fun getLatencyStrategy(): String = latencyStrategy
     override fun getPlantElectricalDelaySamples(): Int = plantElectricalDelaySamples
     override fun getMeasuredLatencyMs(): Float = measuredLatencyMs
+    override fun getBoomPlantCorr(): Float = lastBoomPlantCorr
+
+    override fun refinePlantDelayFromProbe(probeDelaySamples: Int): Int {
+        val p = probeDelaySamples.coerceIn(64, MAX_PLANT_DELAY_SAMPLES)
+        // EMA blend: trust probe gradually (AA delay drifts)
+        plantElectricalDelaySamples = if (plantElectricalDelaySamples <= 0) {
+            p
+        } else {
+            (0.72f * plantElectricalDelaySamples + 0.28f * p).toInt()
+                .coerceIn(64, MAX_PLANT_DELAY_SAMPLES)
+        }
+        // Keep measured latency roughly consistent with plant samples
+        val plantMs = plantElectricalDelaySamples * 1000f / sampleRate
+        measuredLatencyMs = (latencyTrackMs + latencyFrameworkMs + 40f + plantMs * 0.15f)
+            .coerceIn(15f, 400f)
+            .coerceAtLeast(plantMs + 20f)
+        estimatedLatencyMs = measuredLatencyMs
+        latencyBandLimits = LatencyAwareBandLimiter.limits(measuredLatencyMs)
+        recomputeFxDelay()
+        rumblePredictor.setPredictionHorizon(estimatedLatencyMs, plantMs)
+        updateLatencyStrategy()
+        return plantElectricalDelaySamples
+    }
+
+    /** Call once per block with last mic low and speaker anti (normalized floats). */
+    fun updateBoomPlantCorrelation(micLow: Float, antiSample: Float) {
+        // Simple product EMA as corr proxy when energy present
+        val m = micLow
+        val a = antiSample
+        val prod = -m * a // anti should oppose mic → positive when canceling
+        boomPlantCorrEma = 0.995f * boomPlantCorrEma + 0.005f * prod
+        val norm = (kotlin.math.abs(m) + kotlin.math.abs(a) + 1e-4f)
+        lastBoomPlantCorr = (boomPlantCorrEma / norm).coerceIn(-1f, 1f)
+    }
 
     private fun updateLatencyStrategy() {
         // CORE FIX: abandoned FF_PREVIEW_ONLY open-loop magnitude inject (produced speaker noise).
@@ -1094,6 +1131,11 @@ class MultiBandANCProcessor(
             if (boomFocusOut && vehicleSpeedKmh >= 18f) {
                 speedScaled = roadLowPassOutput(speedScaled)
                 speedScaled = roadLowPassOutput(speedScaled) // double for steeper rolloff
+            }
+
+            // 1.2.9 P2: boom-band opposition corr (positive ≈ anti opposing mic low)
+            if (i % 4 == 0) {
+                updateBoomPlantCorrelation(virtualBands.low, speedScaled)
             }
 
             output[i] = (speedScaled * outputEventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
