@@ -24,6 +24,11 @@ struct GuidedTestView: View {
         }
         .navigationTitle("測試腳本")
         .onAppear { runner.bind(model: model, engine: engine) }
+        .onChange(of: runner.pendingAutoExportText) { newText in
+            guard let newText, !newText.isEmpty else { return }
+            sharePayload = SharePayload(text: newText)
+            runner.pendingAutoExportText = nil
+        }
         .sheet(item: $sharePayload) { payload in
             ActivityView(activityItems: [payload.text])
         }
@@ -88,7 +93,10 @@ struct GuidedTestView: View {
                     }
                 }
             }
-            Text("建議先在「狀態」啟動降噪。行駛步車速不足會暫停累秒（紅燈不計）。")
+            Text("按「開始腳本」會自動開降噪；秒數滿自動換步；全部完成自動彈出分享 Log。")
+                .font(.caption)
+                .foregroundStyle(.green)
+            Text("行駛步車速不足會暫停累秒（紅燈不計）。")
                 .font(.caption)
                 .foregroundStyle(.orange)
         }
@@ -146,7 +154,7 @@ struct GuidedTestView: View {
                 Button {
                     Task { await ensureAncThenStart() }
                 } label: {
-                    Label("開始腳本", systemImage: "play.fill")
+                    Label("開始腳本（自動開降噪）", systemImage: "play.fill")
                         .frame(maxWidth: .infinity)
                         .padding()
                 }
@@ -196,11 +204,16 @@ struct GuidedTestView: View {
                 Button {
                     sharePayload = SharePayload(text: runner.exportText())
                 } label: {
-                    Label("匯出 / 分享 Log", systemImage: "square.and.arrow.up")
+                    Label(runner.finished ? "再次匯出 / 分享 Log" : "匯出 / 分享 Log", systemImage: "square.and.arrow.up")
                         .frame(maxWidth: .infinity)
                         .padding()
                 }
                 .buttonStyle(.bordered)
+                if runner.finished {
+                    Text("結束時已自動彈出分享；若關掉可按上方再次匯出。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -216,15 +229,14 @@ struct GuidedTestView: View {
         }
     }
 
+    /// 一律先開降噪再跑腳本（全自動路測）
     @MainActor
     private func ensureAncThenStart() async {
-        if let step = CarRoadTuningScript.steps.first, step.requiresAncRunning == false {
-            // prep 可先不開
-        } else if !model.isRunning {
-            if !model.safetyConsentAccepted {
-                model.showSafetyConsent = true
-                return
-            }
+        if !model.safetyConsentAccepted {
+            model.showSafetyConsent = true
+            return
+        }
+        if !model.isRunning {
             do {
                 try await engine.start(preferCarAudio: AppController.shared.routeMonitor.linkType.isCarPlay)
             } catch {

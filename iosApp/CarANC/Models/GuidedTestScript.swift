@@ -188,6 +188,8 @@ final class GuidedTestRunner: ObservableObject {
     @Published var autoAdvance = true
     @Published var pauseReason = ""
     @Published var collectingNow = false
+    /// 腳本完成後自動分享用（View 觀察後彈出系統分享）
+    @Published var pendingAutoExportText: String?
 
     private var timer: Timer?
     private weak var model: AncAppModel?
@@ -369,13 +371,18 @@ final class GuidedTestRunner: ObservableObject {
         SessionLogger.shared.event("test_script_complete", [
             "scriptId": CarRoadTuningScript.scriptId,
             "advanceMode": "valid_drive_sec",
-            "autoAdvance": "\(autoAdvance)"
+            "autoAdvance": "\(autoAdvance)",
+            "autoExport": "true"
         ])
-        statusLine = "腳本完成 — 請匯出 Log"
         appendLog("script_complete")
+        // 先停 ANC（寫入 session_end），再組完整 export 並自動分享
         if model?.isRunning == true {
             engine?.stop()
         }
+        let text = exportText()
+        statusLine = "腳本完成 — 自動開啟分享"
+        appendLog("auto_export_share")
+        pendingAutoExportText = text
     }
 
     private func applyPresets(for step: GuidedTestStep) {
