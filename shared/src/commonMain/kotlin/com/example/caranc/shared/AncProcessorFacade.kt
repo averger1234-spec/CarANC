@@ -84,6 +84,8 @@ interface AncProcessorFacade : AudioProcessor {
     // Used inside low-band processing to boost roadMode gains / low mu when high vibration detected (complements speed-based road ref).
     // Currently only logging in snapshots; now directly fed into ANC for feedforward boost.
     fun setRumbleAccel(mag: Float) {}
+    /** 1.2.8: structural FF axes (linear accel). */
+    fun setImuAxes(ax: Float, ay: Float, az: Float) {}
 
     /** #7: road roughness (IMU) for PreLearned speed×roughness bank. */
     fun setRoadRoughness(roughness: Float) {}

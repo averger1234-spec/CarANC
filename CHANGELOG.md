@@ -19,6 +19,22 @@
 
 
 
+
+## [1.2.8] — 2026-08-14 · Android code 10 · 路徑診斷 + antiE 分帶 + 艙錄 + IMU 軸
+
+**修改紀錄確認**：此前 **未** 做 antiE* / 50Hz tone / 腳本自動艙錄 / ImuAxis ref / entertainment 分級。
+
+| 項 | 內容 |
+|----|------|
+| **antiE*** | spectrum_kpi：`antiE40_80` `antiE80_120` `antiE200_500` `antiE500_2k` `antiLfDominatesHf`（**送出前** PCM） |
+| **diag_tone_50** | 腳本 30s 播 **50Hz** 純音經 AA；`diag_tone_active` log |
+| **cabinRecord** | 腳本 `target_road_off` / `target_road` 自動 `cabin_*.m4a` |
+| **P0 IMU** | LINEAR_ACCEL 三軸 FASTEST → low path 混合 ref |
+| **P4-lite** | 系統 music 音量高 → 衰減/近 mute anti |
+
+腳本名：`三目標·1.2.8診斷tone+antiE+艙錄+IMU`
+
+---
 ## [1.2.7] — 2026-08-14 · Android code 9 · 悶感音壓：plant-delay 低頻壓力 + 強 boom
 
 **方向修正**：不再「少播 anti」；要 **喇叭輸出可感的低頻音壓** 打 悶，並剝掉中高頻電子噪。

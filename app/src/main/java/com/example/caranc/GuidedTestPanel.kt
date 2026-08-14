@@ -91,12 +91,48 @@ fun GuidedTestPanel(
                 fields["forceNvhFocus"]?.let { v ->
                     com.example.caranc.shared.GuidedNvhOverride.set(v?.toString())
                 }
+                // 1.2.8: AA 50/60 Hz diagnostic tone
+                fields["diagToneHz"]?.let { v ->
+                    val hz = when (v) {
+                        is Number -> v.toFloat()
+                        else -> v?.toString()?.toFloatOrNull() ?: 0f
+                    }
+                    AncTestPreferences.setDiagToneHz(context, hz)
+                }
+                // 1.2.8: auto cabin m4a for 40–80 Hz A/B
+                fields["cabinRecord"]?.let { v ->
+                    val on = when (v) {
+                        is Boolean -> v
+                        else -> v?.toString().equals("true", true)
+                    }
+                    val stepId = fields["stepId"]?.toString()
+                        ?: GuidedTestController.state.value.currentStep?.id
+                        ?: "step"
+                    if (on && AncTestPreferences.isCabinAutoRecordEnabled(context)) {
+                        com.example.caranc.shared.service.GuidedCabinRecorder.start(context, stepId)
+                    }
+                }
+            }
+            if (phase == "test_step_start") {
+                // stop previous cabin file when entering new step (unless this step starts record)
+                val cabin = fields["cabinRecord"]
+                val keep = cabin == true || cabin?.toString().equals("true", true) == true
+                if (!keep) {
+                    com.example.caranc.shared.service.GuidedCabinRecorder.stop(context, "step_change")
+                }
+                // clear diag tone unless step sets it
+                if (fields["diagToneHz"] == null) {
+                    AncTestPreferences.setDiagToneHz(context, 0f)
+                }
             }
             if (phase == "test_script_complete" || phase == "guided_test_abort") {
                 com.example.caranc.shared.GuidedNvhOverride.clear()
+                AncTestPreferences.setDiagToneHz(context, 0f)
+                com.example.caranc.shared.service.GuidedCabinRecorder.stop(context, "script_end")
             }
             if (phase == "test_script_start") {
                 com.example.caranc.shared.GuidedNvhOverride.clear()
+                AncTestPreferences.setDiagToneHz(context, 0f)
             }
         }
     }

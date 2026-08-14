@@ -9,6 +9,10 @@ data class VehicleSpeedSnapshot(
     // linearAccelMagnitude: sqrt(x^2+y^2+z^2) from TYPE_LINEAR_ACCELERATION, as road vibration proxy (immune to acoustic feedback)
     val linearAccelMagnitude: Float = 0f,
     val accelSource: String = "none",
+    /** 1.2.8: raw linear accel axes for structural FF ref (not magnitude-only). */
+    val linearAccelX: Float = 0f,
+    val linearAccelY: Float = 0f,
+    val linearAccelZ: Float = 0f,
     // Coarse position for dynamic NVH map / crowdsourced road noise + vehicle aging acoustic DB (Waze-like for NVH).
     // Quantized to ~0.001° (~111m) for privacy (road segment level, not exact spot). Enables pre-loading S(z)/VSS for predicted rough segments.
     // Only populated when GPS valid; 0/0 when unavailable. Logs exportable for future anonymous aggregation.
@@ -25,6 +29,9 @@ data class VehicleSpeedSnapshot(
             source = "none",
             linearAccelMagnitude = 0f,
             accelSource = "none",
+            linearAccelX = 0f,
+            linearAccelY = 0f,
+            linearAccelZ = 0f,
             coarseLat = 0f,
             coarseLon = 0f,
             roughness = 0f

@@ -97,6 +97,12 @@ class MultiBandANCProcessor(
     private var vehicleSpeedKmh = 0f
     private var vehicleSpeedValid = false
     private var rumbleAccelMag = 0f  // IMU linear accel mag as rumble vibration proxy (integrated into low band for boost)
+    // 1.2.8 structural FF: band-limited IMU axes (phone as poor-man's chassis ref)
+    private var imuAx = 0f
+    private var imuAy = 0f
+    private var imuAz = 0f
+    private var imuRefLp = 0f
+    private var lastImuRefSample = 0f
     private var roadRoughness = 0.5f  // #7: IMU roughness for PreLearned speed×rough lookup
     private var rumbleEnergyProxy = 0f  // for virtualSuppressionQuality (blend with media quality to bypass stuck quality=0 in AA)
     // #7 fixed-filter primary ring (low ref samples) under high-lat FF
@@ -349,6 +355,18 @@ class MultiBandANCProcessor(
         debugFreezeThreshold = energyRatioThreshold.coerceIn(8f, 25f)
         debugFreezeConsec = consecutiveCount.coerceIn(1, 5)
         debugSpeedFreezeFactor = speedFactor.coerceIn(0.3f, 1.2f)
+    }
+
+    override fun setImuAxes(ax: Float, ay: Float, az: Float) {
+        imuAx = ax
+        imuAy = ay
+        imuAz = az
+        // Dominant vertical-ish component for boom (phone orientation varies; use energy-weighted mix)
+        val raw = (0.35f * ax + 0.25f * ay + 0.40f * az).coerceIn(-8f, 8f)
+        // ~80 Hz LPF then high-pass-ish by removing very slow drift via mild leak
+        val a = 0.08f
+        imuRefLp += a * (raw - imuRefLp)
+        lastImuRefSample = (raw - 0.92f * imuRefLp).coerceIn(-1.2f, 1.2f)
     }
 
     override fun setRumbleAccel(mag: Float) {
@@ -723,6 +741,9 @@ class MultiBandANCProcessor(
 
             // High-lat: plant-aligned / predictive bipolar ref for low path (not IMU envelope).
             val highLat = estimatedLatencyMs > HIGH_LATENCY_MS
+            val boomFocusNow = lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE ||
+                lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.TIRE_NOISE ||
+                (lastEffectiveRumbleMode && vehicleSpeedKmh >= 22f)
             // Full-rate plant delay on bipolar low ref (Predictive FxLMS / delay-compensated FF).
             // Cap to ring capacity; mild predictFraction only (avoid inventing HF under AA).
             val lowAudioRef = if (highLat && plantElectricalDelaySamples > 64) {
@@ -736,7 +757,13 @@ class MultiBandANCProcessor(
             val imuRefScale = if (lastEffectiveRumbleMode) {
                 (1f + rumbleEnergyProxy.coerceIn(0f, 1f) * 0.25f * lastCoherenceQuality).coerceIn(1f, 1.25f)
             } else 1f
-            val lowSampleForLowBand = lowAudioRef * imuRefScale
+            // 1.2.8 P0: mix structural IMU axis ref into low path (RNC-style), not magnitude-only
+            val imuWave = lastImuRefSample * 0.12f // scale m/s²-ish into audio-ish
+            val lowSampleForLowBand = if (boomFocusNow || lastEffectiveRumbleMode) {
+                (lowAudioRef * 0.55f * imuRefScale + imuWave * 0.45f).coerceIn(-1.5f, 1.5f)
+            } else {
+                lowAudioRef * imuRefScale
+            }
 
             if (lastCoherenceQuality < 0.35f && effectiveRumbleMode) {
                 rumbleVibBoost *= 0.75f
@@ -750,11 +777,7 @@ class MultiBandANCProcessor(
             lastRumbleVibBoost = rumbleVibBoost
             lastEffectiveLowMu = effectiveLowMu
 
-            // True FxLMS low path — 1.2.5: high-lat was *0.28 (and damp*0.08) → ~2% mu = no boom cancel.
-            // AA still limits BW, but low-band + boom notches MUST keep learning hard on 40–120Hz 悶.
-            val boomFocusNow = lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE ||
-                lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.TIRE_NOISE ||
-                (lastEffectiveRumbleMode && vehicleSpeedKmh >= 25f)
+            // True FxLMS low path — boomFocusNow defined above (IMU mix + low mu)
             val lowOut = multirateLow.processSample(lowSampleForLowBand) { decimated ->
                 val useLowErrBoost = (musicLowAncEnabled && vehicleSpeedKmh > 12f) || boomFocusNow
                 val vq3 = kotlin.math.max(musicSuppressionQuality, rumbleEnergyProxy * 0.75f)

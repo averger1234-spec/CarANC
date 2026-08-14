@@ -28,12 +28,18 @@ class VehicleSpeedProvider(context: Context) {
     private val fusedClient = LocationServices.getFusedLocationProviderClient(appContext)
     private val sensorManager = appContext.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager
     private var linearAccelMag = 0f
+    private var linearAccelX = 0f
+    private var linearAccelY = 0f
+    private var linearAccelZ = 0f
     private val accelListener = object : android.hardware.SensorEventListener {
         override fun onSensorChanged(event: android.hardware.SensorEvent?) {
             if (event?.sensor?.type == android.hardware.Sensor.TYPE_LINEAR_ACCELERATION) {
                 val x = event.values[0]
                 val y = event.values[1]
                 val z = event.values[2]
+                linearAccelX = x
+                linearAccelY = y
+                linearAccelZ = z
                 linearAccelMag = kotlin.math.sqrt(x * x + y * y + z * z)
                 // GPS 稀疏時仍用 IMU 推進 fusion（hold / imu_proxy）
                 if (running) {
@@ -92,8 +98,13 @@ class VehicleSpeedProvider(context: Context) {
         // IMU 一律啟動：無 GPS 時仍可 imu_proxy / 掉線 hold 後續
         val accelSensor = sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_LINEAR_ACCELERATION)
         if (accelSensor != null) {
-            sensorManager.registerListener(accelListener, accelSensor, android.hardware.SensorManager.SENSOR_DELAY_GAME)
-            Log.i(TAG, "IMU accel listener registered (fusion + rumble proxy)")
+            // FASTEST for structural FF ref waveform (GAME ~50Hz too slow for 40–80 boom)
+            sensorManager.registerListener(
+                accelListener,
+                accelSensor,
+                android.hardware.SensorManager.SENSOR_DELAY_FASTEST
+            )
+            Log.i(TAG, "IMU accel FASTEST registered (axes + mag for RNC-style FF)")
         }
 
         if (!hasPermission()) {
@@ -186,7 +197,10 @@ class VehicleSpeedProvider(context: Context) {
             accuracyMeters = accuracy,
             source = srcLabel,
             linearAccelMagnitude = linearAccelMag,
-            accelSource = if (linearAccelMag > 0f) "linear_accel" else "none",
+            accelSource = if (linearAccelMag > 0f || linearAccelX != 0f) "linear_accel" else "none",
+            linearAccelX = linearAccelX,
+            linearAccelY = linearAccelY,
+            linearAccelZ = linearAccelZ,
             coarseLat = cLat,
             coarseLon = cLon,
             roughness = rough

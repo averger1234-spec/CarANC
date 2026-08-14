@@ -344,6 +344,12 @@ object CarAncTestScript {
         "effectiveLowMu",
         "forcedNvhFocus",
         "tier",
+        "antiE40_80",
+        "antiE80_120",
+        "antiE200_500",
+        "antiE500_2k",
+        "antiLfDominatesHf",
+        "diagToneHz",
         "speedSource",
         "speedFusion",
         "aaLinkType",
@@ -410,7 +416,7 @@ object CarRoadTuningScript {
      *
      * 主觀：每步 0–10；路步重點「悶有無變／低頻有無在動」；電子雜音=FAIL
      */
-    const val SCRIPT_NAME = "三目標·1.2.7悶音壓+PRO強制"
+    const val SCRIPT_NAME = "三目標·1.2.8診斷tone+antiE+艙錄+IMU"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -455,63 +461,112 @@ object CarRoadTuningScript {
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
             id = "tuning_prep",
-            title = "準備：1.2.7 悶音壓 + 強制 PRO",
+            title = "準備：1.2.8 診斷+艙錄+PRO",
             instructions = listOf(
-                "★ 版號主畫面 **v1.2.7**；腳本開始會 **自動升 PRO**（勿停在 LIGHT）",
-                "USB 有線 AA；aaLinkType=projection_submix",
-                "★ placement=floor/seat；userAncGain=0.8~1；音樂關或極小",
-                "啟動 ANC；確認 outputPathActive；antiNoiseDb 行駛非長期 -200",
-                "★ 主 KPI：spectrum_kpi + boomPressureOut（路步）— 不必外錄也可分析",
-                "每步 userNote：主觀0-10；路步寫「悶有無變／低頻有無在動」；純電子噪=FAIL"
+                "★ 版號 **v1.2.8**；腳本自動 PRO",
+                "USB 有線 AA；placement=floor/seat；音樂關",
+                "啟動 ANC；下一步會播 **50Hz 診斷 tone**（聽車機有無低音）",
+                "路步會 **自動錄艙 m4a**（關/開各一段）",
+                "log 看 antiE40_80 vs antiE500_2k（送出頻帶是否正確）"
             ),
-            durationSec = 25,
+            durationSec = 20,
             requiresAncRunning = false,
             wallClockOnly = true,
-            maxWallSec = 90,
+            maxWallSec = 60,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "版號v1.2.7",
-                "tier=PRO(腳本強制)",
-                "USB有線AA",
-                "placement=floor/seat",
-                "音樂關",
-                "知boomPressureOut",
+                "版號v1.2.8",
+                "tier=PRO",
+                "USB AA",
                 "ANC可啟動"
             ),
-            logPhases = listOf("audio_init", "calibration", "running_snapshot", "aa_connected", "spectrum_kpi", "test_script_start"),
+            logPhases = listOf("audio_init", "aa_connected", "test_script_start"),
             debugPresets = mapOf(
                 "forceNormalMode" to true,
                 "musicLowAncEnabled" to true,
                 "userAncGain" to 1.0f,
-                "tier" to "PRO"
+                "tier" to "PRO",
+                "diagToneHz" to 0f
+            )
+        ),
+        TestScriptStep(
+            id = "diag_tone_50",
+            title = "⓪ AA 低頻診斷 50Hz tone（30s）",
+            instructions = listOf(
+                "停車或怠速；**開 ANC**（tone 經 AA 出喇叭）",
+                "應聽到 **低沉 50Hz 嗡**；若完全沒低音 → 車機/AA/喇叭低頻不通，後面算法也聽不出",
+                "log：diag_tone_active + antiE40_80 應高",
+                "主觀：有/無聽到 50Hz（寫 userNote）"
+            ),
+            durationSec = 30,
+            requiresAncRunning = true,
+            wallClockOnly = true,
+            maxWallSec = 45,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf(
+                "ANC開",
+                "聽到50Hz?",
+                "log有diag_tone",
+                "tier=PRO"
+            ),
+            logPhases = listOf("diag_tone_active", "spectrum_kpi", "running_snapshot"),
+            debugPresets = mapOf(
+                "tier" to "PRO",
+                "userAncGain" to 1.0f,
+                "diagToneHz" to 50f,
+                "forceNormalMode" to true
+            )
+        ),
+        TestScriptStep(
+            id = "target_road_off",
+            title = "①a 路悶 關ANC 艙錄 20s（baseline）",
+            instructions = listOf(
+                "45–60 km/h；**關閉 ANC**；自動錄 cabin_target_road_off_*.m4a",
+                "只收 baseline 艙噪 40–80 Hz",
+                "有效秒 20（≥45 km/h）"
+            ),
+            durationSec = 20,
+            minSpeedKmh = 45f,
+            maxWallSec = 180,
+            requiresAncRunning = false,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf("ANC關", "艙錄中", "45+kmh"),
+            logPhases = listOf("cabin_record_start", "cabin_record_stop", "spectrum_kpi"),
+            debugPresets = mapOf(
+                "tier" to "PRO",
+                "cabinRecord" to true,
+                "diagToneHz" to 0f,
+                "forceNvhFocus" to "ROAD_RUMBLE"
             )
         ),
         TestScriptStep(
             id = "target_road",
-            title = "① 路悶 ROAD（音壓 + boom）",
+            title = "①b 路悶 開ANC 艙錄+antiE（40s）",
             instructions = listOf(
-                "路況：粗糙 45–60 km/h（低頻悶）；60 秒有效秒（≥45）",
-                "forceNvhFocus=ROAD_RUMBLE",
-                "★ 1.2.7 必收：**boomPressureOut**（應非0=LF 壓力路徑有輸出）、roadBoomWeightEnergy、roadNotchEnergy、notchMixAnti、effectiveLowMu、tier=PRO",
-                "★ 頻譜：spectrum_kpi micE40_120 / plantE40_120 / **deltaBoomDb**",
-                "★ 主觀悶 0–10：要感到 **低頻在動／悶在變**；純電子雜音且悶不變=FAIL",
-                "PASS：boomPressureOut 有值 +（悶↓ 或 deltaBoom 有改善趨勢）"
+                "同路段 45–60 km/h；**開 ANC**；自動錄 cabin_target_road_*.m4a",
+                "★ log：antiE40_80、antiE500_2k、antiLfDominatesHf、boomPressureOut",
+                "★ 對照 off 錄音 40–80 Hz：變輕/變大/不變",
+                "主觀悶 0–10；純電子噪=FAIL"
             ),
-            durationSec = 60,
+            durationSec = 40,
             minSpeedKmh = 45f,
-            maxWallSec = 720,
+            maxWallSec = 480,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
                 "forced=ROAD",
                 "tier=PRO",
-                "boomPressureOut非0",
-                "roadBoomWeight有值",
-                "spectrum_kpi有",
-                "主觀悶0-10",
-                "低頻有無在動",
-                "純電子噪?"
+                "antiE40_80有",
+                "boomPressureOut",
+                "艙錄on",
+                "主觀悶0-10"
             ),
-            logPhases = listOf("running_snapshot", "test_step_snapshot", "spectrum_kpi", "perf_timing"),
+            logPhases = listOf(
+                "running_snapshot",
+                "spectrum_kpi",
+                "cabin_record_start",
+                "cabin_record_stop",
+                "perf_timing"
+            ),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 2.0f,
                 "freezeThreshold" to 10f,
@@ -520,7 +575,9 @@ object CarRoadTuningScript {
                 "forceNormalMode" to true,
                 "userAncGain" to 1.0f,
                 "tier" to "PRO",
-                "forceNvhFocus" to "ROAD_RUMBLE"
+                "forceNvhFocus" to "ROAD_RUMBLE",
+                "cabinRecord" to true,
+                "diagToneHz" to 0f
             )
         ),
         TestScriptStep(
@@ -592,14 +649,12 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束：1.2.7 對照匯出",
+            title = "結束：1.2.8 對照匯出",
             instructions = listOf(
-                "停止 ANC → 儲存 Log；scenario 寫三段主觀 + 電子噪?",
-                "★ 切 guidedTestStepId + spectrum_kpi",
-                "路 PASS：tier=PRO + boomPressureOut≠0 + 主觀悶有動/變輕",
-                "輪：tireNotch* / deltaTireDb / 嗡↓",
-                "風：windNotch* / deltaWindDb / 風↓",
-                "FAIL：路步 boomPressureOut 全程0、或全段 tier=LIGHT、或純電子噪無悶感"
+                "停 ANC → 存 Log；scenario 寫：50Hz有無聽到、off/on 悶對照、電子噪?",
+                "★ 分析：antiE40_80 vs antiE500_2k；diag_tone；cabin_*.m4a 40–80Hz",
+                "PASS：50Hz可聽 + antiE 低頻主導 +（艙錄或主觀悶有差）",
+                "FAIL：50Hz完全沒有低音 / antiE HF≫LF / 純電子噪"
             ),
             durationSec = 15,
             requiresAncRunning = false,
@@ -607,10 +662,10 @@ object CarRoadTuningScript {
             maxWallSec = 50,
             checklist = listOf(
                 "已存Log",
-                "三段主觀已寫",
-                "含boomPressureOut",
-                "含spectrum_kpi",
-                "確認tier=PRO",
+                "50Hz結果已寫",
+                "含antiE*",
+                "含cabin_record",
+                "tier=PRO",
                 "placement已註"
             ),
             logPhases = listOf("test_script_complete", "spectrum_kpi")

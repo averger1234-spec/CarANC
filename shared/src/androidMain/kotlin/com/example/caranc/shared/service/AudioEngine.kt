@@ -131,6 +131,11 @@ class AudioEngine(
     private var lastSessionLogUpdate = 0L
     /** In-app multi-band spectrum KPI (replaces missing external m4a for A/B). */
     private var lastSpectrumKpiMs = 0L
+    /** Accumulator for anti band KPI (send-path spectrum before AA). */
+    private val antiKpiAccum = ShortArray(8192)
+    private var antiKpiWrite = 0
+    private var diagTonePhase = 0.0
+    private var lastDiagToneLogMs = 0L
     private var lastBlockRms = 0f  // for idle telegraph diagnostic in running_snapshot (protocol)
     private var lastBlockRmsVssScale = 1f  // VSS scale passed to processor based on blockRms + pfx variance for dynamic mu
     private var lastBumpLogMs = 0L
@@ -857,14 +862,52 @@ class AudioEngine(
                         // Full gain at 50+kmh for #6/#7 rumble breakthrough validation (effMid 0.6+). User can still override via TestLogPanel but idle caps it.
                         val speedForGain = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
                         val idleGainFactor = if (speedForGain.valid && speedForGain.speedKmh < 8f) 0.65f else 1f
-                        val finalWriteGain = cappedGain * antiArtifactGain * userGain * idleGainFactor
+                        // 1.2.8 P4-lite: entertainment loud → freeze-ish attenuate anti (Bose-style)
+                        val musicVol = try {
+                            val am = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                            val cur = am.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
+                            val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat().coerceAtLeast(1f)
+                            cur / max
+                        } catch (_: Exception) {
+                            0f
+                        }
+                        val musicGate = when {
+                            musicVol >= 0.85f -> 0.05f  // near mute anti
+                            musicVol >= 0.65f -> 0.35f  // attenuate
+                            musicVol >= 0.45f -> 0.70f
+                            else -> 1f
+                        }
+                        val finalWriteGain = cappedGain * antiArtifactGain * userGain * idleGainFactor * musicGate
                         // reuse buffer (hot-path opt, similar to push buffer reuse)
                         if (outputBufferReuse.size < read) outputBufferReuse = ShortArray(read)
                         scaleSamplesInto(processed, read, finalWriteGain, outputBufferReuse)
                         val output = outputBufferReuse
 
+                        // 1.2.8: AA path diagnostic pure tone (50/60 Hz) — overrides anti to verify car low-freq
+                        val diagHz = AncTestPreferences.getDiagToneHz(appContext)
+                        if (diagHz >= 40f && diagHz <= 100f) {
+                            injectDiagTone(output, read, diagHz, sampleRate = audioRecord?.sampleRate ?: 44100)
+                            val nowT = System.currentTimeMillis()
+                            if (nowT - lastDiagToneLogMs >= 2000L) {
+                                lastDiagToneLogMs = nowT
+                                AncSessionLogger.log(
+                                    phase = "diag_tone_active",
+                                    fields = mapOf(
+                                        "hz" to diagHz,
+                                        "note" to "pure_tone_via_AA_verify_car_bass_path"
+                                    )
+                                )
+                            }
+                        }
+
+                        // Accumulate anti PCM for send-path band energy KPI
+                        for (j in 0 until read) {
+                            antiKpiAccum[antiKpiWrite] = output[j]
+                            antiKpiWrite = (antiKpiWrite + 1) % antiKpiAccum.size
+                        }
+
                         // occasional known signal insert (for runtime real latency meas round-trip in ANC loop)
-                        if (blockCount % 900L == 123L && blockCount - lastProbeBlock > 650) {
+                        if (blockCount % 900L == 123L && blockCount - lastProbeBlock > 650 && diagHz < 40f) {
                             insertKnownProbe(output, read)
                             lastProbeBlock = blockCount
                         }
@@ -1344,6 +1387,19 @@ class AudioEngine(
             val eMicWind = sa.bandRangeEnergyDb(mic, sr, 500f, 2000f)
             val ePlantWind = sa.bandRangeEnergyDb(plant, sr, 500f, 2000f)
             val gs = com.example.caranc.shared.test.GuidedTestController.state.value
+            // 1.2.8: anti send-path bands (before AA) — proves App emits correct frequencies
+            val antiSlice = ShortArray(antiKpiAccum.size)
+            val aw = antiKpiWrite
+            for (i in antiKpiAccum.indices) {
+                antiSlice[i] = antiKpiAccum[(aw + i) % antiKpiAccum.size]
+            }
+            val antiE40_80 = sa.bandRangeEnergyDb(antiSlice, sr, 40f, 80f)
+            val antiE80_120 = sa.bandRangeEnergyDb(antiSlice, sr, 80f, 120f)
+            val antiE200_500 = sa.bandRangeEnergyDb(antiSlice, sr, 200f, 500f)
+            val antiE500_2k = sa.bandRangeEnergyDb(antiSlice, sr, 500f, 2000f)
+            val lf = antiE40_80
+            val hf = antiE500_2k
+            val lfDominates = lf > hf + 6f // boom mode should be LF-heavy
             AncSessionLogger.log(
                 phase = "spectrum_kpi",
                 fields = mapOf(
@@ -1358,11 +1414,20 @@ class AudioEngine(
                     "deltaWindDb" to (eMicWind - ePlantWind),
                     "micE40_80" to sa.bandRangeEnergyDb(mic, sr, 40f, 80f),
                     "micE80_150" to sa.bandRangeEnergyDb(mic, sr, 80f, 150f),
+                    // ★ send-path anti spectrum (App → before AA)
+                    "antiE40_80" to antiE40_80,
+                    "antiE80_120" to antiE80_120,
+                    "antiE200_500" to antiE200_500,
+                    "antiE500_2k" to antiE500_2k,
+                    "antiLfDominatesHf" to lfDominates,
+                    "antiNoiseDb" to antiNoiseDb,
+                    "boomPressureOut" to (ancProcessor?.getBoomPressureOut() ?: 0f),
                     "speedKmh" to speed.speedKmh,
                     "nvhFocus" to (ancProcessor?.getNvhFocus() ?: "?"),
                     "forcedNvhFocus" to (com.example.caranc.shared.GuidedNvhOverride.forcedFocusName ?: "auto"),
                     "guidedStep" to (if (gs.active) (gs.currentStep?.id ?: "") else ""),
-                    "note" to "in_app_spectrum_kpi_no_external_m4a_required"
+                    "diagToneHz" to AncTestPreferences.getDiagToneHz(appContext),
+                    "note" to "antiE_*=send_path_before_AA; cabin_m4a_for_true_A_B"
                 )
             )
         }
@@ -1375,7 +1440,8 @@ class AudioEngine(
             sessionContext.stateManager.updateVisualization(rawSpectrum, cancelledSpectrum, estimatedRawDb, residualDb)
         }
 
-        ancProcessor?.setRumbleAccel(speed.linearAccelMagnitude)  // IMU hybrid: rumbleAccel feeds both (1) ReferenceSignalPipeline aux ref mix (afterMedia - rumbleRef for structural FF), (2) MultiBand rumbleVibBoost on effectiveLowMu (roadMode only, tier auto). Core for Road Preview + NVH map.
+        ancProcessor?.setRumbleAccel(speed.linearAccelMagnitude)
+        ancProcessor?.setImuAxes(speed.linearAccelX, speed.linearAccelY, speed.linearAccelZ)
         ancProcessor?.setRoadRoughness(speed.roughness)  // #7 speed×roughness pre-learned bank
         // CYCLE3_EXTRA: classify via scoped instance from context (NoiseBandClassifier now class, wired to road ref)
         val classification = sessionContext.noiseBandClassifier.classify(
@@ -1777,6 +1843,19 @@ class AudioEngine(
         output[0] = toS(output[0] / 32767f + a)
         output[1] = toS(output[1] / 32767f - a)
         output[2] = toS(output[2] / 32767f + a * 0.7f)
+    }
+
+    /** 1.2.8 pure sine for AA bass path verification (hearable). */
+    private fun injectDiagTone(output: ShortArray, size: Int, hz: Float, sampleRate: Int) {
+        if (size <= 0 || sampleRate <= 0) return
+        val twoPi = 2.0 * Math.PI
+        val amp = 0.22 // hearable on car speakers if path passes LF
+        for (i in 0 until size) {
+            val s = kotlin.math.sin(diagTonePhase) * amp
+            diagTonePhase += twoPi * hz / sampleRate
+            if (diagTonePhase > twoPi) diagTonePhase -= twoPi
+            output[i] = (s * 32767.0).coerceIn(-32768.0, 32767.0).toInt().toShort()
+        }
     }
 
     private fun measureRoundTripLatencyIfDue(): Float {

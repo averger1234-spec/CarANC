@@ -392,9 +392,13 @@ object GuidedTestController {
             )
         )
         if (step.debugPresets.isNotEmpty()) {
-            emit(phase = "debug_presets_apply", fields = step.debugPresets + mapOf(
-                "tierActually" to sessionContext.tierManager.currentTier.value.name
-            ))
+            emit(
+                phase = "debug_presets_apply",
+                fields = step.debugPresets + mapOf(
+                    "tierActually" to sessionContext.tierManager.currentTier.value.name,
+                    "stepId" to step.id
+                )
+            )
         }
         logStepSnapshot()
     }

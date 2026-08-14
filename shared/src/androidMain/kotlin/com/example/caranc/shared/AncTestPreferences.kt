@@ -154,6 +154,21 @@ object AncTestPreferences {
         return prefs(context).getFloat(KEY_PERSONAL_RUMBLE_BIAS, 1.0f).coerceIn(0.7f, 1.3f)
     }
 
+    /** 0=off; 50 or 60 = AA path diagnostic pure tone (Hz). */
+    fun getDiagToneHz(context: Context): Float =
+        prefs(context).getFloat("diag_tone_hz", 0f)
+
+    fun setDiagToneHz(context: Context, hz: Float) {
+        prefs(context).edit().putFloat("diag_tone_hz", hz.coerceIn(0f, 120f)).apply()
+    }
+
+    fun isCabinAutoRecordEnabled(context: Context): Boolean =
+        prefs(context).getBoolean("cabin_auto_record", true)
+
+    fun setCabinAutoRecordEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean("cabin_auto_record", enabled).apply()
+    }
+
     fun setPersonalRumbleBias(context: Context, bias: Float) {
         prefs(context).edit().putFloat(KEY_PERSONAL_RUMBLE_BIAS, bias.coerceIn(0.7f, 1.3f)).apply()
     }
