@@ -45,6 +45,13 @@
 
 ---
 
+### iOS（build 18 · 全自動腳本 UI）
+
+- 開始腳本：**自動開降噪**
+- 結束：**自動彈出分享 Log**
+- 檢查清單僅提示；略過此步為緊急用
+- 狀態頁 **`v1.2.6 (18)`** · `dist/CarANC-ios-kmp-debug.ipa`
+
 ### iOS（build 17 · 對齊 1.2.6）
 
 - 重編 `CarANCShared.framework`（forceNvhFocus + notch 觸發修復；`GuidedNvhOverride` 原生編譯修正）
