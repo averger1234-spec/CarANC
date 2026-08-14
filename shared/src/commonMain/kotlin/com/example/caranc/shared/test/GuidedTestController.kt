@@ -4,7 +4,10 @@ import com.example.caranc.shared.formatFloat0
 
 import com.example.caranc.shared.AncSessionContext
 import com.example.caranc.shared.GlobalAncSessionContext
+import com.example.caranc.shared.UserTier
 import com.example.caranc.shared.commercial.ProductCatalog
+import com.example.caranc.shared.commercial.SubscriptionPlan
+import com.example.caranc.shared.commercial.TierChangeResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -93,6 +96,14 @@ object GuidedTestController {
         stepStartedAtMs = currentTimeMs()
         val first = script.first()
         val target = requiredSec(first)
+        // Road-tuning always needs PRO DSP (filter/mu/native). FREE plan clamps setTier(PRO)→LIGHT
+        // so users thought "script says PRO" but log showed LIGHT. Elevate plan for this script.
+        val planBefore = sessionContext.entitlementManager.currentPlan
+        val tierForce = if (scriptId == CarRoadTuningScript.SCRIPT_ID) {
+            ensureProForRoadTuning()
+        } else {
+            emptyMap()
+        }
         _state.value = GuidedTestState(
             active = true,
             scriptId = scriptId,
@@ -124,8 +135,10 @@ object GuidedTestController {
                 "monitoredSnapshotFields" to currentMonitoredFields,
                 "productName" to ProductCatalog.PRODUCT_NAME,
                 "subscriptionPlan" to sessionContext.entitlementManager.currentPlan.id,
-                "subscriptionLabel" to sessionContext.entitlementManager.currentPlan.displayName
-            )
+                "subscriptionLabel" to sessionContext.entitlementManager.currentPlan.displayName,
+                "planBeforeScript" to planBefore.id,
+                "tierAfterScriptStart" to sessionContext.tierManager.currentTier.value.name
+            ) + tierForce
         )
         enterCurrentStep()
     }
@@ -353,7 +366,9 @@ object GuidedTestController {
             targetDurationSec = target,
             remainingSec = target
         )
-        step.suggestedTier?.let { sessionContext.tierManager.setTier(it) }
+        // Prefer suggestedTier; also honor debugPresets["tier"] string (was log-only → never applied).
+        val wantTier = step.suggestedTier ?: parseTierPreset(step.debugPresets["tier"])
+        val tierResult = wantTier?.let { applyTierForTest(it) }
         emit(
             phase = "test_step_start",
             fields = stepLogFields(step) + mapOf(
@@ -366,14 +381,67 @@ object GuidedTestController {
                     if (wallOnly) "wall" else "valid_drive_sec"
                 } else "manual",
                 "requiresAncRunning" to step.requiresAncRunning,
-                "suggestedTier" to (step.suggestedTier?.name ?: "unchanged"),
+                "suggestedTier" to (wantTier?.name ?: "unchanged"),
+                "tierApplied" to sessionContext.tierManager.currentTier.value.name,
+                "tierChangeResult" to when (tierResult) {
+                    is TierChangeResult.Applied -> "Applied"
+                    is TierChangeResult.Clamped -> "Clamped:${tierResult.reason}"
+                    null -> "none"
+                },
                 "expectedLogPhases" to step.logPhases
             )
         )
         if (step.debugPresets.isNotEmpty()) {
-            emit(phase = "debug_presets_apply", fields = step.debugPresets)
+            emit(phase = "debug_presets_apply", fields = step.debugPresets + mapOf(
+                "tierActually" to sessionContext.tierManager.currentTier.value.name
+            ))
         }
         logStepSnapshot()
+    }
+
+    /**
+     * Road-tuning script requires PRO DSP path. FREE entitlement clamps PRO→LIGHT silently.
+     * Elevate plan for the duration of guided road test (client-side, same as Dev panel).
+     */
+    private fun ensureProForRoadTuning(): Map<String, Any?> {
+        val em = sessionContext.entitlementManager
+        val planBefore = em.currentPlan
+        if (planBefore.maxTier() != UserTier.PRO) {
+            @Suppress("DEPRECATION")
+            em.setPlan(SubscriptionPlan.PRO_MONTHLY, source = "guided_road_tuning_force_pro")
+        }
+        val result = sessionContext.tierManager.setTier(UserTier.PRO)
+        return mapOf(
+            "forceProForRoadTuning" to true,
+            "planElevatedFrom" to planBefore.id,
+            "planNow" to em.currentPlan.id,
+            "tierForceResult" to when (result) {
+                is TierChangeResult.Applied -> "Applied:PRO"
+                is TierChangeResult.Clamped -> "Clamped:${result.applied.name}:${result.reason}"
+            },
+            "tierNow" to sessionContext.tierManager.currentTier.value.name
+        )
+    }
+
+    private fun applyTierForTest(tier: UserTier): TierChangeResult {
+        // If step asks PRO/STANDARD but plan is FREE, elevate first (road-tuning already elevated;
+        // other scripts still try requested tier with clamp logged).
+        val em = sessionContext.entitlementManager
+        if (tier == UserTier.PRO && em.currentPlan.maxTier() != UserTier.PRO) {
+            @Suppress("DEPRECATION")
+            em.setPlan(SubscriptionPlan.PRO_MONTHLY, source = "guided_step_force_pro")
+        } else if (tier == UserTier.STANDARD && em.currentPlan == SubscriptionPlan.FREE) {
+            @Suppress("DEPRECATION")
+            em.setPlan(SubscriptionPlan.STANDARD_MONTHLY, source = "guided_step_force_standard")
+        }
+        return sessionContext.tierManager.setTier(tier)
+    }
+
+    private fun parseTierPreset(raw: Any?): UserTier? = when (raw?.toString()?.uppercase()) {
+        "PRO" -> UserTier.PRO
+        "STANDARD" -> UserTier.STANDARD
+        "LIGHT" -> UserTier.LIGHT
+        else -> null
     }
 
     private fun stepLogFields(step: TestScriptStep): Map<String, Any?> {

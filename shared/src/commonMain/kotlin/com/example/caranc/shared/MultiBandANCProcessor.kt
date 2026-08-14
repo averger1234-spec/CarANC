@@ -145,6 +145,9 @@ class MultiBandANCProcessor(
     private val multirateLow = MultirateLowBandFxLms(decimation = 4)
     // Tire narrowband + wind multi-notch (speed/HF peaks) — active suppress beyond broadband LMS
     private val narrowbandBank = com.example.caranc.shared.latency.AdaptiveNarrowbandBank(sampleRate)
+    /** 1.2.7: plant-delayed inverted low-band → real LF cabin pressure for 悶 (not silent anti). */
+    private val boomPressure = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
+    private var lastBoomPressureOut = 0f
 
     // #6: partitioned (4×64) + delayless FIR output for low band only
     private val fdafLow = FdafLowBandProcessor(
@@ -685,6 +688,7 @@ class MultiBandANCProcessor(
 
             // Predictive ref ring: bipolar low audio only (Predictive / delay-compensated FxLMS)
             predictiveRef.push(lowSample)
+            boomPressure.push(lowSample)
 
             // sonif 更不干擾 rumble：effectiveRumbleMode 時，rumble 的 muScale 不受 sonif eventScale 影響。
             val lowAdaptiveScale = if (effectiveRumbleMode) 1f else eventScale
@@ -759,12 +763,12 @@ class MultiBandANCProcessor(
                 val lowErrorBase = virtualBands.low
                 val lowError = if (useLowErrBoost) lowErrorBase * (suppressionBoost * if (boomFocusNow) 1.25f else 1f) else lowErrorBase
                 val lowMuToUse = when {
-                    // High-lat boom: keep majority of mu (narrowband + low FIR is the product path)
-                    highLat && boomFocusNow -> effectiveLowMu * 0.78f
-                    highLat && lastEffectiveRumbleMode -> effectiveLowMu * 0.62f
-                    highLat -> effectiveLowMu * 0.50f
-                    estimatedLatencyMs > 150f -> effectiveLowMu * 0.70f
-                    else -> effectiveLowMu
+                    // 1.2.7: boom focus keeps full low learning — need LF pressure, not timid mu
+                    highLat && boomFocusNow -> effectiveLowMu * 1.05f
+                    highLat && lastEffectiveRumbleMode -> effectiveLowMu * 0.85f
+                    highLat -> effectiveLowMu * 0.65f
+                    estimatedLatencyMs > 150f -> effectiveLowMu * 0.90f
+                    else -> effectiveLowMu * 1.05f
                 }
                 lowBand.processSample(
                     sample = decimated,
@@ -1022,20 +1026,29 @@ class MultiBandANCProcessor(
                 weakDriveHiss -> combined * 0.45f
                 else -> combined
             }
-            // 1.2.5: road/boom under AA needs headroom on *low* anti (not HF sand)
+            // 1.2.7: push LF 悶 pressure hard; kill HF electronic character when boom-focused
             val boomFocusOut = lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE ||
                 lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.TIRE_NOISE ||
-                (lastEffectiveRumbleMode && vehicleSpeedKmh >= 25f)
-            var totalScale = lastSpeedTotalAnti.coerceIn(0.05f, if (highLat) 1.20f else 1.30f)
-            if (boomFocusOut && vehicleSpeedKmh >= 20f) {
-                // Extra push for 悶 on both low-lat and high-lat (weights/notch gated)
-                totalScale = (totalScale * if (highLat) 1.12f else 1.10f).coerceAtMost(1.30f)
+                (lastEffectiveRumbleMode && vehicleSpeedKmh >= 22f)
+            var totalScale = lastSpeedTotalAnti.coerceIn(0.05f, 1.45f)
+            if (boomFocusOut && vehicleSpeedKmh >= 18f) {
+                totalScale = (totalScale * if (highLat) 1.28f else 1.20f).coerceAtMost(1.45f)
             }
             var speedScaled = gatedCombined * totalScale
 
-            // ★ Adaptive boom notches (complex LMS) — primary 悶 weapon under AA.
-            // Error = low-band residual (not fullband) so phase locks to cabin boom ~65Hz.
-            val lowBoomErr = virtualBands.low - speedScaled * 0.12f
+            // ★ Cabin boom pressure: plant-delayed inverted low-band (real LF SPL, not free-run synth)
+            val boomPress = boomPressure.process(
+                plantDelaySamples = plantElectricalDelaySamples,
+                speedKmh = vehicleSpeedKmh,
+                boomPriority = boomFocusOut && vehicleSpeedValid,
+                freeze = freeze
+            )
+            lastBoomPressureOut = boomPress
+            val pressMix = if (boomFocusOut) 1.15f else 0f
+            speedScaled = (speedScaled + boomPress * pressMix).coerceIn(-1.35f, 1.35f)
+
+            // ★ Adaptive boom notches (complex LMS) layered on pressure path
+            val lowBoomErr = virtualBands.low - speedScaled * 0.10f
             val notchAnti = narrowbandBank.process(
                 errorSample = lowBoomErr,
                 focus = lastNvhFocus,
@@ -1046,14 +1059,19 @@ class MultiBandANCProcessor(
                 highLatency = highLat,
                 boomPriority = boomFocusOut
             )
-            // Weight-gated inside bank; mix stronger when boom priority
             val notchMix = when {
-                boomFocusOut && highLat -> 1.20f
-                boomFocusOut -> 1.05f
-                highLat -> 0.70f
+                boomFocusOut && highLat -> 1.45f
+                boomFocusOut -> 1.30f
+                highLat -> 0.55f
                 else -> 0.90f
             }
-            speedScaled = (speedScaled + notchAnti * notchMix).coerceIn(-1.20f, 1.20f)
+            speedScaled = (speedScaled + notchAnti * notchMix).coerceIn(-1.40f, 1.40f)
+
+            // Boom mode: hard very-low LPF on final anti → LF pressure only (strip electronic mid/HF)
+            if (boomFocusOut && vehicleSpeedKmh >= 18f) {
+                speedScaled = roadLowPassOutput(speedScaled)
+                speedScaled = roadLowPassOutput(speedScaled) // double for steeper rolloff
+            }
 
             output[i] = (speedScaled * outputEventScale * 32767.0f).coerceIn(-32768.0f, 32767.0f).toInt().toShort()
 
@@ -1540,4 +1558,5 @@ class MultiBandANCProcessor(
     /** Boom adaptive energy (weight-gated). Should rise when 悶 phase locks. */
     override fun getRoadNotchEnergy(): Float = narrowbandBank.lastRoadNotchEnergy
     override fun getRoadBoomWeightEnergy(): Float = narrowbandBank.lastRoadWeightEnergy
+    override fun getBoomPressureOut(): Float = lastBoomPressureOut
 }

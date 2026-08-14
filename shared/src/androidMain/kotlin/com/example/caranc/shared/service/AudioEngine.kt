@@ -1454,6 +1454,7 @@ class AudioEngine(
                         "notchMixAnti" to (ancProcessor?.getNotchMixAnti() ?: 0f),
                         "roadNotchEnergy" to (ancProcessor?.getRoadNotchEnergy() ?: 0f),
                         "roadBoomWeightEnergy" to (ancProcessor?.getRoadBoomWeightEnergy() ?: 0f),
+                        "boomPressureOut" to (ancProcessor?.getBoomPressureOut() ?: 0f),
                         "forcedNvhFocus" to (com.example.caranc.shared.GuidedNvhOverride.forcedFocusName ?: "auto"),
                         // Closed-loop self-check (program band energy — not external phone recorder)
                         "rawLowBandDb" to lastRawLowBandDb,

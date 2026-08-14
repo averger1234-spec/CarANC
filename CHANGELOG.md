@@ -18,6 +18,27 @@
 ---
 
 
+
+## [1.2.7] — 2026-08-14 · Android code 9 · 悶感音壓：plant-delay 低頻壓力 + 強 boom
+
+**方向修正**：不再「少播 anti」；要 **喇叭輸出可感的低頻音壓** 打 悶，並剝掉中高頻電子噪。
+
+### 核心
+
+| 項 | 內容 |
+|----|------|
+| **CabinBoomPressure** | 低頻 mic 經 plant 延遲後 **反相** 播出（~70Hz LPF）— 與艙內低頻相關的真實 LF 壓力 |
+| **Boom notch** | 頻率對齊錄音峰 ~39/49/59/74；軟 gate + 更高 mix；boom 時關 tire/wind notch |
+| **終端 LPF** | boom 模式雙重 road LPF → 只留悶帶 |
+| **low mu** | boom 時 full / 略抬學習率 |
+| **導測 PRO** | 腳本開始強制 PRO（修 FREE clamp→LIGHT） |
+
+### 路測
+
+- log：`boomPressureOut`、`roadBoomWeightEnergy`、`notchMixAnti`、`tier=PRO`
+- 主觀：開 ANC 應感到 **低頻在動／悶在變**（不是電子沙）
+
+---
 ## [1.2.6] — 2026-08-14 · Android code 8 · 內建頻譜 KPI + 腳本強制三目標 + notch 觸發修復
 
 ### 為什麼上次 log「沒錄音／notch=0」

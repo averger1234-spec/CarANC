@@ -468,8 +468,10 @@ object CarRoadTuningScript {
             requiresAncRunning = false,
             wallClockOnly = true,
             maxWallSec = 90,
+            suggestedTier = UserTier.PRO,
             checklist = listOf(
                 "版號≥1.2.6",
+                "tier=PRO(腳本強制)",
                 "USB有線AA",
                 "placement=floor/seat",
                 "音樂關",

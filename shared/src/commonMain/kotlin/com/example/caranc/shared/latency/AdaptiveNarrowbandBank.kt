@@ -101,25 +101,29 @@ class AdaptiveNarrowbandBank(
         val useOl = allowOpenLoop && !highLatency
         lastOpenLoopUsed = if (useOl) 1f else 0f
 
-        // --- Road boom: primary 悶 cancel weapon under AA ---
+        // --- Road boom: primary 悶 pressure (recording peaks ~39–74 Hz) ---
+        // 1.2.7: softer weight gate + higher gain so boom actually moves cabin SPL (not silent).
         if (roadOn) {
             val freqs = roadBoomHz(speedKmh)
-            // Faster phase lock on boom; high-lat needs MORE mu on narrowband, not less
             val mu = when {
-                boomPriority && highLatency -> 0.014f
-                boomPriority -> 0.012f
-                highLatency -> 0.010f
-                else -> 0.0075f
+                boomPriority && highLatency -> 0.018f
+                boomPriority -> 0.015f
+                highLatency -> 0.012f
+                else -> 0.009f
             }
-            val leak = 0.9992f
+            val leak = 0.9991f
             val olBase = if (useOl) 0.04f else 0f
-            val wClip = if (boomPriority) 2.0f else 1.4f
+            val wClip = if (boomPriority) 2.6f else 1.8f
             for (i in road.indices) {
                 val yAdapt = stepChannel(road[i], freqs[i], errorSample, mu, leak, freeze, true, wClip)
                 val we = abs(road[i].w1) + abs(road[i].w2)
                 roadW += we
-                // Gate: only inject after weights leave zero (phase acquisition)
-                val gate = (we / 0.08f).coerceIn(0f, 1f)
+                // Soft gate: still play partial pressure early; full when weights grow
+                val gate = if (boomPriority) {
+                    (0.35f + 0.65f * (we / 0.12f)).coerceIn(0.35f, 1f)
+                } else {
+                    (we / 0.06f).coerceIn(0f, 1f)
+                }
                 val ol = olBase * if (i == 0) 1f else 0.7f
                 val y = (yAdapt + ol * sin(road[i].phase)) * gate
                 anti += -y * roadGain(i, boomPriority)
@@ -133,7 +137,9 @@ class AdaptiveNarrowbandBank(
         }
         lastRoadWeightEnergy = roadW
 
-        if (tireOn) {
+        // Tire/wind: off when boom-priority drive — keep speaker energy on 悶, not electronic mid/HF
+        val tireRun = tireOn && !boomPriority
+        if (tireRun) {
             val freqs = tireFrequenciesHz(speedKmh)
             lastTireF0Hz = freqs[0]
             val mu = if (highLatency) 0.006f else 0.008f
@@ -154,8 +160,8 @@ class AdaptiveNarrowbandBank(
             }
         }
 
-        if (windOn) {
-            // High-lat: only lower 3 bins (550/750/1000) + stronger weight gate; still active suppress
+        val windRun = windOn && !boomPriority
+        if (windRun) {
             val nWind = if (highLatency) 3 else wind.size
             val mu = if (highLatency) 0.0055f else 0.007f
             val leak = 0.9985f
@@ -177,21 +183,21 @@ class AdaptiveNarrowbandBank(
             }
         }
 
-        // Boom under high-lat: **raise** mix (weights gated → no cold sand)
+        // Boom: push mix hard — user needs cabin LF pressure, not silent anti
         val mixScale = when {
-            boomPriority && highLatency -> 1.85f
-            boomPriority -> 1.55f
-            highLatency && focus == NvhFocusClass.ROAD_RUMBLE -> 1.45f
-            highLatency && focus == NvhFocusClass.TIRE_NOISE -> 1.15f
-            highLatency -> 0.90f
-            focus == NvhFocusClass.ROAD_RUMBLE -> 1.40f
+            boomPriority && highLatency -> 2.35f
+            boomPriority -> 2.10f
+            highLatency && focus == NvhFocusClass.ROAD_RUMBLE -> 1.90f
+            highLatency && focus == NvhFocusClass.TIRE_NOISE -> 1.20f
+            highLatency -> 0.70f
+            focus == NvhFocusClass.ROAD_RUMBLE -> 1.80f
             focus == NvhFocusClass.TIRE_NOISE -> 1.35f
-            focus == NvhFocusClass.WIND_SHEAR -> 1.20f
-            focus == NvhFocusClass.MIXED_CABIN -> 1.15f
+            focus == NvhFocusClass.WIND_SHEAR -> 1.10f
+            focus == NvhFocusClass.MIXED_CABIN -> 1.25f
             else -> 0.35f
         }
         lastMixScale = mixScale
-        anti = (anti * mixScale).coerceIn(-0.85f, 0.85f)
+        anti = (anti * mixScale).coerceIn(-0.92f, 0.92f)
         lastMixAnti = anti
 
         roadEnergyEma = 0.88f * roadEnergyEma + 0.12f * roadE
@@ -238,12 +244,12 @@ class AdaptiveNarrowbandBank(
         return y
     }
 
-    /** Boom lines from cabin rec (~65 Hz peak) + speed drift. */
+    /** Boom lines from field rec (2026-08-14 noise m4a peaks ~39/49/59/74 Hz). */
     fun roadBoomHz(speedKmh: Float): FloatArray {
         val v = speedKmh.coerceIn(15f, 130f)
-        val f0 = (48f + v * 0.18f).coerceIn(45f, 72f)   // lower boom
-        val f1 = (58f + v * 0.22f).coerceIn(55f, 85f)   // peak ~65 at mid speed
-        val f2 = (78f + v * 0.30f).coerceIn(72f, 115f)  // upper cabin mode
+        val f0 = (36f + v * 0.12f).coerceIn(35f, 55f)
+        val f1 = (48f + v * 0.16f).coerceIn(45f, 68f)
+        val f2 = (62f + v * 0.22f).coerceIn(58f, 90f)
         return floatArrayOf(f0, f1, f2)
     }
 
@@ -259,11 +265,11 @@ class AdaptiveNarrowbandBank(
         val WIND_HZ = floatArrayOf(550f, 750f, 1000f, 1400f, 1800f, 2400f)
 
         private fun roadGain(i: Int, boomPriority: Boolean): Float {
-            val b = if (boomPriority) 1.15f else 1f
+            val b = if (boomPriority) 1.35f else 1f
             return b * when (i) {
-                0 -> 1.0f
-                1 -> 1.10f // peak line slightly hotter
-                else -> 0.80f
+                0 -> 1.15f
+                1 -> 1.25f
+                else -> 0.95f
             }
         }
 
