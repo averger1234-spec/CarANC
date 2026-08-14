@@ -38,6 +38,13 @@
 - log：`boomPressureOut`、`roadBoomWeightEnergy`、`notchMixAnti`、`tier=PRO`
 - 主觀：開 ANC 應感到 **低頻在動／悶在變**（不是電子沙）
 
+### 測試腳本對齊（car_road_tuning_v1 · 內容 1.2.7）
+
+- 顯示名：`三目標·1.2.7悶音壓+PRO強制`
+- `target_road` 必收 **`boomPressureOut`** + roadBoom* + spectrum_kpi deltaBoomDb
+- prep/各步 checklist 版號 **v1.2.7**、tier=PRO（腳本開始強制）
+- finish PASS：boomPressureOut≠0 且主觀悶有動；FAIL：全程0 或 LIGHT 或純電子噪
+
 ---
 ## [1.2.6] — 2026-08-14 · Android code 8 · 內建頻譜 KPI + 腳本強制三目標 + notch 觸發修復
 
