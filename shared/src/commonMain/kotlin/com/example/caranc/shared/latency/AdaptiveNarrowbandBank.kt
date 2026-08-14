@@ -80,12 +80,17 @@ class AdaptiveNarrowbandBank(
                 focus == NvhFocusClass.MIXED_CABIN ||
                 (boomPriority && focus != NvhFocusClass.IDLE)
             )
+        // Tire notches: run on TIRE + ROAD drive (classification often sticks ROAD)
         val tireOn = spdOk && speedKmh >= 32f && (
             focus == NvhFocusClass.TIRE_NOISE ||
-                (!highLatency && focus == NvhFocusClass.MIXED_CABIN)
+                focus == NvhFocusClass.ROAD_RUMBLE ||
+                focus == NvhFocusClass.MIXED_CABIN
             )
-        // HF under AA delay → sand; only low-lat wind
-        val windOn = spdOk && focus == NvhFocusClass.WIND_SHEAR && !highLatency
+        // Wind: always try when WIND or highway; high-lat uses weight-gated adaptive only (no open-loop)
+        val windOn = spdOk && speedKmh >= 55f && (
+            focus == NvhFocusClass.WIND_SHEAR ||
+                (speedKmh >= 70f && focus != NvhFocusClass.IDLE)
+            )
 
         var anti = 0f
         var tireE = 0f
@@ -150,17 +155,20 @@ class AdaptiveNarrowbandBank(
         }
 
         if (windOn) {
-            val mu = 0.006f
+            // High-lat: only lower 3 bins (550/750/1000) + stronger weight gate; still active suppress
+            val nWind = if (highLatency) 3 else wind.size
+            val mu = if (highLatency) 0.0055f else 0.007f
             val leak = 0.9985f
-            for (i in wind.indices) {
-                val yAdapt = stepChannel(wind[i], WIND_HZ[i], errorSample, mu, leak, freeze, true, 1.0f)
+            val gateDen = if (highLatency) 0.06f else 0.10f
+            for (i in 0 until nWind) {
+                val yAdapt = stepChannel(wind[i], WIND_HZ[i], errorSample, mu, leak, freeze, true, 1.2f)
                 val we = abs(wind[i].w1) + abs(wind[i].w2)
-                val gate = (we / 0.12f).coerceIn(0f, 1f)
+                val gate = (we / gateDen).coerceIn(0f, 1f)
                 val y = yAdapt * gate
-                anti += -y * windGain(i)
+                anti += -y * windGain(i) * (if (highLatency) 1.15f else 1f)
                 val ay = abs(y)
                 windE += ay
-                if (ay > 1e-4f) windN++
+                if (ay > 1e-5f) windN++
             }
         } else {
             for (ch in wind) {

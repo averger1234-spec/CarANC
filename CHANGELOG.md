@@ -18,6 +18,33 @@
 ---
 
 
+## [1.2.6] — 2026-08-14 · Android code 8 · 內建頻譜 KPI + 腳本強制三目標 + notch 觸發修復
+
+### 為什麼上次 log「沒錄音／notch=0」
+
+1. **腳本寫的「錄音」= 外部手機 m4a（可選）**，App **從未**內建錄艙音檔。  
+2. **分析其實可用 log 內頻譜**：`bandE60–120`、plant residual；但欄位太粗、使用者不知。  
+3. **tire/wind notch=0**：高延遲時 wind 被關掉；腳本步未 force focus → 常判 ROAD；輪 notch 只在 TIRE。  
+4. **延遲 247ms**：AA track buffer 仍過大。
+
+### 1.2.6 修復
+
+| 項 | 內容 |
+|----|------|
+| **spectrum_kpi** | 每 2s 寫入 mic/plant 分帶 dB（40–120 悶、180–350 輪、500–2000 風）+ delta*Db |
+| **forceNvhFocus** | 腳本步驟強制 ROAD/TIRE/WIND（`GuidedNvhOverride`） |
+| **notch 觸發** | 輪：ROAD/TIRE 都跑；風：高延遲仍跑 3 線 notch（權重 gate） |
+| **AA buffer** | track 強制 **8192**（降 HIGH 機率） |
+| 腳本文案 | 主分析= log `spectrum_kpi`；外部 m4a 標可選 |
+
+### 路測必收
+
+- `spectrum_kpi`：`deltaBoomDb` / `deltaTireDb` / `deltaWindDb`
+- `forcedNvhFocus`、`tireNotch*`、`windNotch*`、`roadBoomWeightEnergy`
+- 主觀 0–10
+
+---
+
 ## [1.2.5] — 2026-08-13 · Android code 7 · 悶感主力：解鎖 low + 鎖相 boom notch
 
 **為什麼一直原地踏步**：高延遲 rumble 時 `highLatAdaptiveDamp(low)=0.08` × `lowMu×0.28` ≈ **只剩 2% 學習率**，真消悶路徑幾乎關掉；同時假 open-loop 又造成沙沙。關掉假 anti 後悶感仍無進步 = 低頻 adaptive 被自己掐死。

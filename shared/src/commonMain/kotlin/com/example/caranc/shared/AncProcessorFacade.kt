@@ -139,6 +139,8 @@ interface AncProcessorFacade : AudioProcessor {
     /** Product: tire/road/wind — ROAD_RUMBLE / TIRE_NOISE / WIND_SHEAR / … */
     fun getNvhFocus(): String = "MIXED_CABIN"
     fun getNvhTargetHzLabel(): String = ""
+    /** Guided script: force NVH focus name or null/auto to clear. */
+    fun setForcedNvhFocus(focusName: String?) {}
     /** 5 km/h speed-bin floor for NVH gain table. */
     fun getSpeedNvhBinKmh(): Int = 0
     fun getSpeedNvhLowGain(): Float = 1f

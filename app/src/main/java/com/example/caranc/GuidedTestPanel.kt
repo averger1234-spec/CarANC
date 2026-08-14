@@ -87,6 +87,16 @@ fun GuidedTestPanel(
                 fields["debugLeakage"]?.let { v ->
                     if (v is Number) AncTestPreferences.setDebugLeakage(context, v.toFloat())
                 }
+                // Force ROAD/TIRE/WIND so notches + speed tables match script step
+                fields["forceNvhFocus"]?.let { v ->
+                    com.example.caranc.shared.GuidedNvhOverride.set(v?.toString())
+                }
+            }
+            if (phase == "test_script_complete" || phase == "guided_test_abort") {
+                com.example.caranc.shared.GuidedNvhOverride.clear()
+            }
+            if (phase == "test_script_start") {
+                com.example.caranc.shared.GuidedNvhOverride.clear()
             }
         }
     }

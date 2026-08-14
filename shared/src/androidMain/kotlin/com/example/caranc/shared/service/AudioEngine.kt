@@ -129,6 +129,8 @@ class AudioEngine(
 
     private var lastVisUpdate = 0L
     private var lastSessionLogUpdate = 0L
+    /** In-app multi-band spectrum KPI (replaces missing external m4a for A/B). */
+    private var lastSpectrumKpiMs = 0L
     private var lastBlockRms = 0f  // for idle telegraph diagnostic in running_snapshot (protocol)
     private var lastBlockRmsVssScale = 1f  // VSS scale passed to processor based on blockRms + pfx variance for dynamic mu
     private var lastBumpLogMs = 0L
@@ -237,15 +239,16 @@ class AudioEngine(
                     recordBufferBytes = computeRecordBufferBytes(minBuffer, bufferSize, sampleRate)
                     trackBufferBytes = computeTrackBufferBytes(minTrackBuffer, framesPerBuffer, sampleRate)
 
-                    // AA remote_submix (real car or DHU): force track buffer cap (cannot use exclusive AAudio)
-                    val isHighLatencyRoute = trackBufferBytes > 20000 || minTrackBuffer > 16384
-                    if (isHighLatencyRoute) {
-                        val forced = 16384
+                    // AA remote_submix: force smaller track buffer (16384 often still ~200ms+; try 8192)
+                    val isHighLatencyRoute = trackBufferBytes > 12000 || minTrackBuffer > 8192
+                    if (isHighLatencyRoute || aa) {
+                        val forced = 8192
                         Log.w(
                             "ANCService",
-                            "HIGH_LATENCY_AA_DETECTED: trackBuffer was $trackBufferBytes (minTrack=$minTrackBuffer), forcing $forced. aa=true"
+                            "HIGH_LATENCY_AA_DETECTED: trackBuffer was $trackBufferBytes (minTrack=$minTrackBuffer), forcing $forced. aa=$aa"
                         )
-                        trackBufferBytes = forced
+                        trackBufferBytes = forced.coerceAtMost(trackBufferBytes.coerceAtLeast(4096))
+                        if (trackBufferBytes > 8192) trackBufferBytes = 8192
                     }
                     recordHalSamples = recordBufferBytes / 2
                     trackHalSamples = trackBufferBytes / 2
@@ -1328,6 +1331,42 @@ class AudioEngine(
 
         val speed = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
 
+        // In-app multi-band spectrum KPI every ~2s — primary analysis source (no external m4a required)
+        val nowKpi = System.currentTimeMillis()
+        if (nowKpi - lastSpectrumKpiMs >= 2000L) {
+            lastSpectrumKpiMs = nowKpi
+            val mic = visInputSlice
+            val plant = visPlantResidual
+            val eMicBoom = sa.bandRangeEnergyDb(mic, sr, 40f, 120f)
+            val ePlantBoom = sa.bandRangeEnergyDb(plant, sr, 40f, 120f)
+            val eMicTire = sa.bandRangeEnergyDb(mic, sr, 180f, 350f)
+            val ePlantTire = sa.bandRangeEnergyDb(plant, sr, 180f, 350f)
+            val eMicWind = sa.bandRangeEnergyDb(mic, sr, 500f, 2000f)
+            val ePlantWind = sa.bandRangeEnergyDb(plant, sr, 500f, 2000f)
+            val gs = com.example.caranc.shared.test.GuidedTestController.state.value
+            AncSessionLogger.log(
+                phase = "spectrum_kpi",
+                fields = mapOf(
+                    "micE40_120" to eMicBoom,
+                    "plantE40_120" to ePlantBoom,
+                    "deltaBoomDb" to (eMicBoom - ePlantBoom),
+                    "micE180_350" to eMicTire,
+                    "plantE180_350" to ePlantTire,
+                    "deltaTireDb" to (eMicTire - ePlantTire),
+                    "micE500_2000" to eMicWind,
+                    "plantE500_2000" to ePlantWind,
+                    "deltaWindDb" to (eMicWind - ePlantWind),
+                    "micE40_80" to sa.bandRangeEnergyDb(mic, sr, 40f, 80f),
+                    "micE80_150" to sa.bandRangeEnergyDb(mic, sr, 80f, 150f),
+                    "speedKmh" to speed.speedKmh,
+                    "nvhFocus" to (ancProcessor?.getNvhFocus() ?: "?"),
+                    "forcedNvhFocus" to (com.example.caranc.shared.GuidedNvhOverride.forcedFocusName ?: "auto"),
+                    "guidedStep" to (if (gs.active) (gs.currentStep?.id ?: "") else ""),
+                    "note" to "in_app_spectrum_kpi_no_external_m4a_required"
+                )
+            )
+        }
+
         // Real-time visibility for "when speakers produce sound" (user: can't know in real-time when ANC anti is played through AA speakers).
         // Prints to logcat when anti output is active (antiDb < -10 means significant speaker power).
         // User can run live on PC: adb -s 57191FDCG002KH logcat -s ANCService | findstr SPEAKER_ANTI
@@ -1415,6 +1454,7 @@ class AudioEngine(
                         "notchMixAnti" to (ancProcessor?.getNotchMixAnti() ?: 0f),
                         "roadNotchEnergy" to (ancProcessor?.getRoadNotchEnergy() ?: 0f),
                         "roadBoomWeightEnergy" to (ancProcessor?.getRoadBoomWeightEnergy() ?: 0f),
+                        "forcedNvhFocus" to (com.example.caranc.shared.GuidedNvhOverride.forcedFocusName ?: "auto"),
                         // Closed-loop self-check (program band energy — not external phone recorder)
                         "rawLowBandDb" to lastRawLowBandDb,
                         "residualLowBandDb" to lastResidualLowBandDb,

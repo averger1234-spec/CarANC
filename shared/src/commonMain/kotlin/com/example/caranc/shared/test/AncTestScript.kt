@@ -460,22 +460,23 @@ object CarRoadTuningScript {
                 "USB 有線 AA；aaLinkType=projection_submix；wirelessAaSuspected=false",
                 "★ placement=floor/seat（勿中控）；userAncGain=0.8~1；音樂關",
                 "啟動 ANC → PRO；outputPathActive；antiNoiseDb 行駛非長期 -200",
-                "★ 備好第二支手機（或同機）錄音：target_road 將做 關ANC/開ANC 頻譜對照",
-                "每步 userNote：主觀0-10 + 有無沙沙（沙=FAIL，即使有輸出）"
+                "★ 頻譜分析：App 每 2s 寫 spectrum_kpi（mic/plant 分帶 dB）— 不必外接 m4a 也可分析",
+                "（可選）另機錄音作金標；主分析用 log 的 spectrum_kpi + running_snapshot",
+                "每步 userNote：主觀0-10 + 有無沙沙（沙=FAIL）"
             ),
             durationSec = 25,
             requiresAncRunning = false,
             wallClockOnly = true,
             maxWallSec = 90,
             checklist = listOf(
-                "版號v1.2.5",
+                "版號≥1.2.6",
                 "USB有線AA",
                 "placement=floor/seat",
                 "音樂關",
-                "備外部錄音",
+                "知spectrum_kpi",
                 "ANC可啟動"
             ),
-            logPhases = listOf("audio_init", "calibration", "running_snapshot", "aa_connected"),
+            logPhases = listOf("audio_init", "calibration", "running_snapshot", "aa_connected", "spectrum_kpi"),
             debugPresets = mapOf(
                 "forceNormalMode" to true,
                 "musicLowAncEnabled" to true,
@@ -488,29 +489,26 @@ object CarRoadTuningScript {
             title = "① 路噪/悶 ROAD（low + 鎖相 boom）",
             instructions = listOf(
                 "路況：粗糙路面 45–60 km/h（低頻悶）；累計 60 秒有效秒（≥45）",
-                "期望 nvhFocus=ROAD_RUMBLE、tableId=road_5kmh",
-                "★ 1.2.5 必收（對齊改進）：effectiveLowMu（高延遲應明顯>舊版近0）、roadBoomWeightEnergy（行駛後上升=鎖相）、roadNotchEnergy、notchMixAnti",
-                "★ 仍收：lowBandRumbleReduction、bandE60/80/100/120Db、speedNvhLowGain、antiNoiseDb",
-                "★ 外部錄音：關ANC 20s → 開ANC 40s（同路段）；檔名註 road_off/on",
-                "★ 主觀悶 0–10；若沙沙為主、悶不變 = FAIL（假 anti）",
-                "PASS：WeightEnergy 上升 + 悶變輕；或 lowBand 有正尖峰 + 主觀悶↓"
+                "腳本 forceNvhFocus=ROAD_RUMBLE（強制表+boom notch，避免判錯）",
+                "★ 必收：effectiveLowMu、roadBoomWeightEnergy、roadNotchEnergy、notchMixAnti",
+                "★ 頻譜：spectrum_kpi 的 micE40_120 / plantE40_120 / deltaBoomDb（開ANC 時 delta 應>0 趨勢）",
+                "★ 主觀悶 0–10；沙沙為主=FAIL",
+                "PASS：WeightEnergy↑ + deltaBoomDb 有正 + 悶↓"
             ),
             durationSec = 60,
             minSpeedKmh = 45f,
             maxWallSec = 720,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "nvhFocus多ROAD",
+                "forced=ROAD",
                 "effectiveLowMu有值",
-                "roadBoomWeightEnergy有上升",
-                "roadNotch/notchMix有記錄",
-                "bandE60-120有記錄",
-                "外部錄音關開各一段",
+                "roadBoomWeight有上升",
+                "spectrum_kpi有",
                 "主觀悶0-10",
                 "有無沙沙",
                 "tier=PRO"
             ),
-            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
+            logPhases = listOf("running_snapshot", "test_step_snapshot", "spectrum_kpi", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 2.0f,
                 "freezeThreshold" to 10f,
@@ -518,31 +516,33 @@ object CarRoadTuningScript {
                 "musicLowAncEnabled" to true,
                 "forceNormalMode" to true,
                 "userAncGain" to 1.0f,
-                "tier" to "PRO"
+                "tier" to "PRO",
+                "forceNvhFocus" to "ROAD_RUMBLE"
             )
         ),
         TestScriptStep(
             id = "target_tire",
-            title = "② 輪噪壓制 TIRE（mid 武器）",
+            title = "② 輪噪壓制 TIRE（mid + 3 notch）",
             instructions = listOf(
-                "路況：鋪裝/粗糙 55–75 km/h（輪胎嗡／共鳴）；55 秒有效秒（≥50）",
-                "期望 nvhFocus=TIRE_NOISE（或 ROAD 但 mid 高）、tableId=tire_5kmh 或 road 混 mid",
-                "★ 收集：tireNotchEnergy、tireNotchF0Hz、notchMixAnti、speedNvhMidGain、effectiveMidMu",
-                "★ 主觀：輪胎嗡/中低頻 0–10（關→開對照）",
-                "PASS：tireNotchEnergy 行駛>0 + 嗡感變輕；FAIL：notch 全0 或只更嘶"
+                "路況：55–75 km/h（輪胎嗡）；55 秒有效秒（≥50）",
+                "腳本 forceNvhFocus=TIRE_NOISE",
+                "★ 必收：tireNotchEnergy、tireNotchF0Hz、notchMixAnti、spectrum_kpi deltaTireDb",
+                "★ 主觀嗡 0–10",
+                "PASS：tireNotchEnergy>0 + 嗡↓；FAIL：notch 全0"
             ),
             durationSec = 55,
             minSpeedKmh = 50f,
             maxWallSec = 720,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "nvhFocus=TIRE或ROAD",
+                "forced=TIRE",
                 "tireNotchEnergy>0",
                 "tireNotchF0有值",
-                "主觀嗡感0-10",
+                "spectrum_kpi有",
+                "主觀嗡0-10",
                 "tier=PRO"
             ),
-            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
+            logPhases = listOf("running_snapshot", "test_step_snapshot", "spectrum_kpi", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 2.05f,
                 "freezeThreshold" to 9f,
@@ -550,31 +550,32 @@ object CarRoadTuningScript {
                 "musicLowAncEnabled" to true,
                 "forceNormalMode" to true,
                 "userAncGain" to 1.0f,
-                "tier" to "PRO"
+                "tier" to "PRO",
+                "forceNvhFocus" to "TIRE_NOISE"
             )
         ),
         TestScriptStep(
             id = "target_wind",
-            title = "③ 風切 WIND（高延遲：主觀優先）",
+            title = "③ 風切 WIND（主動 multi-notch）",
             instructions = listOf(
                 "路況：70+ km/h；50 秒有效秒（≥65）；無法則註 N/A",
-                "★ 1.2.5：AA 高延遲(~180ms+) **刻意關 HF wind notch**（防沙沙）；windNotchEnergy 可為 0 不判 FAIL",
-                "★ 仍收：nvhFocus、speedNvhTotalAnti、bandHighRatio、antiNoiseDb、notchMixAnti",
-                "★ 主觀：風感 0–10；更嘶/沙沙必寫（若更沙 = 假 anti 回歸）",
-                "PASS（高延遲）：主觀風↓或持平且不更沙；PASS（低延遲）：windNotch* >0 可加分"
+                "腳本 forceNvhFocus=WIND_SHEAR；高延遲仍跑 550/750/1000 notch（權重 gate）",
+                "★ 必收：windNotchEnergy、windNotchActiveCount、notchMixAnti、spectrum_kpi deltaWindDb",
+                "★ 主觀風 0–10；更沙沙必寫",
+                "PASS：windNotch* >0 或 deltaWindDb 趨勢 + 風↓；FAIL=只更沙"
             ),
             durationSec = 50,
             minSpeedKmh = 65f,
             maxWallSec = 720,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "nvhFocus有記錄",
-                "latencyMs有記錄",
+                "forced=WIND",
+                "windNotch或spectrum有",
                 "主觀風感0-10",
                 "有無更嘶沙",
                 "tier=PRO"
             ),
-            logPhases = listOf("running_snapshot", "test_step_snapshot", "perf_timing"),
+            logPhases = listOf("running_snapshot", "test_step_snapshot", "spectrum_kpi", "perf_timing"),
             debugPresets = mapOf(
                 "lmsMuMultiplier" to 2.1f,
                 "freezeThreshold" to 9f,
@@ -582,20 +583,20 @@ object CarRoadTuningScript {
                 "musicLowAncEnabled" to true,
                 "forceNormalMode" to true,
                 "userAncGain" to 1.0f,
-                "tier" to "PRO"
+                "tier" to "PRO",
+                "forceNvhFocus" to "WIND_SHEAR"
             )
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束：1.2.5 對照 + 匯出",
+            title = "結束：spectrum_kpi + 三段匯出",
             instructions = listOf(
-                "停止 ANC → 儲存/分享 Log；scenario 寫 placement + 三段主觀 + 有無沙沙",
-                "★ 分析切 guidedTestStepId：target_road / target_tire / target_wind",
-                "★ 1.2.5 路噪 PASS：effectiveLowMu 高延遲段明顯 + roadBoomWeightEnergy 上升 + 主觀悶↓（非只 anti 有輸出）",
-                "輪噪 PASS：tireNotch* 或主觀嗡↓；FAIL=只更嘶",
-                "風切：高延遲 windNotch=0 可接受；FAIL=更沙沙",
-                "★ 一併交：session log + road 關/開 外部錄音（若有）",
-                "pull-latest-log 後對齊 bandE60–120 與錄音頻譜"
+                "停止 ANC → 儲存 Log；scenario 寫三段主觀 + 沙沙?",
+                "★ 分析：guidedTestStepId 切三段 + phase=spectrum_kpi 聚簇",
+                "路：deltaBoomDb / roadBoomWeightEnergy / 悶↓",
+                "輪：tireNotchEnergy / deltaTireDb / 嗡↓",
+                "風：windNotchEnergy / deltaWindDb / 風↓",
+                "外部 m4a 可選；主 KPI 已在 log（spectrum_kpi）"
             ),
             durationSec = 15,
             requiresAncRunning = false,
@@ -603,13 +604,12 @@ object CarRoadTuningScript {
             maxWallSec = 50,
             checklist = listOf(
                 "已存Log",
-                "三段主觀+沙沙已寫",
-                "含roadBoomWeightEnergy",
-                "含effectiveLowMu",
-                "外部錄音已備(可選)",
+                "三段主觀已寫",
+                "含spectrum_kpi",
+                "含notch欄位",
                 "placement已註"
             ),
-            logPhases = listOf("test_script_complete")
+            logPhases = listOf("test_script_complete", "spectrum_kpi")
         )
     )
 

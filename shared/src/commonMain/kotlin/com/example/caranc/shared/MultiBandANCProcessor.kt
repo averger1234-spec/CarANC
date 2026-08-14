@@ -120,6 +120,8 @@ class MultiBandANCProcessor(
     private var lastNvhFocus = com.example.caranc.shared.model.NvhFocusClass.MIXED_CABIN
     private var lastNvhTargetHzLabel = ""
     private var lastNvhSuppressHigh = true
+    /** Guided script override: force ROAD/TIRE/WIND schedule + notch bank path. */
+    private var forcedNvhFocus: com.example.caranc.shared.model.NvhFocusClass? = null
     /** Speed-scheduled total anti scale (5 km/h road/tire/wind tables). */
     private var lastSpeedTotalAnti = 1f
     private var lastSpeedBinKmh = 0
@@ -385,9 +387,8 @@ class MultiBandANCProcessor(
     override fun getMimoZoneCount(): Int = mimoZoneCount
 
     override fun applyClassifierResult(result: NoiseBandClassification) {
-        // CYCLE3_EXTRA: use via context (supports injected/mock classifier).
         // Prefer full NVH result (includes 5 km/h speed schedule); re-schedule if missing.
-        val nvh = result.nvhResult ?: com.example.caranc.shared.model.CabinNvhFocus.classify(
+        var nvh = result.nvhResult ?: com.example.caranc.shared.model.CabinNvhFocus.classify(
             speedKmh = vehicleSpeedKmh,
             speedValid = vehicleSpeedValid,
             lowRatio = result.lowEnergyRatio,
@@ -396,6 +397,29 @@ class MultiBandANCProcessor(
             linearAccelMagnitude = rumbleAccelMag,
             estimatedLatencyMs = estimatedLatencyMs
         )
+        // Guided script force (GuidedNvhOverride) or instance override
+        val forceName = forcedNvhFocus?.name ?: com.example.caranc.shared.GuidedNvhOverride.forcedFocusName
+        val force = forceName?.let {
+            runCatching { com.example.caranc.shared.model.NvhFocusClass.valueOf(it) }.getOrNull()
+        }
+        force?.let { f ->
+            val sch = com.example.caranc.shared.model.SpeedScheduledNvhGains.gainsFor(
+                focus = f,
+                speedKmh = vehicleSpeedKmh,
+                speedValid = vehicleSpeedValid,
+                highLatency = estimatedLatencyMs >= 100f
+            )
+            nvh = nvh.copy(
+                focus = f,
+                targetHzLabel = "forced_${f.name} (${sch.tableId})",
+                lowPriority = sch.lowGain,
+                midPriority = sch.midGain,
+                highPriority = sch.highGain,
+                suppressHighAnti = f != com.example.caranc.shared.model.NvhFocusClass.WIND_SHEAR,
+                speedSchedule = sch,
+                confidence = 1f
+            )
+        }
         bandGains = sessionContext.noiseBandClassifier.bandGains(
             result.copy(nvhResult = nvh, nvhFocus = nvh.focus, nvhTargetHzLabel = nvh.targetHzLabel)
         )
@@ -409,6 +433,16 @@ class MultiBandANCProcessor(
         lastSpeedLowGain = sch.lowGain
         lastSpeedMidGain = sch.midGain
         lastSpeedTableId = sch.tableId
+    }
+
+    override fun setForcedNvhFocus(focusName: String?) {
+        forcedNvhFocus = if (focusName.isNullOrBlank() || focusName == "none" || focusName == "auto") {
+            null
+        } else {
+            runCatching {
+                com.example.caranc.shared.model.NvhFocusClass.valueOf(focusName.trim().uppercase())
+            }.getOrNull()
+        }
     }
 
     override fun updateSecondaryPath(model: FloatArray) {
