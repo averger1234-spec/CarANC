@@ -46,9 +46,15 @@ struct GuidedTestView: View {
             }
             if runner.active {
                 ProgressView(value: runner.progress)
-                Text(runner.autoAdvance ? "模式：自動進階（有效秒）" : "模式：手動下一步")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if runner.autoAdvance {
+                    Text("全自動：達有效秒／壁鐘即跳下一步 · 不用勾清單、不必按「完成」")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.green)
+                } else {
+                    Text("模式：手動下一步")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding()
@@ -103,24 +109,26 @@ struct GuidedTestView: View {
                     Text(line).font(.subheadline)
                 }
             }
+            // 對齊 Android：checklist 只是提示，不擋自動進階
             if !step.checklist.isEmpty {
-                Text("檢查清單").font(.caption.weight(.semibold)).padding(.top, 4)
+                Text("本步觀察重點（僅提示，不用勾）")
+                    .font(.caption.weight(.semibold))
+                    .padding(.top, 4)
                 ForEach(step.checklist, id: \.self) { item in
-                    Button {
-                        runner.toggleCheck(item)
-                    } label: {
-                        HStack {
-                            Image(systemName: runner.checked.contains(item) ? "checkmark.square.fill" : "square")
-                            Text(item).font(.subheadline)
-                            Spacer()
-                        }
+                    HStack(alignment: .top, spacing: 6) {
+                        Text("·").foregroundStyle(.secondary)
+                        Text(item).font(.caption).foregroundStyle(.secondary)
+                        Spacer()
                     }
-                    .buttonStyle(.plain)
                 }
             }
-            if !step.wallClockOnly {
+            if step.wallClockOnly {
+                Text(String(format: "壁鐘 %d / %d 秒（自動跳下一步）", runner.wallSec, step.durationSec))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            } else {
                 Text(String(
-                    format: "有效 %d / %d 秒 · 壁鐘 %d / 上限 %d",
+                    format: "有效 %d / %d 秒 · 壁鐘 %d / 上限 %d（達標自動跳）",
                     runner.validSec, step.durationSec, runner.wallSec, step.maxWallSec
                 ))
                 .font(.caption.monospacedDigit())
@@ -145,24 +153,43 @@ struct GuidedTestView: View {
                 .buttonStyle(.borderedProminent)
             }
             if runner.active {
-                HStack {
-                    Button {
-                        runner.completeManually()
-                    } label: {
-                        Text("完成這步")
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                    }
-                    .buttonStyle(.borderedProminent)
+                VStack(spacing: 8) {
+                    Text(runner.autoAdvance
+                         ? "請繼續開車；秒數滿會自動進階。下方「略過此步」僅緊急用。"
+                         : "請按完成這步。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack {
+                        if runner.autoAdvance {
+                            Button {
+                                runner.completeManually()
+                            } label: {
+                                Text("略過此步")
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                            }
+                            .buttonStyle(.bordered)
+                        } else {
+                            Button {
+                                runner.completeManually()
+                            } label: {
+                                Text("完成這步")
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
 
-                    Button(role: .destructive) {
-                        runner.abort()
-                    } label: {
-                        Text("中止")
-                            .frame(maxWidth: .infinity)
-                            .padding()
+                        Button(role: .destructive) {
+                            runner.abort()
+                        } label: {
+                            Text("中止")
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
                 }
             }
             if runner.finished || !runner.logLines.isEmpty {
