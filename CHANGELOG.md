@@ -45,6 +45,15 @@
 
 ---
 
+### iOS（build 17 · 對齊 1.2.6）
+
+- 重編 `CarANCShared.framework`（forceNvhFocus + notch 觸發修復；`GuidedNvhOverride` 原生編譯修正）
+- 狀態頁 **`v1.2.6 (17)`**
+- 每 2s `phase=spectrum_kpi`（mic/plant 分帶 + deltaBoom/Tire/Wind；iOS plant 為 input+anti 代理）
+- 導引腳本：`forceNvhFocus=ROAD/TIRE/WIND` 寫入 KMP；步驟文案對齊 Android 1.2.6
+
+---
+
 ## [1.2.5] — 2026-08-13 · Android code 7 · 悶感主力：解鎖 low + 鎖相 boom notch
 
 **為什麼一直原地踏步**：高延遲 rumble 時 `highLatAdaptiveDamp(low)=0.08` × `lowMu×0.28` ≈ **只剩 2% 學習率**，真消悶路徑幾乎關掉；同時假 open-loop 又造成沙沙。關掉假 anti 後悶感仍無進步 = 低頻 adaptive 被自己掐死。

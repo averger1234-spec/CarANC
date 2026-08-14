@@ -81,4 +81,23 @@ final class SpectrumAnalyzer {
         let rms = sqrt(sum / Float(samples.count))
         return 20 * log10(max(rms, 1e-7))
     }
+
+    /// 對齊 Android `SpectrumAnalyzer.bandRangeEnergyDb`（1-pole 帶通近似）
+    static func bandRangeEnergyDb(_ samples: [Float], sampleRate: Double, fLo: Float, fHi: Float) -> Float {
+        guard !samples.isEmpty, sampleRate > 0, fHi > fLo else { return -90 }
+        let sr = Float(sampleRate)
+        let aHi = min(0.95, max(0.002, 2 * Float.pi * fHi / sr))
+        let aLo = min(0.9, max(0.001, 2 * Float.pi * fLo / sr))
+        var lpHi: Float = 0
+        var lpLo: Float = 0
+        var sumSq: Float = 0
+        for x in samples {
+            lpHi += aHi * (x - lpHi)
+            lpLo += aLo * (x - lpLo)
+            let y = lpHi - lpLo
+            sumSq += y * y
+        }
+        let rms = sqrt(sumSq / Float(samples.count))
+        return 20 * log10(max(rms, 1e-7))
+    }
 }

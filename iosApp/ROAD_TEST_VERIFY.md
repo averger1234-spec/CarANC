@@ -1,6 +1,6 @@
 # iOS 實車驗證與 Log 指南
 
-**現行對版**：**App 狀態頁 `v1.2.5 (16)`** · log `appVersion=1.2.3` `build=15`  
+**現行對版**：**App 狀態頁 `v1.2.6 (17)`** · log `appVersion=1.2.3` `build=15`  
 **Log 欄位名與 Android `running_snapshot` 同一套**（見 `shared/.../AncRunningSnapshotSchema.kt`、`ANDROID_REUSE.md`）。  
 缺能力填 `n/a`，不改名。
 
@@ -89,3 +89,14 @@ DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路�
 | `notchMixAnti` | notch 混入 anti |
 
 腳本顯示名：`三目標壓制·路/輪/風 + 1.2.5悶鎖相`；`target_road` 有效秒 **60**（≥45 km/h）。
+
+## 1.2.6 spectrum_kpi + forceNvhFocus
+
+| 欄位/事件 | 含義 |
+|-----------|------|
+| `phase=spectrum_kpi` | 每 ~2s 內建分帶 KPI |
+| `deltaBoomDb` / `deltaTireDb` / `deltaWindDb` | mic−plant（iOS plant=input+anti 代理） |
+| `forcedNvhFocus` | 腳本強制 ROAD/TIRE/WIND |
+| `forceNvhFocus` preset | 進入步驟時寫入 KMP |
+
+主分析用 log；外部 m4a 可選。

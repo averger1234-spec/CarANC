@@ -68,6 +68,17 @@ final class KotlinAncBridge {
         processor.setRumbleAccel(mag: mag)
     }
 
+    /// 1.2.6：腳本強制 ROAD/TIRE/WIND
+    func setForcedNvhFocus(_ name: String?) {
+        if let name, !name.isEmpty, name.uppercased() != "AUTO", name.uppercased() != "NONE" {
+            GuidedNvhOverride.shared.set(name: name)
+            processor.setForcedNvhFocus(focusName: name)
+        } else {
+            GuidedNvhOverride.shared.clear()
+            processor.setForcedNvhFocus(focusName: nil)
+        }
+    }
+
     func registerBlockEnergy(rms: Float) -> Bool {
         processor.registerBlockEnergy(rms: rms)
     }

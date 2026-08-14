@@ -51,6 +51,13 @@ final class AncAudioEngine: ObservableObject {
         kmpProcessor?.updateTier(tier)
     }
 
+    /// 1.2.6 腳本強制 NVH（`GuidedNvhOverride` + processor）
+    @MainActor
+    func setForcedNvhFocus(_ name: String?) {
+        kmpProcessor?.setForcedNvhFocus(name)
+        model.forcedNvhFocus = (name?.isEmpty == false) ? name! : "auto"
+    }
+
     @MainActor
     func start(preferCarAudio: Bool = false) async throws {
         guard !isStarted else { return }
@@ -343,7 +350,7 @@ final class AncAudioEngine: ObservableObject {
                 model.statusDetail = "KMP · " + focus.displayName
             }
 
-            // ~2s 一次 running_snapshot（對齊 Android 2s）— 欄位名=Android schema
+            // ~2s 一次 running_snapshot + spectrum_kpi（對齊 Android 1.2.6）
             self.uiTickCount += 1
             if self.uiTickCount % 10 == 0, model.isRunning {
                 let linearRms = pow(10 as Float, raw / 20)
@@ -370,6 +377,39 @@ final class AncAudioEngine: ObservableObject {
                     speedNvhTotalAnti: totalA,
                     speedNvhTableId: tableId
                 )
+                // spectrum_kpi：mic vs residual proxy（iOS 無完整 plant delay 時用 input+anti）
+                let mic = self.lastVisInput
+                var plant = mic
+                let antiVis = self.lastVisAnti
+                let n = min(mic.count, antiVis.count)
+                if n > 0 {
+                    plant = (0..<n).map { mic[$0] + antiVis[$0] }
+                }
+                let sr = self.sampleRate
+                let eMicBoom = SpectrumAnalyzer.bandRangeEnergyDb(mic, sampleRate: sr, fLo: 40, fHi: 120)
+                let ePlantBoom = SpectrumAnalyzer.bandRangeEnergyDb(plant, sampleRate: sr, fLo: 40, fHi: 120)
+                let eMicTire = SpectrumAnalyzer.bandRangeEnergyDb(mic, sampleRate: sr, fLo: 180, fHi: 350)
+                let ePlantTire = SpectrumAnalyzer.bandRangeEnergyDb(plant, sampleRate: sr, fLo: 180, fHi: 350)
+                let eMicWind = SpectrumAnalyzer.bandRangeEnergyDb(mic, sampleRate: sr, fLo: 500, fHi: 2000)
+                let ePlantWind = SpectrumAnalyzer.bandRangeEnergyDb(plant, sampleRate: sr, fLo: 500, fHi: 2000)
+                SessionLogger.shared.event("spectrum_kpi", [
+                    "micE40_120": String(format: "%.2f", eMicBoom),
+                    "plantE40_120": String(format: "%.2f", ePlantBoom),
+                    "deltaBoomDb": String(format: "%.2f", eMicBoom - ePlantBoom),
+                    "micE180_350": String(format: "%.2f", eMicTire),
+                    "plantE180_350": String(format: "%.2f", ePlantTire),
+                    "deltaTireDb": String(format: "%.2f", eMicTire - ePlantTire),
+                    "micE500_2000": String(format: "%.2f", eMicWind),
+                    "plantE500_2000": String(format: "%.2f", ePlantWind),
+                    "deltaWindDb": String(format: "%.2f", eMicWind - ePlantWind),
+                    "micE40_80": String(format: "%.2f", SpectrumAnalyzer.bandRangeEnergyDb(mic, sampleRate: sr, fLo: 40, fHi: 80)),
+                    "micE80_150": String(format: "%.2f", SpectrumAnalyzer.bandRangeEnergyDb(mic, sampleRate: sr, fLo: 80, fHi: 150)),
+                    "speedKmh": String(format: "%.1f", model.vehicleSpeedKmh),
+                    "nvhFocus": model.nvhFocus.rawValue,
+                    "forcedNvhFocus": model.forcedNvhFocus,
+                    "guidedStep": SessionLogger.shared.guidedTestStepId,
+                    "note": "ios_spectrum_kpi_input_plus_anti_proxy"
+                ])
                 // Overlay real KMP diagnostics into next event
                 SessionLogger.shared.event("kmp_diag", [
                     AndroidSnapshotKeys.imuMicCoherence: String(format: "%.3f", coh),

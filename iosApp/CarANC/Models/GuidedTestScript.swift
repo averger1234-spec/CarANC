@@ -18,30 +18,29 @@ struct GuidedTestStep: Identifiable {
 
 enum CarRoadTuningScript {
     static let scriptId = "car_road_tuning_v1"
-    /// 與 Android `CarRoadTuningScript.SCRIPT_NAME` 一致（1.2.5）
-    static let scriptName = "三目標壓制·路/輪/風 + 1.2.5悶鎖相"
+    /// Android 1.2.6：spectrum_kpi + forceNvhFocus
+    static let scriptName = "三目標壓制·1.2.6 spectrum_kpi + 強制 focus"
 
-    /// 與 Android 1.2.5 `CarRoadTuningScript.steps` 對齊
     static let steps: [GuidedTestStep] = [
         GuidedTestStep(
             id: "tuning_prep",
-            title: "準備：1.2.5 悶鎖相 + 三目標",
+            title: "準備：1.2.6 spectrum_kpi + 三目標",
             instructions: [
-                "★ 版號確認 v1.2.5；目標：路悶(low+boom)／輪(mid)／風 — 禁假 anti 沙沙",
-                "iOS：本機或 CarPlay；Android 請用有線 AA",
-                "★ placement=floor/seat；音樂關；userAncGain≈1",
-                "啟動 ANC → PRO；outputPathActive；anti 非長期靜音",
-                "★ 備外部錄音：target_road 關ANC 20s + 開ANC 40s",
+                "★ 版號確認 v1.2.6；路悶/輪/風 + 禁假 anti 沙沙",
+                "iOS 本機或 CarPlay；Android 有線 AA 較佳",
+                "★ placement=floor/seat；音樂關",
+                "★ 頻譜：App 每 2s 寫 spectrum_kpi（不必外接 m4a）",
+                "啟動 ANC → PRO；outputPathActive",
                 "每步主觀 0–10；沙沙=FAIL"
             ],
             durationSec: 25,
             suggestedTier: .pro,
             requiresAncRunning: false,
             checklist: [
-                "版號v1.2.5",
+                "版號≥1.2.6",
                 "placement=floor/seat",
                 "音樂關",
-                "備外部錄音",
+                "知spectrum_kpi",
                 "ANC可啟動"
             ],
             minSpeedKmh: 0,
@@ -56,24 +55,22 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "target_road",
-            title: "① 路噪/悶 ROAD（low + 鎖相 boom）",
+            title: "① 路噪/悶 ROAD（force + boom）",
             instructions: [
-                "粗糙路 45–60 km/h；60 秒有效秒（≥45）— 自動進階",
-                "期望 ROAD_RUMBLE、road_5kmh",
-                "★ 1.2.5 必收：effectiveLowMu、roadBoomWeightEnergy（上升=鎖相）、roadNotchEnergy、notchMixAnti",
-                "★ 仍收：lowBandRumbleReduction、speedNvhLowGain、antiNoiseDb",
-                "★ 外部：關ANC 20s → 開ANC 40s",
-                "PASS：WeightEnergy↑ + 悶↓；沙沙為主=FAIL"
+                "45–60 km/h；60 秒有效秒（≥45）— 自動進階",
+                "forceNvhFocus=ROAD_RUMBLE",
+                "★ 必收：effectiveLowMu、roadBoomWeightEnergy、roadNotchEnergy",
+                "★ spectrum_kpi：deltaBoomDb（開ANC 應有正趨勢）",
+                "主觀悶 0–10；沙沙為主=FAIL"
             ],
             durationSec: 60,
             suggestedTier: .pro,
             requiresAncRunning: true,
             checklist: [
-                "nvhFocus多ROAD",
+                "forced=ROAD",
                 "effectiveLowMu有值",
-                "roadBoomWeightEnergy有上升",
-                "roadNotch/notchMix有記錄",
-                "外部錄音關開各一段",
+                "roadBoomWeight有上升",
+                "spectrum_kpi有",
                 "主觀悶0-10",
                 "有無沙沙",
                 "tier=PRO"
@@ -83,30 +80,29 @@ enum CarRoadTuningScript {
             maxWallSec: 720,
             debugPresets: [
                 "lmsMuMultiplier": "2.0",
-                "freezeThreshold": "10",
-                "freezeConsec": "2",
                 "musicLowAncEnabled": "true",
                 "forceNormalMode": "true",
                 "userAncGain": "1.0",
-                "tier": "PRO"
+                "tier": "PRO",
+                "forceNvhFocus": "ROAD_RUMBLE"
             ]
         ),
         GuidedTestStep(
             id: "target_tire",
-            title: "② 輪噪壓制 TIRE（mid 武器）",
+            title: "② 輪噪 TIRE（force + 3 notch）",
             instructions: [
                 "55–75 km/h；55 秒有效秒（≥50）",
-                "★ 收集：tireNotchEnergy、tireNotchF0Hz、notchMixAnti、speedNvhMidGain",
-                "★ 主觀嗡 0–10",
-                "PASS：tireNotchEnergy>0 + 嗡↓"
+                "forceNvhFocus=TIRE_NOISE",
+                "★ tireNotchEnergy、deltaTireDb、主觀嗡 0–10"
             ],
             durationSec: 55,
             suggestedTier: .pro,
             requiresAncRunning: true,
             checklist: [
-                "nvhFocus=TIRE或ROAD",
+                "forced=TIRE",
                 "tireNotchEnergy>0",
-                "主觀嗡感0-10",
+                "spectrum_kpi有",
+                "主觀嗡0-10",
                 "tier=PRO"
             ],
             minSpeedKmh: 50,
@@ -114,29 +110,27 @@ enum CarRoadTuningScript {
             maxWallSec: 720,
             debugPresets: [
                 "lmsMuMultiplier": "2.05",
-                "freezeThreshold": "9",
-                "freezeConsec": "2",
                 "musicLowAncEnabled": "true",
                 "forceNormalMode": "true",
                 "userAncGain": "1.0",
-                "tier": "PRO"
+                "tier": "PRO",
+                "forceNvhFocus": "TIRE_NOISE"
             ]
         ),
         GuidedTestStep(
             id: "target_wind",
-            title: "③ 風切 WIND（高延遲：主觀優先）",
+            title: "③ 風切 WIND（force + multi-notch）",
             instructions: [
                 "70+ km/h；50 秒有效秒（≥65）",
-                "★ 1.2.5：高延遲刻意關 HF wind notch（防沙）；windNotch 可為 0",
-                "★ 仍收：TotalAnti、antiNoiseDb；主觀風 0–10；更沙必寫",
-                "PASS（高延遲）：風↓或不更沙"
+                "forceNvhFocus=WIND_SHEAR；高延遲仍跑 notch（權重 gate）",
+                "★ windNotch*、deltaWindDb；更沙必寫"
             ],
             durationSec: 50,
             suggestedTier: .pro,
             requiresAncRunning: true,
             checklist: [
-                "nvhFocus有記錄",
-                "latencyMs有記錄",
+                "forced=WIND",
+                "windNotch或spectrum有",
                 "主觀風感0-10",
                 "有無更嘶沙",
                 "tier=PRO"
@@ -146,31 +140,30 @@ enum CarRoadTuningScript {
             maxWallSec: 720,
             debugPresets: [
                 "lmsMuMultiplier": "2.1",
-                "freezeThreshold": "9",
-                "freezeConsec": "2",
                 "musicLowAncEnabled": "true",
                 "forceNormalMode": "true",
                 "userAncGain": "1.0",
-                "tier": "PRO"
+                "tier": "PRO",
+                "forceNvhFocus": "WIND_SHEAR"
             ]
         ),
         GuidedTestStep(
             id: "tuning_finish",
-            title: "結束：1.2.5 對照 + 匯出",
+            title: "結束：spectrum_kpi + 三段匯出",
             instructions: [
-                "停 ANC → 匯出 Log；三段主觀 + 有無沙沙",
-                "★ 路噪 PASS：effectiveLowMu 高延遲段明顯 + roadBoomWeightEnergy↑ + 悶↓",
-                "輪：tireNotch* 或嗡↓；風：高延遲 windNotch=0 可接受，FAIL=更沙",
-                "一併交外部 road 關/開錄音（若有）"
+                "停 ANC → 匯出 Log",
+                "分析：guidedTestStepId 切三段 + phase=spectrum_kpi",
+                "路 deltaBoomDb；輪 tireNotch/deltaTire；風 windNotch/deltaWind",
+                "外部 m4a 可選"
             ],
             durationSec: 15,
             suggestedTier: nil,
             requiresAncRunning: false,
             checklist: [
                 "已存Log",
-                "三段主觀分已寫",
-                "含roadBoomWeightEnergy",
-                "含effectiveLowMu",
+                "三段主觀已寫",
+                "含spectrum_kpi",
+                "含notch欄位",
                 "placement已註"
             ],
             minSpeedKmh: 0,
@@ -251,6 +244,8 @@ final class GuidedTestRunner: ObservableObject {
         timer = nil
         active = false
         SessionLogger.shared.guidedTestActive = false
+        engine?.setForcedNvhFocus(nil)
+        model?.forcedNvhFocus = "auto"
         SessionLogger.shared.event("test_script_abort", ["stepIndex": "\(stepIndex)"])
         statusLine = "已中止"
         appendLog("script_abort step=\(stepIndex)")
@@ -369,6 +364,8 @@ final class GuidedTestRunner: ObservableObject {
         active = false
         finished = true
         SessionLogger.shared.guidedTestActive = false
+        engine?.setForcedNvhFocus(nil)
+        model?.forcedNvhFocus = "auto"
         SessionLogger.shared.event("test_script_complete", [
             "scriptId": CarRoadTuningScript.scriptId,
             "advanceMode": "valid_drive_sec",
@@ -395,11 +392,15 @@ final class GuidedTestRunner: ObservableObject {
             model.setTier(s)
             engine?.applyTier(s)
         }
-        // Android 會 bake mu/freeze 等；iOS 記錄 presets 並套用 tier（完整 debug 覆寫待 KMP 暴露）
-        appendLog("presets step=\(step.id) \(step.debugPresets) appliedTier=\(model.tier.rawValue)")
+        // 1.2.6：腳本強制 NVH（對齊 Android GuidedNvhOverride）
+        let force = step.debugPresets["forceNvhFocus"]
+        engine?.setForcedNvhFocus(force)
+        model.forcedNvhFocus = force ?? "auto"
+        appendLog("presets step=\(step.id) \(step.debugPresets) appliedTier=\(model.tier.rawValue) forceNvh=\(force ?? "auto")")
         SessionLogger.shared.event("guided_presets", [
             "stepId": step.id,
             "tier": model.tier.rawValue,
+            "forceNvhFocus": force ?? "auto",
             "presets": step.debugPresets.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ",")
         ])
     }
@@ -414,11 +415,11 @@ final class GuidedTestRunner: ObservableObject {
         === GUIDED SCRIPT ===
         script=\(CarRoadTuningScript.scriptId)
         name=\(CarRoadTuningScript.scriptName)
-        align=android_CarRoadTuningScript_v1.2.5
+        align=android_CarRoadTuningScript_v1.2.6
         autoAdvance=\(autoAdvance)
         stepIndex=\(stepIndex) finished=\(finished)
 
-        === HOW TO VERIFY (1.2.5 悶鎖相 + 三目標) ===
+        === HOW TO VERIFY (1.2.6 spectrum_kpi + 三目標) ===
         PASS:
           - target_road: effectiveLowMu 高延遲段明顯、roadBoomWeightEnergy↑、悶↓（非沙沙）
           - target_tire: tireNotchEnergy / 嗡↓

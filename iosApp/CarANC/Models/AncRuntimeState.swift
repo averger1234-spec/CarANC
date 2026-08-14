@@ -62,6 +62,8 @@ final class AncAppModel: ObservableObject {
     @Published var roadBoomWeightEnergy: Float = 0
     @Published var effectiveLowMu: Float = 0
     @Published var effectiveMidMu: Float = 0
+    /// 1.2.6 腳本強制 focus：ROAD_RUMBLE / TIRE_NOISE / WIND_SHEAR / auto
+    @Published var forcedNvhFocus: String = "auto"
     @Published var estimatedLatencyMs: Float = 0
     @Published var maxCancelHz: Float = 150
     @Published var nvhFocus: NvhFocus = .idle

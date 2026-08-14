@@ -188,6 +188,7 @@ final class SessionLogger: ObservableObject {
             // NVH + Android 1.1.0 speed-scheduled gains (from KMP)
             AndroidSnapshotKeys.nvhFocus: model.nvhFocus.rawValue,
             AndroidSnapshotKeys.nvhTargetHz: nvhTargetLabel(model.nvhFocus),
+            "forcedNvhFocus": model.forcedNvhFocus,
             AndroidSnapshotKeys.speedNvhBinKmh: "\(speedNvhBinKmh)",
             AndroidSnapshotKeys.speedNvhLowGain: f2(speedNvhLowGain),
             AndroidSnapshotKeys.speedNvhMidGain: f2(speedNvhMidGain),
