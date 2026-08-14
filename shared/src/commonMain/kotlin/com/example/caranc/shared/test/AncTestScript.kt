@@ -401,23 +401,12 @@ object CarAncTestScript {
 }
 
 object CarRoadTuningScript {
-    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.7-aligned. */
+    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.9-aligned. */
     const val SCRIPT_ID = "car_road_tuning_v1"
     /**
-     * === 1.2.7 三目標 + 悶感音壓驗證 ===
-     * 產品：路悶要 **可感 LF 音壓**（CabinBoomPressure + boom notch），不是少播 anti。
-     * 腳本開始 **強制 PRO**（修 FREE clamp→LIGHT）。
-     *
-     * 必收集 log（每步 running_snapshot / spectrum_kpi）：
-     * - 共通：tier(**必須 PRO**), forcedNvhFocus, nvhFocus, speedNvh*, speedKmh, aaLinkType,
-     *          estimatedLatencyMs, antiNoiseDb, outputPathActive, effectiveLowMu
-     * - 路噪/悶（1.2.7 核心）：**boomPressureOut**（非0=壓力路徑有輸出）,
-     *          roadBoomWeightEnergy, roadNotchEnergy, notchMixAnti,
-     *          spectrum_kpi deltaBoomDb / micE40_120 / plantE40_120
-     * - 輪噪：force TIRE；tireNotchEnergy, tireNotchF0Hz, deltaTireDb
-     * - 風切：force WIND；windNotch* / deltaWindDb；主觀風感（boom 模式不跑 wind notch）
-     *
-     * 主觀：每步 0–10；路步重點「悶有無變／低頻有無在動」；電子雜音=FAIL
+     * === 1.2.9 診斷 + P2 plant ŝ + 三目標 ===
+     * prep → diag_tone_50 → road_off 艙錄 → road_on → tire → wind → finish
+     * 必收：antiE*、plantDelaySamples、boomPlantCorr、plant_path_*、cabin m4a、tier=PRO
      */
     const val SCRIPT_NAME = "三目標·1.2.9 P2 plantD+診斷+antiE"
 

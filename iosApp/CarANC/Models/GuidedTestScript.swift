@@ -18,30 +18,28 @@ struct GuidedTestStep: Identifiable {
 
 enum CarRoadTuningScript {
     static let scriptId = "car_road_tuning_v1"
-    /// 對齊 Android 1.2.7：悶音壓 boomPressureOut + 強制 PRO
-    static let scriptName = "三目標·1.2.7悶音壓+PRO強制"
+    /// 對齊 Android 1.2.9：P2 plantD + antiE + 50Hz + 艙錄（文案；真值需 KMP 重編）
+    static let scriptName = "三目標·1.2.9 P2 plantD+診斷+antiE"
 
     static let steps: [GuidedTestStep] = [
         GuidedTestStep(
             id: "tuning_prep",
-            title: "準備：1.2.7 悶音壓 + 強制 PRO",
+            title: "準備：1.2.9 P2+診斷",
             instructions: [
-                "★ 對齊 Android v1.2.7；腳本應 PRO（Android 會強制升方案）",
-                "iOS 本機或 CarPlay；Android 有線 AA 較佳",
-                "★ placement=floor/seat；音樂關",
-                "★ spectrum_kpi + boomPressureOut（路步）",
-                "啟動 ANC → PRO；outputPathActive",
-                "主觀 0–10；路步寫悶有無變／低頻有無在動；純電子噪=FAIL"
+                "★ 對齊 Android v1.2.9（antiE / plantD / 50Hz / 艙錄）",
+                "iOS 本機或 CarPlay；Android 有線 AA 完整診斷",
+                "★ placement=floor/seat；音樂關；PRO",
+                "Android 路測：diag_tone_50 → road_off 艙錄 → road_on",
+                "log：antiE*、plantDelaySamples、boomPlantCorr"
             ],
             durationSec: 25,
             suggestedTier: .pro,
             requiresAncRunning: false,
             checklist: [
-                "對齊1.2.7",
+                "對齊1.2.9",
                 "tier=PRO",
                 "placement=floor/seat",
                 "音樂關",
-                "知boomPressureOut",
                 "ANC可啟動"
             ],
             minSpeedKmh: 0,
@@ -150,20 +148,19 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "tuning_finish",
-            title: "結束：1.2.7 對照匯出",
+            title: "結束：1.2.9 對照匯出",
             instructions: [
                 "停 ANC → 匯出 Log",
-                "切 guidedTestStepId + spectrum_kpi",
-                "路：boomPressureOut≠0 + 悶有動；輪 tireNotch；風 windNotch",
-                "FAIL：boomPressure 全程0 或純電子噪"
+                "Android：antiE*、plant_path_*、cabin m4a、50Hz 結果",
+                "PASS：50Hz可聽 + antiE 低頻主導 + plantDelay 有值",
+                "FAIL：無低音路徑 / HF≫LF / 純電子噪"
             ],
             durationSec: 15,
             suggestedTier: nil,
             requiresAncRunning: false,
             checklist: [
                 "已存Log",
-                "三段主觀已寫",
-                "含boomPressureOut",
+                "含antiE/plantD",
                 "含spectrum_kpi",
                 "placement已註"
             ],
@@ -425,18 +422,18 @@ final class GuidedTestRunner: ObservableObject {
         === GUIDED SCRIPT ===
         script=\(CarRoadTuningScript.scriptId)
         name=\(CarRoadTuningScript.scriptName)
-        align=android_CarRoadTuningScript_v1.2.7
+        align=android_CarRoadTuningScript_v1.2.9
         autoAdvance=\(autoAdvance)
         stepIndex=\(stepIndex) finished=\(finished)
 
-        === HOW TO VERIFY (1.2.7 悶音壓 + PRO) ===
-        PASS:
-          - target_road: boomPressureOut≠0、roadBoomWeightEnergy、deltaBoomDb、主觀悶有動
-          - target_tire: tireNotchEnergy / 嗡↓
-          - target_wind: windNotch* 或 deltaWindDb
-          - Android tier=PRO（腳本強制）
+        === HOW TO VERIFY (1.2.9 P2 + 診斷) ===
+        PASS (Android full):
+          - diag_tone_50: 聽到 50Hz
+          - antiE40_80 ≫ antiE500_2k
+          - plant_path_saved / plantDelaySamples 有值
+          - cabin off/on m4a 比 40–80Hz
         FAIL:
-          - boomPressure 全程0 / 純電子噪無悶感 / tier=LIGHT
+          - 50Hz 無低音 / antiE HF 主導 / plantDelay 永不更新
 
         === SCRIPT EVENT LINES ===
         """
