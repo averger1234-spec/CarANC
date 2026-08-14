@@ -1,6 +1,6 @@
 # iOS 實車驗證與 Log 指南
 
-**現行對版**：**iOS 狀態頁 `v1.2.6 (18)`** · Android **`v1.2.7` / code 9** · 腳本文案 1.2.7  
+**現行對版**：**iOS 狀態頁 `v1.2.9 (19)`** · Android **`v1.2.9` / code 11** · 腳本 1.2.9  
 **Log 欄位名與 Android `running_snapshot` 同一套**（見 `shared/.../AncRunningSnapshotSchema.kt`、`ANDROID_REUSE.md`）。  
 缺能力填 `n/a`，不改名。
 
@@ -105,9 +105,22 @@ DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路�
 
 | 欄位 | 含義 |
 |------|------|
-| oomPressureOut | plant-delay 反相低頻壓力路徑輸出（路步應非 0） |
-| oadBoomWeightEnergy / oadNotchEnergy | boom notch 權重／能量 |
-| 	ier | Android 導測應 **PRO**（腳本強制） |
-| orcedNvhFocus | ROAD / TIRE / WIND |
+| `boomPressureOut` | plant-delay 反相低頻壓力路徑輸出（路步應非 0） |
+| `roadBoomWeightEnergy` / `roadNotchEnergy` | boom notch 權重／能量 |
+| `tier` | Android 導測應 **PRO**（腳本強制） |
+| `forcedNvhFocus` | ROAD / TIRE / WIND |
 
-腳本顯示名：三目標·1.2.7悶音壓+PRO強制。iOS 需重編 CarANCShared 後 getBoomPressureOut 才有真值。
+腳本顯示名：三目標·1.2.7悶音壓+PRO強制（**現行為 1.2.9**）。iOS **build 19** 已重編 CarANCShared，`getBoomPressureOut` / `getBoomPlantCorr` 有真值。
+
+## 1.2.8–1.2.9 診斷 + P2 plant
+
+| 欄位/事件 | 含義 |
+|-----------|------|
+| `diag_tone_active` / `diagToneHz=50` | 腳本 30s 播 50Hz 純音（路徑暢通檢測） |
+| `antiE40_80` … `antiE500_2k` / `antiLfDominatesHf` | 送出前 anti PCM 分帶（spectrum_kpi） |
+| `boomPlantCorr` | mic low × anti 對立相關 EMA |
+| `plantElectricalDelaySamples` / `plantDelaySamples` | plant 電氣延遲樣本 |
+| `setImuAxes` | 三軸 userAcceleration → KMP low path |
+
+腳本：`三目標·1.2.9 P2 plantD+診斷+antiE` · 步驟 `prep → diag_tone_50 → target_road_off → target_road → target_tire → target_wind → finish`。  
+艙錄 m4a / PlantPathStore 檔案持久化以 **Android** 為主；iOS 以 log + spectrum_kpi 分析。

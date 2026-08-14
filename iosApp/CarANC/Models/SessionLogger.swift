@@ -42,6 +42,8 @@ enum AndroidSnapshotKeys {
     static let roadNotchEnergy = "roadNotchEnergy"
     static let roadBoomWeightEnergy = "roadBoomWeightEnergy"
     static let boomPressureOut = "boomPressureOut"
+    static let boomPlantCorr = "boomPlantCorr"
+    static let plantElectricalDelaySamples = "plantElectricalDelaySamples"
     static let effectiveLowMu = "effectiveLowMu"
     static let effectiveMidMu = "effectiveMidMu"
 
@@ -57,7 +59,6 @@ enum AndroidSnapshotKeys {
     static let latencyMidEnabled = "latencyMidEnabled"
     static let latencyHighEnabled = "latencyHighEnabled"
     static let latencyStrategy = "latencyStrategy"
-    static let plantElectricalDelaySamples = "plantElectricalDelaySamples"
 
     static let lmsLowUpdates = "lmsLowUpdates"
     static let lmsMidUpdates = "lmsMidUpdates"
@@ -183,7 +184,8 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.bandE100Db: "n/a",
             AndroidSnapshotKeys.bandE120Db: "n/a",
             AndroidSnapshotKeys.outputPathActive: "\(outputActive)",
-            AndroidSnapshotKeys.plantDelayForResidual: "n/a",
+            AndroidSnapshotKeys.plantDelayForResidual: "\(model.plantElectricalDelaySamples)",
+            AndroidSnapshotKeys.plantElectricalDelaySamples: "\(model.plantElectricalDelaySamples)",
             "kpiSource": "ios_spectrum_proxy", // 分析時可知非 Android plant
 
             // NVH + Android 1.1.0 speed-scheduled gains (from KMP)
@@ -205,6 +207,7 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.roadNotchEnergy: f3(model.roadNotchEnergy),
             AndroidSnapshotKeys.roadBoomWeightEnergy: f3(model.roadBoomWeightEnergy),
             AndroidSnapshotKeys.boomPressureOut: f3(model.boomPressureOut),
+            AndroidSnapshotKeys.boomPlantCorr: f3(model.boomPlantCorr),
 
             // Vehicle / IMU（gps | gps_hold | imu_proxy）
             AndroidSnapshotKeys.vehicleSpeedKmh: f1(model.vehicleSpeedKmh),
@@ -224,7 +227,6 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.latencyMidEnabled: "\(model.midEnabled)",
             AndroidSnapshotKeys.latencyHighEnabled: "\(model.highEnabled)",
             AndroidSnapshotKeys.latencyStrategy: latencyStrategy,
-            AndroidSnapshotKeys.plantElectricalDelaySamples: "n/a",
 
             // Learning
             AndroidSnapshotKeys.lmsLowUpdates: "\(lmsLow)",

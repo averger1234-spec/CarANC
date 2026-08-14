@@ -39,6 +39,9 @@ final class AncAudioEngine: ObservableObject {
     /// Captured on main at start/tier change — safe for audio thread
     private var activeTier: UserTier = .light
     private var preferCarAudio = false
+    /// 1.2.8 診斷 tone（音訊執行緒讀取）
+    private var diagToneHz: Float = 0
+    private var diagTonePhase: Double = 0
 
     init(model: AncAppModel) {
         self.model = model
@@ -56,6 +59,19 @@ final class AncAudioEngine: ObservableObject {
     func setForcedNvhFocus(_ name: String?) {
         kmpProcessor?.setForcedNvhFocus(name)
         model.forcedNvhFocus = (name?.isEmpty == false) ? name! : "auto"
+    }
+
+    /// 1.2.8 腳本 diag 50Hz tone（經喇叭／CarPlay 輸出）
+    @MainActor
+    func setDiagToneHz(_ hz: Float) {
+        model.diagToneHz = hz
+        diagToneHz = hz
+        if hz > 0 {
+            SessionLogger.shared.event("diag_tone_active", [
+                "hz": String(format: "%.0f", hz),
+                "platform": "ios"
+            ])
+        }
     }
 
     @MainActor
@@ -245,18 +261,31 @@ final class AncAudioEngine: ObservableObject {
         }
 
         let accel = imuProvider.linearAccelMagnitude
+        let axes = imuProvider.axes
         // 無 GPS 時仍推進 hold / IMU 代車速（對齊 Android VehicleSpeedFusion）
         speedProvider.tickWithAccel(accel)
         let speed = speedProvider.snapshot
         kmpProcessor?.updateTier(activeTier)
         kmpProcessor?.setVehicleSpeed(kmh: speed.kmh, valid: speed.valid)
         kmpProcessor?.setRumbleAccel(accel)
+        kmpProcessor?.setImuAxes(ax: axes.0, ay: axes.1, az: axes.2)
 
         let rmsDb = SpectrumAnalyzer.rmsDb(mono)
         let linearRms = pow(10 as Float, rmsDb / 20)
         _ = kmpProcessor?.registerBlockEnergy(rms: linearRms)
 
-        guard let anti = kmpProcessor?.process(mono: mono) else { return }
+        guard var anti = kmpProcessor?.process(mono: mono) else { return }
+        // 1.2.8 diag tone 疊加在 anti 上（50Hz 低頻路徑診斷）
+        let toneHz = diagToneHz
+        if toneHz > 0, sampleRate > 0 {
+            let twoPi = 2.0 * Double.pi
+            for i in 0..<anti.count {
+                let s = sin(diagTonePhase)
+                anti[i] = max(-1, min(1, anti[i] + Float(s) * 0.35))
+                diagTonePhase += twoPi * Double(toneHz) / sampleRate
+                if diagTonePhase > twoPi { diagTonePhase -= twoPi }
+            }
+        }
         pushAnti(anti)
 
         lastVisInput = mono
@@ -331,6 +360,8 @@ final class AncAudioEngine: ObservableObject {
             model.roadNotchEnergy = self.kmpProcessor?.roadNotchEnergy ?? 0
             model.roadBoomWeightEnergy = self.kmpProcessor?.roadBoomWeightEnergy ?? 0
             model.boomPressureOut = self.kmpProcessor?.boomPressureOut ?? 0
+            model.boomPlantCorr = self.kmpProcessor?.boomPlantCorr ?? 0
+            model.plantElectricalDelaySamples = self.kmpProcessor?.plantElectricalDelaySamples ?? 0
             model.effectiveLowMu = self.kmpProcessor?.effectiveLowMu ?? 0
             model.effectiveMidMu = self.kmpProcessor?.effectiveMidMu ?? 0
 
@@ -393,6 +424,13 @@ final class AncAudioEngine: ObservableObject {
                 let ePlantTire = SpectrumAnalyzer.bandRangeEnergyDb(plant, sampleRate: sr, fLo: 180, fHi: 350)
                 let eMicWind = SpectrumAnalyzer.bandRangeEnergyDb(mic, sampleRate: sr, fLo: 500, fHi: 2000)
                 let ePlantWind = SpectrumAnalyzer.bandRangeEnergyDb(plant, sampleRate: sr, fLo: 500, fHi: 2000)
+                // 1.2.8 antiE*：送出前 anti PCM 分帶
+                let antiE4080 = SpectrumAnalyzer.bandRangeEnergyDb(antiVis, sampleRate: sr, fLo: 40, fHi: 80)
+                let antiE80120 = SpectrumAnalyzer.bandRangeEnergyDb(antiVis, sampleRate: sr, fLo: 80, fHi: 120)
+                let antiE200500 = SpectrumAnalyzer.bandRangeEnergyDb(antiVis, sampleRate: sr, fLo: 200, fHi: 500)
+                let antiE5002k = SpectrumAnalyzer.bandRangeEnergyDb(antiVis, sampleRate: sr, fLo: 500, fHi: 2000)
+                let antiLf = max(antiE4080, antiE80120)
+                let antiLfDom = antiLf > antiE5002k + 3
                 SessionLogger.shared.event("spectrum_kpi", [
                     "micE40_120": String(format: "%.2f", eMicBoom),
                     "plantE40_120": String(format: "%.2f", ePlantBoom),
@@ -405,9 +443,17 @@ final class AncAudioEngine: ObservableObject {
                     "deltaWindDb": String(format: "%.2f", eMicWind - ePlantWind),
                     "micE40_80": String(format: "%.2f", SpectrumAnalyzer.bandRangeEnergyDb(mic, sampleRate: sr, fLo: 40, fHi: 80)),
                     "micE80_150": String(format: "%.2f", SpectrumAnalyzer.bandRangeEnergyDb(mic, sampleRate: sr, fLo: 80, fHi: 150)),
+                    "antiE40_80": String(format: "%.2f", antiE4080),
+                    "antiE80_120": String(format: "%.2f", antiE80120),
+                    "antiE200_500": String(format: "%.2f", antiE200500),
+                    "antiE500_2k": String(format: "%.2f", antiE5002k),
+                    "antiLfDominatesHf": "\(antiLfDom)",
                     "speedKmh": String(format: "%.1f", model.vehicleSpeedKmh),
                     "nvhFocus": model.nvhFocus.rawValue,
                     "forcedNvhFocus": model.forcedNvhFocus,
+                    "boomPressureOut": String(format: "%.4f", model.boomPressureOut),
+                    "boomPlantCorr": String(format: "%.3f", model.boomPlantCorr),
+                    "plantDelaySamples": "\(model.plantElectricalDelaySamples)",
                     "guidedStep": SessionLogger.shared.guidedTestStepId,
                     "note": "ios_spectrum_kpi_input_plus_anti_proxy"
                 ])
@@ -427,6 +473,8 @@ final class AncAudioEngine: ObservableObject {
                     AndroidSnapshotKeys.roadNotchEnergy: String(format: "%.4f", self.kmpProcessor?.roadNotchEnergy ?? 0),
                     AndroidSnapshotKeys.roadBoomWeightEnergy: String(format: "%.4f", self.kmpProcessor?.roadBoomWeightEnergy ?? 0),
                     AndroidSnapshotKeys.boomPressureOut: String(format: "%.4f", self.kmpProcessor?.boomPressureOut ?? 0),
+                    AndroidSnapshotKeys.boomPlantCorr: String(format: "%.3f", self.kmpProcessor?.boomPlantCorr ?? 0),
+                    AndroidSnapshotKeys.plantElectricalDelaySamples: "\(self.kmpProcessor?.plantElectricalDelaySamples ?? 0)",
                     AndroidSnapshotKeys.effectiveLowMu: String(format: "%.4f", self.kmpProcessor?.effectiveLowMu ?? 0),
                     "dsp": "kmp_MultiBandANCProcessor"
                 ])

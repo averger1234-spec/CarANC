@@ -62,10 +62,14 @@ final class AncAppModel: ObservableObject {
     @Published var roadBoomWeightEnergy: Float = 0
     /// 1.2.7 plant-delayed LF pressure (0 until KMP framework rebuild includes getter)
     @Published var boomPressureOut: Float = 0
+    @Published var boomPlantCorr: Float = 0
+    @Published var plantElectricalDelaySamples: Int = 0
     @Published var effectiveLowMu: Float = 0
     @Published var effectiveMidMu: Float = 0
     /// 1.2.6 腳本強制 focus：ROAD_RUMBLE / TIRE_NOISE / WIND_SHEAR / auto
     @Published var forcedNvhFocus: String = "auto"
+    /// 1.2.8 診斷 tone（0=關；50=50Hz）
+    @Published var diagToneHz: Float = 0
     @Published var estimatedLatencyMs: Float = 0
     @Published var maxCancelHz: Float = 150
     @Published var nvhFocus: NvhFocus = .idle

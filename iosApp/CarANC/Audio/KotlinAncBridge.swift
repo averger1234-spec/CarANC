@@ -34,6 +34,8 @@ final class KotlinAncBridge {
     private(set) var roadNotchEnergy: Float = 0
     private(set) var roadBoomWeightEnergy: Float = 0
     private(set) var boomPressureOut: Float = 0
+    private(set) var boomPlantCorr: Float = 0
+    private(set) var plantElectricalDelaySamples: Int = 0
     private(set) var effectiveLowMu: Float = 0
     private(set) var effectiveMidMu: Float = 0
 
@@ -67,6 +69,11 @@ final class KotlinAncBridge {
 
     func setRumbleAccel(_ mag: Float) {
         processor.setRumbleAccel(mag: mag)
+    }
+
+    /// 1.2.8 P0：三軸 IMU 混入 low path
+    func setImuAxes(ax: Float, ay: Float, az: Float) {
+        processor.setImuAxes(ax: ax, ay: ay, az: az)
     }
 
     /// 1.2.6：腳本強制 ROAD/TIRE/WIND
@@ -123,8 +130,9 @@ final class KotlinAncBridge {
         notchMixAnti = processor.getNotchMixAnti()
         roadNotchEnergy = processor.getRoadNotchEnergy()
         roadBoomWeightEnergy = processor.getRoadBoomWeightEnergy()
-        // 1.2.7 CabinBoomPressure — needs CarANCShared framework rebuild after Android 1.2.7
         boomPressureOut = processor.getBoomPressureOut()
+        boomPlantCorr = processor.getBoomPlantCorr()
+        plantElectricalDelaySamples = Int(processor.getPlantElectricalDelaySamples())
         effectiveLowMu = processor.getLastEffectiveLowMu()
         effectiveMidMu = processor.getLastEffectiveMidMu()
         refreshLimits()

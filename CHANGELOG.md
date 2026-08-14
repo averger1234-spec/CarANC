@@ -127,6 +127,15 @@ Mute／等長艙錄已正確，但 **on 比 off 更吵**（cabin FFT 40–80 Hz 
 
 含 1.2.8：antiE*、50Hz tone、艙錄、IMU 軸、music gate。
 
+### iOS（build 19 · 對齊 1.2.9）
+
+- 重編 `CarANCShared.framework`（`getBoomPressureOut` / `getBoomPlantCorr` / `setImuAxes` / plant delay）
+- 腳本：`prep → diag_tone_50 → road_off → road_on → tire → wind → finish`（`三目標·1.2.9 P2 plantD+診斷+antiE`）
+- 50Hz 診斷 tone 混音；`spectrum_kpi` 含 **antiE\***；IMU 三軸 → KMP
+- `road_off` 自動停 ANC、`road_on` 自動開；結束自動分享 Log
+- 狀態頁 **`v1.2.9 (19)`** · `dist/CarANC-ios-kmp-debug.ipa`
+- Android 專用：艙錄 m4a、PlantPathStore 檔案持久化（iOS 以 log 欄位為主）
+
 ---
 ## [1.2.8] — 2026-08-14 · Android code 10 · 路徑診斷 + antiE 分帶 + 艙錄 + IMU 軸
 
@@ -163,11 +172,10 @@ Mute／等長艙錄已正確，但 **on 比 off 更吵**（cabin FFT 40–80 Hz 
 - 主觀：開 ANC 應感到 **低頻在動／悶在變**（不是電子沙）
 
 
-### iOS（腳本／log 對齊 1.2.7 · framework 待重編）
+### iOS（1.2.7 起腳本／log 對齊；1.2.9 build 19 已重編 framework）
 
-- GuidedTestScript 文案／KPI 對齊 Android 1.2.7（boomPressureOut、PRO）
-- SessionLogger / bridge 欄位 oomPressureOut（真值需 Mac 重編 KMP framework）
-- 狀態頁仍 **v1.2.6 (18)** 直到下次 IPA 重編
+- GuidedTestScript 文案／KPI 對齊 Android（boomPressureOut、PRO）
+- SessionLogger / bridge 含 boomPressureOut（真值需重編 KMP；**build 19 已含**）
 ### 測試腳本對齊（car_road_tuning_v1 · 內容 1.2.7）
 
 - 顯示名：`三目標·1.2.7悶音壓+PRO強制`

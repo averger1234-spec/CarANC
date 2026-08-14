@@ -8,20 +8,17 @@
 	<string>CarANC</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>CarANC</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.2.6</string>
-	<key>CFBundleVersion</key>
-	<string>18</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
+	<key>CFBundleIconFiles</key>
+	<array>
+		<string>AppIcon60x60</string>
+		<string>Icon-60</string>
+		<string>Icon-76</string>
+		<string>Icon-120</string>
+		<string>Icon-152</string>
+		<string>Icon-167</string>
+		<string>Icon-180</string>
+		<string>icon</string>
+	</array>
 	<key>CFBundleIcons</key>
 	<dict>
 		<key>CFBundlePrimaryIcon</key>
@@ -51,21 +48,26 @@
 			<false/>
 		</dict>
 	</dict>
-	<key>CFBundleIconFiles</key>
-	<array>
-		<string>AppIcon60x60</string>
-		<string>Icon-60</string>
-		<string>Icon-76</string>
-		<string>Icon-120</string>
-		<string>Icon-152</string>
-		<string>Icon-167</string>
-		<string>Icon-180</string>
-		<string>icon</string>
-	</array>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>CarANC 需要麥克風即時收音，以產生反相聲波進行車內主動降噪。</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>CarANC</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.2.9</string>
+	<key>CFBundleVersion</key>
+	<string>19</string>
+	<key>CPSupportsDashboardNavigationScene</key>
+	<false/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>CarANC 使用 GPS 車速判斷路噪情境與有效行駛狀態（僅在使用 App 時）。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>CarANC 需要麥克風即時收音，以產生反相聲波進行車內主動降噪。</string>
 	<key>NSMotionUsageDescription</key>
 	<string>CarANC 使用加速度計感知路噪 / 輪噪震動，輔助低頻前饋降噪。</string>
 	<key>UIApplicationSceneManifest</key>
@@ -87,9 +89,6 @@
 			</array>
 		</dict>
 	</dict>
-	<!-- CarPlay Driving Task：對齊 Android Car App category IOT（車機控制 ANC） -->
-	<key>CPSupportsDashboardNavigationScene</key>
-	<false/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

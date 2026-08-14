@@ -7,10 +7,19 @@ final class ImuProvider {
     private let queue = OperationQueue()
     private let lock = NSLock()
     private var _mag: Float = 0
+    private var _ax: Float = 0
+    private var _ay: Float = 0
+    private var _az: Float = 0
 
     var linearAccelMagnitude: Float {
         lock.lock(); defer { lock.unlock() }
         return _mag
+    }
+
+    /// 1.2.8+ 三軸 userAcceleration（供 KMP setImuAxes）
+    var axes: (Float, Float, Float) {
+        lock.lock(); defer { lock.unlock() }
+        return (_ax, _ay, _az)
     }
 
     init() {
@@ -24,10 +33,16 @@ final class ImuProvider {
         motion.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: queue) { [weak self] data, _ in
             guard let self, let data else { return }
             let u = data.userAcceleration
-            let mag = sqrt(u.x * u.x + u.y * u.y + u.z * u.z)
+            let ax = Float(u.x)
+            let ay = Float(u.y)
+            let az = Float(u.z)
+            let mag = sqrt(ax * ax + ay * ay + az * az)
             self.lock.lock()
             // EMA
-            self._mag = self._mag * 0.85 + Float(mag) * 0.15
+            self._mag = self._mag * 0.85 + mag * 0.15
+            self._ax = self._ax * 0.85 + ax * 0.15
+            self._ay = self._ay * 0.85 + ay * 0.15
+            self._az = self._az * 0.85 + az * 0.15
             self.lock.unlock()
         }
     }
@@ -36,6 +51,9 @@ final class ImuProvider {
         motion.stopDeviceMotionUpdates()
         lock.lock()
         _mag = 0
+        _ax = 0
+        _ay = 0
+        _az = 0
         lock.unlock()
     }
 }
