@@ -38,6 +38,12 @@
 - log：`boomPressureOut`、`roadBoomWeightEnergy`、`notchMixAnti`、`tier=PRO`
 - 主觀：開 ANC 應感到 **低頻在動／悶在變**（不是電子沙）
 
+
+### iOS（腳本／log 對齊 1.2.7 · framework 待重編）
+
+- GuidedTestScript 文案／KPI 對齊 Android 1.2.7（boomPressureOut、PRO）
+- SessionLogger / bridge 欄位 oomPressureOut（真值需 Mac 重編 KMP framework）
+- 狀態頁仍 **v1.2.6 (18)** 直到下次 IPA 重編
 ### 測試腳本對齊（car_road_tuning_v1 · 內容 1.2.7）
 
 - 顯示名：`三目標·1.2.7悶音壓+PRO強制`

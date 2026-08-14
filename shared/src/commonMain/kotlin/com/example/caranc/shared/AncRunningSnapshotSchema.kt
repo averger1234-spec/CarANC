@@ -11,7 +11,8 @@ package com.example.caranc.shared
  * Schema version: bump [SCHEMA_VERSION] when adding/renaming keys.
  */
 object AncRunningSnapshotSchema {
-    const val SCHEMA_VERSION = "1"
+    /** Bump when adding keys used in road-test analysis (1.2.7: boomPressureOut). */
+    const val SCHEMA_VERSION = "2"
     const val PHASE = "running_snapshot"
 
     // --- Core road-test KPI (must exist on both platforms) ---
@@ -44,7 +45,7 @@ object AncRunningSnapshotSchema {
     const val SPEED_NVH_MID_GAIN = "speedNvhMidGain"
     const val SPEED_NVH_TOTAL_ANTI = "speedNvhTotalAnti"
     const val SPEED_NVH_TABLE_ID = "speedNvhTableId"
-    // Tire 3-notch + wind 6-notch (1.2.3) + road boom (1.2.5)
+    // Tire 3-notch + wind 6-notch (1.2.3) + road boom (1.2.5) + pressure (1.2.7)
     const val TIRE_NOTCH_ENERGY = "tireNotchEnergy"
     const val WIND_NOTCH_ENERGY = "windNotchEnergy"
     const val TIRE_NOTCH_F0_HZ = "tireNotchF0Hz"
@@ -54,6 +55,9 @@ object AncRunningSnapshotSchema {
     const val ROAD_NOTCH_ENERGY = "roadNotchEnergy"
     /** Sum |w| on boom channels — rises when phase locks (~65Hz 悶). */
     const val ROAD_BOOM_WEIGHT_ENERGY = "roadBoomWeightEnergy"
+    /** 1.2.7 plant-delayed inverted low-band pressure path sample. */
+    const val BOOM_PRESSURE_OUT = "boomPressureOut"
+    const val FORCED_NVH_FOCUS = "forcedNvhFocus"
 
     // Vehicle / IMU
     const val VEHICLE_SPEED_KMH = "vehicleSpeedKmh"
@@ -117,6 +121,10 @@ object AncRunningSnapshotSchema {
         LATENCY_STRATEGY,
         TIER,
         AUDIO_BACKEND,
-        LMS_LOW_UPDATES
+        LMS_LOW_UPDATES,
+        // 1.2.5–1.2.7 boom / notch (Android full; iOS n/a until KMP rebuild)
+        ROAD_BOOM_WEIGHT_ENERGY,
+        BOOM_PRESSURE_OUT,
+        EFFECTIVE_LOW_MU
     )
 }

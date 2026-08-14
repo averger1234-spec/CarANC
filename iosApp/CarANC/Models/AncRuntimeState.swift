@@ -60,6 +60,8 @@ final class AncAppModel: ObservableObject {
     @Published var notchMixAnti: Float = 0
     @Published var roadNotchEnergy: Float = 0
     @Published var roadBoomWeightEnergy: Float = 0
+    /// 1.2.7 plant-delayed LF pressure (0 until KMP framework rebuild includes getter)
+    @Published var boomPressureOut: Float = 0
     @Published var effectiveLowMu: Float = 0
     @Published var effectiveMidMu: Float = 0
     /// 1.2.6 腳本強制 focus：ROAD_RUMBLE / TIRE_NOISE / WIND_SHEAR / auto

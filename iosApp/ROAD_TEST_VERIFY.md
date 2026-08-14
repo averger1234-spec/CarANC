@@ -1,6 +1,6 @@
 # iOS 實車驗證與 Log 指南
 
-**現行對版**：**App 狀態頁 `v1.2.6 (17)`** · log `appVersion=1.2.3` `build=15`  
+**現行對版**：**iOS 狀態頁 `v1.2.6 (18)`** · Android **`v1.2.7` / code 9** · 腳本文案 1.2.7  
 **Log 欄位名與 Android `running_snapshot` 同一套**（見 `shared/.../AncRunningSnapshotSchema.kt`、`ANDROID_REUSE.md`）。  
 缺能力填 `n/a`，不改名。
 
@@ -100,3 +100,14 @@ DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路�
 | `forceNvhFocus` preset | 進入步驟時寫入 KMP |
 
 主分析用 log；外部 m4a 可選。
+
+## 1.2.7 悶音壓 KPI
+
+| 欄位 | 含義 |
+|------|------|
+| oomPressureOut | plant-delay 反相低頻壓力路徑輸出（路步應非 0） |
+| oadBoomWeightEnergy / oadNotchEnergy | boom notch 權重／能量 |
+| 	ier | Android 導測應 **PRO**（腳本強制） |
+| orcedNvhFocus | ROAD / TIRE / WIND |
+
+腳本顯示名：三目標·1.2.7悶音壓+PRO強制。iOS 需重編 CarANCShared 後 getBoomPressureOut 才有真值。

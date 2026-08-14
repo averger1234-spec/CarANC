@@ -13,7 +13,7 @@ SwiftUI + AVAudioEngine 本機主動降噪 App，對齊 Android 產品策略（�
 | `app/` | **Android only** | Compose UI、AA、install-debug、Play flavor |
 | `iosApp/` | **iOS only** | Xcode / SwiftUI / 本機 AVAudioEngine |
 | `shared/` | **共用 KMP** | 演算法與 commercial；Android 完整、iosMain 有 actual |
-| `version.properties` | Android 版號 | 目前 **1.2.6 / code 8** · 主畫面 `v1.2.3` |
+| `version.properties` | Android 版號 | 目前 **1.2.7 / code 9** · 主畫面 `v1.2.7` |
 | `iosApp/.../Info.plist` + Xcode | iOS 版號 | 目前 **1.2.6 (18)** · **狀態頁顯示 `v1.2.6 (18)`** |
 
 推 GitHub 時 **一次 push 兩邊都在**；改 iOS 不影響 Android APK 建置，反之亦然。  
@@ -39,7 +39,7 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 
 | 能力 | iOS 現況 | Android |
 |------|----------|---------|
-| 版號顯示 | ✅ 狀態頁 `v1.2.6 (18)` | ✅ 主畫面 `v1.2.3` |
+| 版號顯示 | ✅ 狀態頁 `v1.2.6 (18)` | ✅ 主畫面 `v1.2.7` |
 | 無車速備用 | ✅ gps_hold + imu_proxy | ✅ 同 `VehicleSpeedFusion` |
 | 多頻段 DSP | ✅ **KMP `MultiBandANCProcessor`** + SpeedScheduled | ✅ 同核心 |
 | `speedNvh*` log | ✅ | ✅ |

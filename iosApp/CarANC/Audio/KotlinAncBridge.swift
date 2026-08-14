@@ -33,6 +33,7 @@ final class KotlinAncBridge {
     private(set) var notchMixAnti: Float = 0
     private(set) var roadNotchEnergy: Float = 0
     private(set) var roadBoomWeightEnergy: Float = 0
+    private(set) var boomPressureOut: Float = 0
     private(set) var effectiveLowMu: Float = 0
     private(set) var effectiveMidMu: Float = 0
 
@@ -122,6 +123,8 @@ final class KotlinAncBridge {
         notchMixAnti = processor.getNotchMixAnti()
         roadNotchEnergy = processor.getRoadNotchEnergy()
         roadBoomWeightEnergy = processor.getRoadBoomWeightEnergy()
+        // 1.2.7 CabinBoomPressure — needs CarANCShared framework rebuild after Android 1.2.7
+        boomPressureOut = processor.getBoomPressureOut()
         effectiveLowMu = processor.getLastEffectiveLowMu()
         effectiveMidMu = processor.getLastEffectiveMidMu()
         refreshLimits()

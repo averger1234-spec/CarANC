@@ -1,4 +1,4 @@
-﻿# CarANC 多機開發同步指南（Windows A/B + Mac）
+# CarANC 多機開發同步指南（Windows A/B + Mac）
 
 專案已上傳 GitHub：https://github.com/averger1234-spec/CarANC.git
 
@@ -14,8 +14,8 @@
 
 | 平台 | 版號 | App 怎麼對版 |
 |------|------|----------------|
-| Android | **1.2.6 / code 8** | 主畫面 `v1.2.3` |
-| iOS | **1.2.6 (build 17)** | 狀態頁 **`v1.2.6 (17)`** |
+| Android | **1.2.7 / code 9** | 主畫面 `v1.2.7` |
+| iOS | **1.2.6 (build 18)** | 狀態頁 **`v1.2.6 (18)`**；腳本文案 1.2.7 |
 
 ### 1. 拉程式（每台、每次開工）
 
@@ -37,7 +37,7 @@ git log -5 --oneline
 | **這版改了什麼** | `CHANGELOG.md` + `version.properties` + iOS Info.plist |
 | 專案總覽 / iOS+Android 現況 | `README.md` →「最新進度」 |
 | Android 日常裝機 / 拉 log | `scripts/README.md` |
-| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md`（應寫 1.2.6 (17)） |
+| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md`（應寫 1.2.6 (18)） |
 | iOS 專案 / CarPlay / 路測 | `iosApp/README.md`、`iosApp/CARPLAY.md`、`iosApp/ROAD_TEST_VERIFY.md` |
 | Play 上架 / store vs internal | `DISTRIBUTION.md`、`PLAY_RELEASE_CHECKLIST.md` |
 | Play 資料安全怎麼填 | `DATA_SAFETY.md` |

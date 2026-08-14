@@ -330,6 +330,7 @@ final class AncAudioEngine: ObservableObject {
             model.notchMixAnti = self.kmpProcessor?.notchMixAnti ?? 0
             model.roadNotchEnergy = self.kmpProcessor?.roadNotchEnergy ?? 0
             model.roadBoomWeightEnergy = self.kmpProcessor?.roadBoomWeightEnergy ?? 0
+            model.boomPressureOut = self.kmpProcessor?.boomPressureOut ?? 0
             model.effectiveLowMu = self.kmpProcessor?.effectiveLowMu ?? 0
             model.effectiveMidMu = self.kmpProcessor?.effectiveMidMu ?? 0
 
@@ -425,6 +426,7 @@ final class AncAudioEngine: ObservableObject {
                     AndroidSnapshotKeys.notchMixAnti: String(format: "%.4f", self.kmpProcessor?.notchMixAnti ?? 0),
                     AndroidSnapshotKeys.roadNotchEnergy: String(format: "%.4f", self.kmpProcessor?.roadNotchEnergy ?? 0),
                     AndroidSnapshotKeys.roadBoomWeightEnergy: String(format: "%.4f", self.kmpProcessor?.roadBoomWeightEnergy ?? 0),
+                    AndroidSnapshotKeys.boomPressureOut: String(format: "%.4f", self.kmpProcessor?.boomPressureOut ?? 0),
                     AndroidSnapshotKeys.effectiveLowMu: String(format: "%.4f", self.kmpProcessor?.effectiveLowMu ?? 0),
                     "dsp": "kmp_MultiBandANCProcessor"
                 ])

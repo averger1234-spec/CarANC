@@ -41,6 +41,7 @@ enum AndroidSnapshotKeys {
     static let notchMixAnti = "notchMixAnti"
     static let roadNotchEnergy = "roadNotchEnergy"
     static let roadBoomWeightEnergy = "roadBoomWeightEnergy"
+    static let boomPressureOut = "boomPressureOut"
     static let effectiveLowMu = "effectiveLowMu"
     static let effectiveMidMu = "effectiveMidMu"
 
@@ -203,6 +204,7 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.notchMixAnti: f3(model.notchMixAnti),
             AndroidSnapshotKeys.roadNotchEnergy: f3(model.roadNotchEnergy),
             AndroidSnapshotKeys.roadBoomWeightEnergy: f3(model.roadBoomWeightEnergy),
+            AndroidSnapshotKeys.boomPressureOut: f3(model.boomPressureOut),
 
             // Vehicle / IMU（gps | gps_hold | imu_proxy）
             AndroidSnapshotKeys.vehicleSpeedKmh: f1(model.vehicleSpeedKmh),

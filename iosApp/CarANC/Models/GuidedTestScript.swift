@@ -18,29 +18,30 @@ struct GuidedTestStep: Identifiable {
 
 enum CarRoadTuningScript {
     static let scriptId = "car_road_tuning_v1"
-    /// Android 1.2.6：spectrum_kpi + forceNvhFocus
-    static let scriptName = "三目標壓制·1.2.6 spectrum_kpi + 強制 focus"
+    /// 對齊 Android 1.2.7：悶音壓 boomPressureOut + 強制 PRO
+    static let scriptName = "三目標·1.2.7悶音壓+PRO強制"
 
     static let steps: [GuidedTestStep] = [
         GuidedTestStep(
             id: "tuning_prep",
-            title: "準備：1.2.6 spectrum_kpi + 三目標",
+            title: "準備：1.2.7 悶音壓 + 強制 PRO",
             instructions: [
-                "★ 版號確認 v1.2.6；路悶/輪/風 + 禁假 anti 沙沙",
+                "★ 對齊 Android v1.2.7；腳本應 PRO（Android 會強制升方案）",
                 "iOS 本機或 CarPlay；Android 有線 AA 較佳",
                 "★ placement=floor/seat；音樂關",
-                "★ 頻譜：App 每 2s 寫 spectrum_kpi（不必外接 m4a）",
+                "★ spectrum_kpi + boomPressureOut（路步）",
                 "啟動 ANC → PRO；outputPathActive",
-                "每步主觀 0–10；沙沙=FAIL"
+                "主觀 0–10；路步寫悶有無變／低頻有無在動；純電子噪=FAIL"
             ],
             durationSec: 25,
             suggestedTier: .pro,
             requiresAncRunning: false,
             checklist: [
-                "版號≥1.2.6",
+                "對齊1.2.7",
+                "tier=PRO",
                 "placement=floor/seat",
                 "音樂關",
-                "知spectrum_kpi",
+                "知boomPressureOut",
                 "ANC可啟動"
             ],
             minSpeedKmh: 0,
@@ -55,25 +56,25 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "target_road",
-            title: "① 路噪/悶 ROAD（force + boom）",
+            title: "① 路悶 ROAD（音壓 + boom）",
             instructions: [
-                "45–60 km/h；60 秒有效秒（≥45）— 自動進階",
+                "45–60 km/h；60 秒有效秒（≥45）",
                 "forceNvhFocus=ROAD_RUMBLE",
-                "★ 必收：effectiveLowMu、roadBoomWeightEnergy、roadNotchEnergy",
-                "★ spectrum_kpi：deltaBoomDb（開ANC 應有正趨勢）",
-                "主觀悶 0–10；沙沙為主=FAIL"
+                "★ 必收：boomPressureOut（非0）、roadBoomWeightEnergy、roadNotchEnergy、effectiveLowMu",
+                "★ spectrum_kpi：deltaBoomDb / micE40_120",
+                "主觀悶 0–10：低頻有無在動／悶有無變；純電子噪=FAIL"
             ],
             durationSec: 60,
             suggestedTier: .pro,
             requiresAncRunning: true,
             checklist: [
                 "forced=ROAD",
-                "effectiveLowMu有值",
-                "roadBoomWeight有上升",
+                "tier=PRO",
+                "boomPressureOut非0",
+                "roadBoomWeight有值",
                 "spectrum_kpi有",
                 "主觀悶0-10",
-                "有無沙沙",
-                "tier=PRO"
+                "低頻有無在動"
             ],
             minSpeedKmh: 45,
             wallClockOnly: false,
@@ -89,7 +90,7 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "target_tire",
-            title: "② 輪噪 TIRE（force + 3 notch）",
+            title: "② 輪噪 TIRE（mid + notch）",
             instructions: [
                 "55–75 km/h；55 秒有效秒（≥50）",
                 "forceNvhFocus=TIRE_NOISE",
@@ -100,10 +101,10 @@ enum CarRoadTuningScript {
             requiresAncRunning: true,
             checklist: [
                 "forced=TIRE",
+                "tier=PRO",
                 "tireNotchEnergy>0",
                 "spectrum_kpi有",
-                "主觀嗡0-10",
-                "tier=PRO"
+                "主觀嗡0-10"
             ],
             minSpeedKmh: 50,
             wallClockOnly: false,
@@ -119,21 +120,21 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "target_wind",
-            title: "③ 風切 WIND（force + multi-notch）",
+            title: "③ 風切 WIND",
             instructions: [
                 "70+ km/h；50 秒有效秒（≥65）",
-                "forceNvhFocus=WIND_SHEAR；高延遲仍跑 notch（權重 gate）",
-                "★ windNotch*、deltaWindDb；更沙必寫"
+                "forceNvhFocus=WIND_SHEAR",
+                "★ windNotch*、deltaWindDb；更噪必寫"
             ],
             durationSec: 50,
             suggestedTier: .pro,
             requiresAncRunning: true,
             checklist: [
                 "forced=WIND",
+                "tier=PRO",
                 "windNotch或spectrum有",
                 "主觀風感0-10",
-                "有無更嘶沙",
-                "tier=PRO"
+                "有無更噪"
             ],
             minSpeedKmh: 65,
             wallClockOnly: false,
@@ -149,12 +150,12 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "tuning_finish",
-            title: "結束：spectrum_kpi + 三段匯出",
+            title: "結束：1.2.7 對照匯出",
             instructions: [
                 "停 ANC → 匯出 Log",
-                "分析：guidedTestStepId 切三段 + phase=spectrum_kpi",
-                "路 deltaBoomDb；輪 tireNotch/deltaTire；風 windNotch/deltaWind",
-                "外部 m4a 可選"
+                "切 guidedTestStepId + spectrum_kpi",
+                "路：boomPressureOut≠0 + 悶有動；輪 tireNotch；風 windNotch",
+                "FAIL：boomPressure 全程0 或純電子噪"
             ],
             durationSec: 15,
             suggestedTier: nil,
@@ -162,8 +163,8 @@ enum CarRoadTuningScript {
             checklist: [
                 "已存Log",
                 "三段主觀已寫",
+                "含boomPressureOut",
                 "含spectrum_kpi",
-                "含notch欄位",
                 "placement已註"
             ],
             minSpeedKmh: 0,
@@ -335,6 +336,7 @@ final class GuidedTestRunner: ObservableObject {
             "windNotchEnergy": String(format: "%.4f", model?.windNotchEnergy ?? 0),
             "roadNotchEnergy": String(format: "%.4f", model?.roadNotchEnergy ?? 0),
             "roadBoomWeightEnergy": String(format: "%.4f", model?.roadBoomWeightEnergy ?? 0),
+            "boomPressureOut": String(format: "%.4f", model?.boomPressureOut ?? 0),
             "effectiveLowMu": String(format: "%.4f", model?.effectiveLowMu ?? 0)
         ])
         appendLog(
@@ -343,6 +345,7 @@ final class GuidedTestRunner: ObservableObject {
             "lowBandRumbleReduction=\(String(format: "%.2f", model?.lowBandRumbleReduction ?? 0)) " +
             "speed=\(String(format: "%.0f", model?.vehicleSpeedKmh ?? 0)) " +
             "focus=\(model?.nvhFocus.rawValue ?? "?") " +
+            "boomPressure=\(String(format: "%.3f", model?.boomPressureOut ?? 0)) " +
             "tireNotch=\(String(format: "%.3f", model?.tireNotchEnergy ?? 0)) " +
             "windNotch=\(String(format: "%.3f", model?.windNotchEnergy ?? 0))"
         )
@@ -422,18 +425,18 @@ final class GuidedTestRunner: ObservableObject {
         === GUIDED SCRIPT ===
         script=\(CarRoadTuningScript.scriptId)
         name=\(CarRoadTuningScript.scriptName)
-        align=android_CarRoadTuningScript_v1.2.6
+        align=android_CarRoadTuningScript_v1.2.7
         autoAdvance=\(autoAdvance)
         stepIndex=\(stepIndex) finished=\(finished)
 
-        === HOW TO VERIFY (1.2.6 spectrum_kpi + 三目標) ===
+        === HOW TO VERIFY (1.2.7 悶音壓 + PRO) ===
         PASS:
-          - target_road: effectiveLowMu 高延遲段明顯、roadBoomWeightEnergy↑、悶↓（非沙沙）
+          - target_road: boomPressureOut≠0、roadBoomWeightEnergy、deltaBoomDb、主觀悶有動
           - target_tire: tireNotchEnergy / 嗡↓
-          - target_wind: 高延遲 windNotch=0 可接受；不更沙
-          - 步驟 auto_valid_drive 自動進階
+          - target_wind: windNotch* 或 deltaWindDb
+          - Android tier=PRO（腳本強制）
         FAIL:
-          - 只有 anti 輸出但悶不變 / 沙沙為主 / boom weight 不升
+          - boomPressure 全程0 / 純電子噪無悶感 / tier=LIGHT
 
         === SCRIPT EVENT LINES ===
         """
