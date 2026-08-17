@@ -21,6 +21,33 @@
 
 
 
+
+## [1.2.10] — 2026-08-17 · Android code 12 · 真 mute baseline + 可感 boom + 公平艙錄 A/B
+
+### 問題（1.2.9 路測 log）
+
+1. **`target_road_off` 沒關 anti**：只 `requiresAncRunning=false`，喇叭仍播 anti（antiNoiseDb≈−30）→ 艙錄 baseline 髒
+2. **`boomPressureOut≈0`**：push 用 road/IMU blend 非 mic low；gain 太小；log 只記單 sample
+3. **艙錄時長不對等**：off 含等速 129s vs on 40s
+
+### 修復
+
+| 項 | 內容 |
+|----|------|
+| **muteAnti** | 腳本 off 步 `userAncGain=0` + `muteAnti=true`；AudioEngine **硬歸零** 寫入 AA |
+| **CabinBoomPressure** | push **mic low**；能量 floor + 更高 gain；mix 1.35–1.55；KPI=RMS |
+| **艙錄** | `cabinRecordOnValidSpeed`：達有效車速才開始 m4a（約 20s） |
+| **A/B 時長** | off/on 皆 **20s** 有效秒 |
+| 腳本 | 顯示名 `三目標·1.2.10 mute+boom+艙錄A/B` |
+
+### 路測必收
+
+- off：`muteAnti=true`、`userAncGain=0`、antiNoiseDb 極低
+- on：`boomPressureOut` med ≫ 0.01
+- cabin m4a 各 ~20s；40–80 Hz on < off
+- 主觀悶 0–10
+
+---
 ## [1.2.9] — 2026-08-14 · Android code 11 · P2 plant ŝ delay 寫入 + boomPlantCorr
 
 | 項 | 內容 |

@@ -72,6 +72,18 @@ fun GuidedTestPanel(
                 fields["userAncGain"]?.let { v ->
                     if (v is Number) AncTestPreferences.setUserAncGain(context, v.toFloat())
                 }
+                // 1.2.10: true mute anti for clean cabin baseline
+                fields["muteAnti"]?.let { v ->
+                    val muted = when (v) {
+                        is Boolean -> v
+                        is Number -> v.toFloat() > 0.5f
+                        else -> v?.toString().equals("true", true) == true
+                    }
+                    AncTestPreferences.setMuteAntiOutput(context, muted)
+                    if (muted) {
+                        AncTestPreferences.setUserAncGain(context, 0f)
+                    }
+                }
                 fields["lmsMuMultiplier"]?.let { v ->
                     if (v is Number) AncTestPreferences.setDebugLmsMuMultiplier(context, v.toFloat())
                 }
@@ -99,7 +111,7 @@ fun GuidedTestPanel(
                     }
                     AncTestPreferences.setDiagToneHz(context, hz)
                 }
-                // 1.2.8: auto cabin m4a for 40–80 Hz A/B
+                // 1.2.8/1.2.10: auto cabin m4a for 40–80 Hz A/B
                 fields["cabinRecord"]?.let { v ->
                     val on = when (v) {
                         is Boolean -> v
@@ -108,8 +120,26 @@ fun GuidedTestPanel(
                     val stepId = fields["stepId"]?.toString()
                         ?: GuidedTestController.state.value.currentStep?.id
                         ?: "step"
+                    val waitValid = when (val w = fields["cabinRecordOnValidSpeed"]) {
+                        is Boolean -> w
+                        else -> w?.toString().equals("true", true) == true
+                    }
+                    AncTestPreferences.setCabinRecordOnValidSpeed(context, waitValid)
                     if (on && AncTestPreferences.isCabinAutoRecordEnabled(context)) {
-                        com.example.caranc.shared.service.GuidedCabinRecorder.start(context, stepId)
+                        if (waitValid) {
+                            // Defer start until collectingNow (fair duration ≈ validSec)
+                            AncTestPreferences.setPendingCabinStepId(context, stepId)
+                            AncSessionLogger.log(
+                                phase = "cabin_record_pending",
+                                fields = mapOf(
+                                    "stepId" to stepId,
+                                    "note" to "wait_valid_speed_then_start_m4a"
+                                )
+                            )
+                        } else {
+                            AncTestPreferences.setPendingCabinStepId(context, null)
+                            com.example.caranc.shared.service.GuidedCabinRecorder.start(context, stepId)
+                        }
                     }
                 }
             }
@@ -119,6 +149,7 @@ fun GuidedTestPanel(
                 val keep = cabin == true || cabin?.toString().equals("true", true) == true
                 if (!keep) {
                     com.example.caranc.shared.service.GuidedCabinRecorder.stop(context, "step_change")
+                    AncTestPreferences.setPendingCabinStepId(context, null)
                 }
                 // clear diag tone unless step sets it
                 if (fields["diagToneHz"] == null) {
@@ -128,13 +159,34 @@ fun GuidedTestPanel(
             if (phase == "test_script_complete" || phase == "guided_test_abort") {
                 com.example.caranc.shared.GuidedNvhOverride.clear()
                 AncTestPreferences.setDiagToneHz(context, 0f)
+                AncTestPreferences.setMuteAntiOutput(context, false)
+                AncTestPreferences.setPendingCabinStepId(context, null)
                 com.example.caranc.shared.service.GuidedCabinRecorder.stop(context, "script_end")
             }
             if (phase == "test_script_start") {
                 com.example.caranc.shared.GuidedNvhOverride.clear()
                 AncTestPreferences.setDiagToneHz(context, 0f)
+                AncTestPreferences.setMuteAntiOutput(context, false)
+                AncTestPreferences.setPendingCabinStepId(context, null)
             }
         }
+    }
+
+    // 1.2.10: start deferred cabin record when valid-speed collection begins
+    LaunchedEffect(
+        guidedState.active,
+        guidedState.collectingNow,
+        guidedState.currentStep?.id,
+        guidedState.validSec
+    ) {
+        if (!guidedState.active || guidedState.finished) return@LaunchedEffect
+        if (!guidedState.collectingNow) return@LaunchedEffect
+        val pending = AncTestPreferences.getPendingCabinStepId(context)
+        if (pending.isBlank()) return@LaunchedEffect
+        if (com.example.caranc.shared.service.GuidedCabinRecorder.isRecording()) return@LaunchedEffect
+        if (!AncTestPreferences.isCabinAutoRecordEnabled(context)) return@LaunchedEffect
+        com.example.caranc.shared.service.GuidedCabinRecorder.start(context, pending)
+        AncTestPreferences.setPendingCabinStepId(context, null)
     }
 
     // 1 Hz tick → valid-drive auto-advance

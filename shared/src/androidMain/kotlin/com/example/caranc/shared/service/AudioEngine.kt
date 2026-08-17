@@ -878,6 +878,8 @@ class AudioEngine(
                         val limits = ancProcessor?.getLatencyBandLimits()
                         val antiArtifactGain = if ((limits?.maxCancelFrequencyHz ?: 100f) < 60f) 0.28f else 1f
                         val userGain = AncTestPreferences.getUserAncGain(appContext)
+                        // 1.2.10: guided mute (road_off baseline) — hard zero anti to AA
+                        val muteAnti = AncTestPreferences.isMuteAntiOutput(appContext) || userGain <= 0.001f
                         // IDLE ARTIFACT SUPPRESS (minimal, speed<8 only): auto lower effective gain at idle/low speed to mask any residual telegraph clicks from low-energy LMS (musicLow + high mu).
                         // Full gain at 50+kmh for #6/#7 rumble breakthrough validation (effMid 0.6+). User can still override via TestLogPanel but idle caps it.
                         val speedForGain = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
@@ -897,14 +899,19 @@ class AudioEngine(
                             musicVol >= 0.45f -> 0.70f
                             else -> 1f
                         }
-                        val finalWriteGain = cappedGain * antiArtifactGain * userGain * idleGainFactor * musicGate
+                        val finalWriteGain = if (muteAnti) {
+                            0f
+                        } else {
+                            cappedGain * antiArtifactGain * userGain * idleGainFactor * musicGate
+                        }
                         // reuse buffer (hot-path opt, similar to push buffer reuse)
                         if (outputBufferReuse.size < read) outputBufferReuse = ShortArray(read)
                         scaleSamplesInto(processed, read, finalWriteGain, outputBufferReuse)
                         val output = outputBufferReuse
 
                         // 1.2.8: AA path diagnostic pure tone (50/60 Hz) — overrides anti to verify car low-freq
-                        val diagHz = AncTestPreferences.getDiagToneHz(appContext)
+                        // Mute step must stay silent (no tone during road_off baseline)
+                        val diagHz = if (muteAnti) 0f else AncTestPreferences.getDiagToneHz(appContext)
                         if (diagHz >= 40f && diagHz <= 100f) {
                             injectDiagTone(output, read, diagHz, sampleRate = audioRecord?.sampleRate ?: 44100)
                             val nowT = System.currentTimeMillis()
@@ -1482,7 +1489,9 @@ class AudioEngine(
                     "forcedNvhFocus" to (com.example.caranc.shared.GuidedNvhOverride.forcedFocusName ?: "auto"),
                     "guidedStep" to (if (gs.active) (gs.currentStep?.id ?: "") else ""),
                     "diagToneHz" to AncTestPreferences.getDiagToneHz(appContext),
-                    "note" to "antiE_*=send_path_before_AA; cabin_m4a_for_true_A_B"
+                    "muteAnti" to AncTestPreferences.isMuteAntiOutput(appContext),
+                    "userAncGain" to AncTestPreferences.getUserAncGain(appContext),
+                    "note" to "antiE_*=send_path_before_AA; cabin_m4a_for_true_A_B; muteAnti=road_off_baseline"
                 )
             )
         }
@@ -1602,6 +1611,7 @@ class AudioEngine(
                         "carSinkRouted" to (audioRouteManager?.isCarSinkRouted(audioTrack, isAAConnected()) == true),
                         "ancOutputGain" to (audioRouteManager?.ancOutputGain ?: 1f),
                         "userAncGain" to AncTestPreferences.getUserAncGain(appContext),
+                        "muteAnti" to AncTestPreferences.isMuteAntiOutput(appContext),
                         // Music volume for volume-adjust + music-rumble conflict diagnosis (correlate with blockRms, reduction, freezes, virtualQ during AA tests).
                         "musicStreamVolume" to audioManager.getStreamVolume(AudioManager.STREAM_MUSIC),
                         "musicStreamMax" to audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC),

@@ -169,6 +169,33 @@ object AncTestPreferences {
         prefs(context).edit().putBoolean("cabin_auto_record", enabled).apply()
     }
 
+    /** 1.2.10: force zero anti to AA (guided off step baseline). */
+    fun isMuteAntiOutput(context: Context): Boolean =
+        prefs(context).getBoolean("mute_anti_output", false)
+
+    fun setMuteAntiOutput(context: Context, muted: Boolean) {
+        prefs(context).edit().putBoolean("mute_anti_output", muted).apply()
+    }
+
+    /**
+     * When true, cabin auto-record waits until guided step is collecting valid speed
+     * (fair A/B duration; avoid 129s wait-in-file).
+     */
+    fun isCabinRecordOnValidSpeed(context: Context): Boolean =
+        prefs(context).getBoolean("cabin_record_on_valid_speed", false)
+
+    fun setCabinRecordOnValidSpeed(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean("cabin_record_on_valid_speed", enabled).apply()
+    }
+
+    /** Pending cabin step id while waiting for valid speed (null = none). */
+    fun getPendingCabinStepId(context: Context): String =
+        prefs(context).getString("pending_cabin_step_id", "").orEmpty()
+
+    fun setPendingCabinStepId(context: Context, stepId: String?) {
+        prefs(context).edit().putString("pending_cabin_step_id", stepId.orEmpty()).apply()
+    }
+
     fun setPersonalRumbleBias(context: Context, bias: Float) {
         prefs(context).edit().putFloat(KEY_PERSONAL_RUMBLE_BIAS, bias.coerceIn(0.7f, 1.3f)).apply()
     }

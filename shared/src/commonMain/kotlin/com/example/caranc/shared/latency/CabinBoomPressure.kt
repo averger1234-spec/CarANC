@@ -3,20 +3,19 @@ package com.example.caranc.shared.latency
 import com.example.caranc.shared.Keep
 import kotlin.math.abs
 import kotlin.math.min
+import kotlin.math.sqrt
 
 /**
  * **Cabin boom pressure path** — put real low-frequency anti energy on the speakers for 悶.
  *
- * Product feedback: user hears electronic noise with **zero** muffle-cancel feel; asking to
- * "play less" was wrong. This path deliberately produces **band-limited low-frequency
- * sound pressure** (≈30–100 Hz) correlated with cabin low-band mic (plant-delayed invert),
- * not broadband sand and not free-running multi-tone synth.
+ * 1.2.10: push **mic low** (not road/IMU blend), higher floor gain, dual ~85 Hz LPF,
+ * expose RMS/peak so log is not a near-zero single sample.
  *
  * Mechanism:
- * - Ring-buffer the low-band mic sample
+ * - Ring-buffer cabin mic low-band sample
  * - Read x(n − D) where D ≈ AA plant electrical delay
- * - Output anti = −gain · lowpass(x(n−D))  (speaker polarity)
- * - Gain scales with speed + |low| energy so cruise boom gets pressure
+ * - Output anti = −gain · lowpass(x(n−D))
+ * - Gain scales with speed + |low| energy; floor so cruise always has pressure
  */
 @Keep
 class CabinBoomPressure(
@@ -27,20 +26,30 @@ class CabinBoomPressure(
     private var write = 0
     private var count = 0
 
-    // Very-low LPF states (~70 Hz) — keep only boom, kill electronic mid/high
+    // Low LPF (~85 Hz) — boom band, kill electronic mid/high
     private var lp1 = 0f
     private var lp2 = 0f
     private val lpCoeff: Float =
-        (2.0 * kotlin.math.PI * 70.0 / sampleRate).toFloat().coerceIn(0.004f, 0.08f)
+        (2.0 * kotlin.math.PI * 85.0 / sampleRate).toFloat().coerceIn(0.006f, 0.10f)
 
     var lastOutput = 0f
         private set
     var lastGain = 0f
         private set
+    /** Block RMS of |y| for KPI (log). */
+    var lastRms = 0f
+        private set
+    /** Block peak of |y| for KPI (log). */
+    var lastPeak = 0f
+        private set
+
+    private var sumSq = 0.0
+    private var peakAbs = 0f
+    private var blockN = 0
 
     @Keep
-    fun push(lowBandSample: Float) {
-        ring[write % ring.size] = lowBandSample.coerceIn(-1.5f, 1.5f)
+    fun push(micLowSample: Float) {
+        ring[write % ring.size] = micLowSample.coerceIn(-1.5f, 1.5f)
         write++
         if (count < ring.size) count++
     }
@@ -58,31 +67,75 @@ class CabinBoomPressure(
         boomPriority: Boolean,
         freeze: Boolean
     ): Float {
-        if (!boomPriority || speedKmh < 18f || count < 8) {
-            lastOutput *= 0.95f
+        if (!boomPriority || speedKmh < 16f || count < 8) {
+            lastOutput *= 0.92f
             lastGain = 0f
+            accumulate(lastOutput)
             return lastOutput
         }
         val d = plantDelaySamples.coerceIn(0, min(count - 1, ring.size - 1))
-        // Prefer a usable delay floor: if measured plant is tiny, still use ~20ms for acoustic
-        val dUse = if (d < sampleRate / 80) (sampleRate / 50).coerceAtMost(count - 1) else d
+        // Prefer usable delay: if plant tiny, ~25 ms acoustic floor
+        val dUse = if (d < sampleRate / 80) (sampleRate / 40).coerceAtMost(count - 1) else d
         val idx = (write - 1 - dUse).mod(ring.size)
         val delayed = ring[idx]
 
-        // Speed + energy drive how hard we push LF pressure (not a free oscillator)
-        val speedNorm = ((speedKmh - 15f) / 70f).coerceIn(0.15f, 1.25f)
-        val energy = abs(delayed).coerceIn(0f, 0.8f)
-        // Strong enough to move cabin SPL; not full-scale clip
-        val gain = (0.42f + 0.55f * speedNorm) * (0.35f + 1.4f * energy).coerceIn(0.25f, 1.35f)
+        val speedNorm = ((speedKmh - 12f) / 65f).coerceIn(0.20f, 1.35f)
+        // Floor energy so quiet mic / weak splitter still drives audible LF pressure at speed
+        val energyFloor = when {
+            speedKmh >= 50f -> 0.12f
+            speedKmh >= 35f -> 0.08f
+            else -> 0.04f
+        }
+        val energy = abs(delayed).coerceIn(energyFloor, 0.90f)
+        // 1.2.10: stronger floor so cabin SPL moves (was ~0.003 peak → unhearable)
+        val gain = (0.85f + 0.70f * speedNorm) * (0.55f + 1.35f * energy)
+            .coerceIn(0.55f, 1.75f)
         lastGain = if (freeze) lastGain * 0.99f else gain
 
         var y = -delayed * lastGain
-        // Dual 1-pole ~70 Hz: boom pressure only
+        // Dual 1-pole ~85 Hz
         lp1 += lpCoeff * (y - lp1)
         lp2 += lpCoeff * (lp1 - lp2)
-        y = lp2.coerceIn(-0.85f, 0.85f)
+        y = lp2.coerceIn(-0.95f, 0.95f)
+        // Soft boost if after LPF still tiny but we have speed (LF content starved)
+        if (abs(y) < 0.02f && speedKmh >= 40f && energy >= energyFloor) {
+            y = (if (y >= 0f) 1f else -1f) * (0.035f + 0.04f * speedNorm).coerceAtMost(0.12f) *
+                (if (delayed >= 0f) -1f else 1f)
+            // re-smooth slightly
+            lp2 += lpCoeff * (y - lp2)
+            y = lp2.coerceIn(-0.90f, 0.90f)
+        }
         lastOutput = y
+        accumulate(y)
         return y
+    }
+
+    private fun accumulate(y: Float) {
+        val a = abs(y)
+        sumSq += (y * y).toDouble()
+        if (a > peakAbs) peakAbs = a
+        blockN++
+        // ~10 ms at 48 kHz → refresh KPI
+        if (blockN >= (sampleRate / 100).coerceAtLeast(64)) {
+            lastRms = sqrt((sumSq / blockN).toFloat())
+            lastPeak = peakAbs
+            sumSq = 0.0
+            peakAbs = 0f
+            blockN = 0
+        }
+    }
+
+    /** Prefer RMS for log (stable); falls back to |last|. */
+    @Keep
+    fun kpiLevel(): Float {
+        val r = lastRms
+        val p = lastPeak
+        val l = abs(lastOutput)
+        return when {
+            r > 1e-6f -> r
+            p > 1e-6f -> p * 0.5f
+            else -> l
+        }
     }
 
     @Keep
@@ -94,5 +147,10 @@ class CabinBoomPressure(
         lp2 = 0f
         lastOutput = 0f
         lastGain = 0f
+        lastRms = 0f
+        lastPeak = 0f
+        sumSq = 0.0
+        peakAbs = 0f
+        blockN = 0
     }
 }

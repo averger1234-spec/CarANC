@@ -743,7 +743,9 @@ class MultiBandANCProcessor(
 
             // Predictive ref ring: bipolar low audio only (Predictive / delay-compensated FxLMS)
             predictiveRef.push(lowSample)
-            boomPressure.push(lowSample)
+            // 1.2.10: boom pressure must track **cabin mic low**, not road/IMU blend
+            // (blend + high-lat micFactor starved LF → boomPressureOut≈0, no 悶 feel)
+            boomPressure.push(bands.low)
 
             // sonif 更不干擾 rumble：effectiveRumbleMode 時，rumble 的 muScale 不受 sonif eventScale 影響。
             val lowAdaptiveScale = if (effectiveRumbleMode) 1f else eventScale
@@ -1096,16 +1098,22 @@ class MultiBandANCProcessor(
             }
             var speedScaled = gatedCombined * totalScale
 
-            // ★ Cabin boom pressure: plant-delayed inverted low-band (real LF SPL, not free-run synth)
+            // ★ Cabin boom pressure: plant-delayed inverted **mic** low (real LF SPL)
             val boomPress = boomPressure.process(
                 plantDelaySamples = plantElectricalDelaySamples,
                 speedKmh = vehicleSpeedKmh,
                 boomPriority = boomFocusOut && vehicleSpeedValid,
                 freeze = freeze
             )
-            lastBoomPressureOut = boomPress
-            val pressMix = if (boomFocusOut) 1.15f else 0f
-            speedScaled = (speedScaled + boomPress * pressMix).coerceIn(-1.35f, 1.35f)
+            // KPI = block RMS (stable); mix uses instantaneous sample
+            lastBoomPressureOut = boomPressure.kpiLevel().coerceAtLeast(kotlin.math.abs(boomPress) * 0.5f)
+            // 1.2.10: stronger mix so path is audible on AA (was 1.15 with tiny y → unhearable)
+            val pressMix = when {
+                boomFocusOut && vehicleSpeedKmh >= 40f -> 1.55f
+                boomFocusOut -> 1.35f
+                else -> 0f
+            }
+            speedScaled = (speedScaled + boomPress * pressMix).coerceIn(-1.40f, 1.40f)
 
             // ★ Adaptive boom notches (complex LMS) layered on pressure path
             val lowBoomErr = virtualBands.low - speedScaled * 0.10f
