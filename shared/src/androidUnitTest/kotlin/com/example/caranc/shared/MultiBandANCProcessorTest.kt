@@ -143,9 +143,9 @@ class MultiBandANCProcessorTest {
 
         assertTrue(rmsOut > 1e-5, "AA path must emit anti-noise (not silence-as-fake-cancel), rmsOut=$rmsOut")
         // Primary success: plant-aligned residual quieter, OR (if still adapting) at least not the old
-        // "static" failure mode of same-index residual much worse than −3 dB while anti is huge.
+        // "static" failure mode (~−6.6 dB). Correct plant-delayed anti can make same-index ~−3..−4 dB.
         val plantAlignedOk = reductionDb > 0.0 && rmsRes < rmsIn
-        val notStaticNoise = sameIdxRed > -3.0 // old bug was ~−6.6 dB (residual louder)
+        val notStaticNoise = sameIdxRed > -5.0 // 1.2.11: no full-D LMS x; allow mild same-idx penalty
         assertTrue(
             plantAlignedOk || (notStaticNoise && rmsOut > 1e-4),
             "AA plant delay path must cancel (plant-aligned red=${"%.2f".format(reductionDb)} dB) " +
@@ -418,5 +418,95 @@ class MultiBandANCProcessorTest {
 
         // History buffer would be filled post this in engine; here verify proc accepted the probe-derived latency
         assertTrue(proc.getLatencyBandLimits().lowEnabled)
+    }
+
+    /** 1.2.11: ~12 ms AA false peaks must not pull plant D down. */
+    @Test
+    fun plantProbe_rejectsBogus12msPeak_keepsHalPlant() {
+        val proc = createProcessor()
+        proc.setMeasuredLatencyBreakdown(
+            recordMs = 40f,
+            trackMs = 60f,
+            blockMs = 1.3f,
+            acousticMs = 1f,
+            frameworkMs = 35f
+        )
+        val before = proc.getPlantElectricalDelaySamples()
+        assertTrue(before > 2000, "HAL plant should be ~track+fw samples, got $before")
+
+        val bogus = (12f * sampleRate / 1000f).toInt() // ~12 ms
+        assertFalse(proc.shouldAcceptPlantProbeSamples(bogus), "12ms peak must be rejected")
+        val after = proc.refinePlantDelayFromProbe(bogus)
+        assertEquals(before, after, "rejected probe must leave plant D unchanged")
+        assertTrue(proc.wasLastPlantProbeRejected())
+    }
+
+    /** 1.2.11: legitimate ~95 ms probe around HAL plant is accepted. */
+    @Test
+    fun plantProbe_acceptsHalScalePeak() {
+        val proc = createProcessor()
+        proc.setMeasuredLatencyBreakdown(
+            recordMs = 40f,
+            trackMs = 60f,
+            blockMs = 1.3f,
+            acousticMs = 1f,
+            frameworkMs = 35f
+        )
+        val good = ((60f + 35f) * sampleRate / 1000f).toInt()
+        assertTrue(proc.shouldAcceptPlantProbeSamples(good))
+        val applied = proc.refinePlantDelayFromProbe(good)
+        assertTrue(applied > 2000)
+        assertFalse(proc.wasLastPlantProbeRejected())
+    }
+
+    /** 1.2.11: breakdown must not shrink a larger refined plant D. */
+    @Test
+    fun latencyBreakdown_doesNotShrinkRefinedPlant() {
+        val proc = createProcessor()
+        proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f)
+        val raised = proc.refinePlantDelayFromProbe((120f * sampleRate / 1000f).toInt())
+        assertTrue(raised > 4000)
+        proc.setMeasuredLatencyBreakdown(40f, 50f, 1.3f, 1f, 35f) // smaller buffer estimate
+        assertTrue(
+            proc.getPlantElectricalDelaySamples() >= raised,
+            "breakdown must not shrink refined plant (got ${proc.getPlantElectricalDelaySamples()} < $raised)"
+        )
+    }
+
+    /** 1.2.11: AA ~137 ms enters high-lat strategy (Wiener path gated). */
+    @Test
+    fun aa137ms_usesHighLatStrategy() {
+        val proc = createProcessor()
+        proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f) // ~137 ms total
+        proc.setVehicleSpeed(70f, true)
+        proc.setRumbleAccel(1.0f)
+        proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+        warmUp(proc, generateTone(50f, 512, 0.4f), 4)
+        val strategy = proc.getLatencyStrategy()
+        assertTrue(
+            strategy.contains("HIGH_LAT"),
+            "137ms AA must be HIGH_LAT after threshold 120 (got $strategy)"
+        )
+        val limits = proc.getLatencyBandLimits()
+        assertFalse(limits.midEnabled, "mid must be off at AA ~137ms")
+    }
+
+    /** 1.2.11: CabinBoomPressure has no soft-boost; delay uses provided samples. */
+    @Test
+    fun cabinBoomPressure_noSoftBoost_usesDelay() {
+        val boom = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
+        val delay = 2000 // must be >= sampleRate/80 or CabinBoomPressure substitutes ~25ms floor
+        // Fill ring with silence so delayed read is ~0 (energy floor still raises gain, but no synth spike)
+        repeat(delay + 64) { boom.push(0f) }
+        val y = boom.process(
+            plantDelaySamples = delay,
+            speedKmh = 70f,
+            boomPriority = true,
+            freeze = false,
+            polarity = 1f
+        )
+        // Soft-boost used to invent ±0.035..0.12 when |y| tiny — must stay near 0 from silent ring
+        assertTrue(kotlin.math.abs(y) < 0.025f, "no soft-boost floor expected, got $y")
+        assertEquals(delay, boom.lastDelayUsed)
     }
 }

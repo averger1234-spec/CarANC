@@ -22,6 +22,43 @@
 
 
 
+## [1.2.11] — 2026-08-18 · Android code 13 · 相位對齊：真正壓得下 40–80 Hz
+
+### 問題（1.2.10 公平艙錄 A/B）
+
+Mute／等長艙錄已正確，但 **on 比 off 更吵**（cabin FFT 40–80 Hz **+0.97 dB**）：
+
+1. `HIGH_LATENCY_MS=180` → 真實 AA ~137 ms 仍走 NORMAL → **Wiener 開環 FF** 混入未鎖相位能量  
+2. Boom 延遲只用 track+framework（缺總 RTT）；soft-boost **捏造 LF**  
+3. Low FxLMS ref 混 **45% IMU 波形**（與艙壓不同相）  
+4. Probe 假峰 **~12 ms** 仍寫入 plant D；breakdown 覆寫 refined D  
+5. High-lat `plantAlignedReference(D)` 當 LMS x → 潛在 **雙倍 plant delay**  
+6. `boomPriority` 含 TIRE → tire/wind notch KPI=0
+
+### 修復
+
+| 項 | 內容 |
+|----|------|
+| **HIGH_LAT** | 門檻 **180→120**；`LatencyAwareBandLimiter` mid 在 ≥120 ms 關閉 |
+| **Wiener** | AA 上路自動 gated（`!highLat`） |
+| **LMS x** | 禁止 full-D delayed ref；僅 mild predict ≤12% |
+| **IMU** | 只做 mu/coherence，**不再混進 audio ref** |
+| **Boom** | 延遲=總 `measuredLatencyMs`；刪 soft-boost；corr 閘 mix；極性 auto-flip |
+| **Plant D** | breakdown 不縮小 refined；probe 拒假峰 → log `probe_rejected` |
+| **Notch** | `boomPriority` **僅 ROAD**；TIRE/WIND 可跑 notch |
+| **KPI** | `boomPlantCorr` 改 **plant-lagged**；spectrum 記 `boomPolarity` / `latencyStrategy` |
+
+### 路測必收
+
+- 艙錄 off/on ~20s；**40–80 Hz on < off（目標 ≤ −1.5 dB）**
+- `latencyStrategy` 含 `HIGH_LAT`；假峰有 `probe_rejected`
+- on：`antiE40_80` 有能量；plant-lagged `boomPlantCorr` 中位 >0.15
+- tire 步：`tireNotchEnergy` 可 >0
+
+腳本：`三目標·1.2.11相位對齊降噪`
+
+---
+
 ## [1.2.10] — 2026-08-17 · Android code 12 · 真 mute baseline + 可感 boom + 公平艙錄 A/B
 
 ### 問題（1.2.9 路測 log）

@@ -8,13 +8,13 @@ import kotlin.math.sqrt
 /**
  * **Cabin boom pressure path** — put real low-frequency anti energy on the speakers for 悶.
  *
- * 1.2.10: push **mic low** (not road/IMU blend), higher floor gain, dual ~85 Hz LPF,
- * expose RMS/peak so log is not a near-zero single sample.
+ * 1.2.11: delay must match **total AA RTT** (not track+framework alone); no soft-boost
+ * synthetic samples (they were uncorrelated LF that made cabin louder); optional polarity.
  *
  * Mechanism:
  * - Ring-buffer cabin mic low-band sample
- * - Read x(n − D) where D ≈ AA plant electrical delay
- * - Output anti = −gain · lowpass(x(n−D))
+ * - Read x(n − D) where D ≈ total measured path delay (record+track+framework…)
+ * - Output anti = polarity · (−gain · lowpass(x(n−D)))
  * - Gain scales with speed + |low| energy; floor so cruise always has pressure
  */
 @Keep
@@ -42,6 +42,9 @@ class CabinBoomPressure(
     /** Block peak of |y| for KPI (log). */
     var lastPeak = 0f
         private set
+    /** Last delay actually used (samples). */
+    var lastDelayUsed = 0
+        private set
 
     private var sumSq = 0.0
     private var peakAbs = 0f
@@ -55,17 +58,19 @@ class CabinBoomPressure(
     }
 
     /**
-     * @param plantDelaySamples electrical delay (track+framework) at process sample rate
+     * @param plantDelaySamples total path delay at process sample rate (prefer measured RTT)
      * @param speedKmh vehicle speed
      * @param boomPriority ROAD / rumble focus
-     * @return speaker anti sample (already − polarity, lowpassed)
+     * @param polarity +1 or −1 (auto-flip from lagged corr when phase is inverted)
+     * @return speaker anti sample (already − polarity × LPF, then × polarity latch)
      */
     @Keep
     fun process(
         plantDelaySamples: Int,
         speedKmh: Float,
         boomPriority: Boolean,
-        freeze: Boolean
+        freeze: Boolean,
+        polarity: Float = 1f
     ): Float {
         if (!boomPriority || speedKmh < 16f || count < 8) {
             lastOutput *= 0.92f
@@ -74,37 +79,31 @@ class CabinBoomPressure(
             return lastOutput
         }
         val d = plantDelaySamples.coerceIn(0, min(count - 1, ring.size - 1))
-        // Prefer usable delay: if plant tiny, ~25 ms acoustic floor
+        // Prefer usable delay: if plant tiny, ~25 ms acoustic floor (not full AA)
         val dUse = if (d < sampleRate / 80) (sampleRate / 40).coerceAtMost(count - 1) else d
+        lastDelayUsed = dUse
         val idx = (write - 1 - dUse).mod(ring.size)
         val delayed = ring[idx]
 
         val speedNorm = ((speedKmh - 12f) / 65f).coerceIn(0.20f, 1.35f)
-        // Floor energy so quiet mic / weak splitter still drives audible LF pressure at speed
         val energyFloor = when {
             speedKmh >= 50f -> 0.12f
             speedKmh >= 35f -> 0.08f
             else -> 0.04f
         }
         val energy = abs(delayed).coerceIn(energyFloor, 0.90f)
-        // 1.2.10: stronger floor so cabin SPL moves (was ~0.003 peak → unhearable)
         val gain = (0.85f + 0.70f * speedNorm) * (0.55f + 1.35f * energy)
             .coerceIn(0.55f, 1.75f)
         lastGain = if (freeze) lastGain * 0.99f else gain
 
+        // 1.2.11: no soft-boost invention — only real delayed mic (was +cabin energy)
         var y = -delayed * lastGain
+        val pol = if (polarity >= 0f) 1f else -1f
+        y *= pol
         // Dual 1-pole ~85 Hz
         lp1 += lpCoeff * (y - lp1)
         lp2 += lpCoeff * (lp1 - lp2)
         y = lp2.coerceIn(-0.95f, 0.95f)
-        // Soft boost if after LPF still tiny but we have speed (LF content starved)
-        if (abs(y) < 0.02f && speedKmh >= 40f && energy >= energyFloor) {
-            y = (if (y >= 0f) 1f else -1f) * (0.035f + 0.04f * speedNorm).coerceAtMost(0.12f) *
-                (if (delayed >= 0f) -1f else 1f)
-            // re-smooth slightly
-            lp2 += lpCoeff * (y - lp2)
-            y = lp2.coerceIn(-0.90f, 0.90f)
-        }
         lastOutput = y
         accumulate(y)
         return y
@@ -149,6 +148,7 @@ class CabinBoomPressure(
         lastGain = 0f
         lastRms = 0f
         lastPeak = 0f
+        lastDelayUsed = 0
         sumSq = 0.0
         peakAbs = 0f
         blockN = 0

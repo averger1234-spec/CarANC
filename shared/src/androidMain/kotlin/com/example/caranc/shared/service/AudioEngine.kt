@@ -1026,48 +1026,66 @@ class AudioEngine(
                                     currentLatency
                                 )
                                 ancProcessor?.setProbeCorrMs(sessionContext.perfMetrics.lastProbeCorrMs)
-                                // 1.2.9 P2: write ŝ plant electrical delay from probe + persist
+                                // 1.2.11: reject bogus ~12 ms AA autocorrelation peaks; do not shrink plant D / persist junk
                                 val srProbe = audioRecord?.sampleRate ?: 44100
                                 val plantSamp = (meas * srProbe / 1000f).toInt().coerceIn(64, 20000)
-                                val appliedPlant = ancProcessor?.refinePlantDelayFromProbe(plantSamp) ?: plantSamp
+                                val beforePlant = ancProcessor?.getPlantElectricalDelaySamples() ?: 0
+                                val mb = ancProcessor as? com.example.caranc.shared.MultiBandANCProcessor
+                                val accepted = mb?.shouldAcceptPlantProbeSamples(plantSamp) ?: (meas >= 40f)
                                 val routeLab = currentRoute?.routeLabel ?: "unknown"
-                                PlantPathStore.save(
-                                    appContext,
-                                    PlantPathStore.PlantPathSnapshot(
-                                        profileId = cabinProfileId,
-                                        routeLabel = routeLab,
-                                        electricalDelaySamples = appliedPlant,
-                                        probeCorrMs = meas,
-                                        cabinAcousticDelaySamples = acousticDelaySamples,
-                                        updatedEpochMs = System.currentTimeMillis()
+                                if (!accepted) {
+                                    AncSessionLogger.log(
+                                        phase = "probe_rejected",
+                                        fields = mapOf(
+                                            "measuredMs" to meas,
+                                            "plantSamp" to plantSamp,
+                                            "keptPlantSamples" to beforePlant,
+                                            "halTrackMs" to (currentLatency?.trackBufferMs ?: 0f),
+                                            "halFrameworkMs" to (currentLatency?.frameworkMarginMs ?: 35f),
+                                            "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f),
+                                            "note" to "1.2.11_reject_false_peak_keep_HAL_plant"
+                                        )
                                     )
-                                )
-                                AncSessionLogger.log(
-                                    phase = "runtime_latency_correlated",
-                                    fields = mapOf(
-                                        "measuredMs" to meas,
-                                        "smoothedMs" to runtimeMeasuredLatencyMs,
-                                        "block" to blockCount,
-                                        "corrComputeMs" to corrDtMs,
-                                        "plantDelaySamplesApplied" to appliedPlant,
-                                        "plantDelayMs" to (appliedPlant * 1000f / srProbe),
-                                        "plantPathSaved" to true,
-                                        "routeLabel" to routeLab,
-                                        "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f)
+                                } else {
+                                    val appliedPlant = ancProcessor?.refinePlantDelayFromProbe(plantSamp) ?: plantSamp
+                                    PlantPathStore.save(
+                                        appContext,
+                                        PlantPathStore.PlantPathSnapshot(
+                                            profileId = cabinProfileId,
+                                            routeLabel = routeLab,
+                                            electricalDelaySamples = appliedPlant,
+                                            probeCorrMs = meas,
+                                            cabinAcousticDelaySamples = acousticDelaySamples,
+                                            updatedEpochMs = System.currentTimeMillis()
+                                        )
                                     )
-                                )
-                                AncSessionLogger.log(
-                                    phase = "plant_path_saved",
-                                    fields = mapOf(
-                                        "profileId" to cabinProfileId,
-                                        "routeLabel" to routeLab,
-                                        "electricalDelaySamples" to appliedPlant,
-                                        "probeCorrMs" to meas,
-                                        "cabinAcousticDelaySamples" to acousticDelaySamples,
-                                        "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f),
-                                        "note" to "P2_sHat_plant_delay_persisted"
+                                    AncSessionLogger.log(
+                                        phase = "runtime_latency_correlated",
+                                        fields = mapOf(
+                                            "measuredMs" to meas,
+                                            "smoothedMs" to runtimeMeasuredLatencyMs,
+                                            "block" to blockCount,
+                                            "corrComputeMs" to corrDtMs,
+                                            "plantDelaySamplesApplied" to appliedPlant,
+                                            "plantDelayMs" to (appliedPlant * 1000f / srProbe),
+                                            "plantPathSaved" to true,
+                                            "routeLabel" to routeLab,
+                                            "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f)
+                                        )
                                     )
-                                )
+                                    AncSessionLogger.log(
+                                        phase = "plant_path_saved",
+                                        fields = mapOf(
+                                            "profileId" to cabinProfileId,
+                                            "routeLabel" to routeLab,
+                                            "electricalDelaySamples" to appliedPlant,
+                                            "probeCorrMs" to meas,
+                                            "cabinAcousticDelaySamples" to acousticDelaySamples,
+                                            "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f),
+                                            "note" to "P2_sHat_plant_delay_persisted"
+                                        )
+                                    )
+                                }
                             }
                         }
                     } else if (read < 0) {
@@ -1484,6 +1502,8 @@ class AudioEngine(
                     "boomPressureOut" to (ancProcessor?.getBoomPressureOut() ?: 0f),
                     "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f),
                     "plantDelaySamples" to (ancProcessor?.getPlantElectricalDelaySamples() ?: 0),
+                    "boomPolarity" to ((ancProcessor as? com.example.caranc.shared.MultiBandANCProcessor)?.getBoomPolarity() ?: 1f),
+                    "latencyStrategy" to (ancProcessor?.getLatencyStrategy() ?: ""),
                     "speedKmh" to speed.speedKmh,
                     "nvhFocus" to (ancProcessor?.getNvhFocus() ?: "?"),
                     "forcedNvhFocus" to (com.example.caranc.shared.GuidedNvhOverride.forcedFocusName ?: "auto"),
@@ -1491,7 +1511,7 @@ class AudioEngine(
                     "diagToneHz" to AncTestPreferences.getDiagToneHz(appContext),
                     "muteAnti" to AncTestPreferences.isMuteAntiOutput(appContext),
                     "userAncGain" to AncTestPreferences.getUserAncGain(appContext),
-                    "note" to "antiE_*=send_path_before_AA; cabin_m4a_for_true_A_B; muteAnti=road_off_baseline"
+                    "note" to "1.2.11_phase_fix; antiE_*=send; cabin_m4a_A_B; lagged_boomPlantCorr"
                 )
             )
         }

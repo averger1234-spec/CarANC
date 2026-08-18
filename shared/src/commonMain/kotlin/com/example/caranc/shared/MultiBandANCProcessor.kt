@@ -174,19 +174,31 @@ class MultiBandANCProcessor(
     /** Literature: coherence proxy so incoherent IMU doesn't corrupt FF / boost. */
     private val imuMicCoherence = ImuMicCoherenceGate()
     private var lastCoherenceQuality = 0.5f
-    private var latencyBandLimits = LatencyAwareBandLimiter.limits(150f)
+    // Default < HIGH_LATENCY_MS(120): stay NORMAL until AA measurement raises latency.
+    // (Was 150; with threshold 120 that immediately gated Wiener/mid and starved unit/idle paths.)
+    private var latencyBandLimits = LatencyAwareBandLimiter.limits(100f)
     /** Always measured AA/path latency (not debug override). Used for plant, maxCancel, FF strategy. */
-    private var estimatedLatencyMs = 150f
-    private var measuredLatencyMs = 150f
+    private var estimatedLatencyMs = 100f
+    private var measuredLatencyMs = 100f
     private var cabinAcousticDelaySamples = 0
     /** Electrical secondary-path delay (track + framework / AA submix), samples @ process sampleRate. */
     private var plantElectricalDelaySamples = 0
     private var latencyTrackMs = 0f
+    private var latencyRecordMs = 40f
     private var latencyFrameworkMs = 35f
     private var latencyStrategy = "NORMAL"
-    /** 1.2.9: EMA corr of low anti vs low mic at plant lag (diagnostic for ŝ alignment). */
+    /** 1.2.9/1.2.11: plant-lagged EMA corr (−mic[n]·anti[n−D]); positive ⇒ anti opposing at arrival. */
     private var boomPlantCorrEma = 0f
     private var lastBoomPlantCorr = 0f
+    private val antiCorrRing = FloatArray(X_BUFFER_SIZE)
+    private var antiCorrWrite = 0
+    private var antiCorrCount = 0
+    /** Auto polarity for boom path when lagged corr stays negative. */
+    private var boomPolarity = 1f
+    private var boomNegCorrSamples = 0
+    private var boomPolarityFlipCooldown = 0
+    private var lastProbeRejected = false
+    private var lastProbeRejectMs = 0f
     private var learningCaptured = false
 
     // Dedicated RumblePreviewPredictor (architecture change for AA high-latency rumble).
@@ -274,17 +286,23 @@ class MultiBandANCProcessor(
         acousticMs: Float,
         frameworkMs: Float
     ) {
+        latencyRecordMs = recordMs.coerceAtLeast(0f)
         latencyTrackMs = trackMs.coerceAtLeast(0f)
         latencyFrameworkMs = frameworkMs.coerceAtLeast(0f)
         val total = (recordMs + trackMs + blockMs + acousticMs + frameworkMs).coerceIn(15f, 400f)
         measuredLatencyMs = total
         estimatedLatencyMs = total
         latencyBandLimits = LatencyAwareBandLimiter.limits(measuredLatencyMs)
-        // Secondary path electrical delay ≈ track + framework (dominant AA remote-submix contribution).
-        // Cabin IR remains short in sHat; pure delay is applied via acousticDelaySamples in FxLMS.
-        plantElectricalDelaySamples =
-            ((latencyTrackMs + latencyFrameworkMs) * sampleRate / 1000f).toInt()
-                .coerceIn(0, MAX_PLANT_DELAY_SAMPLES)
+        // 1.2.11: do NOT blindly overwrite refined / PlantPathStore D with track+framework.
+        // Buffer estimate only initializes or raises floor (max), never shrinks a good plant D.
+        val bufferPlant = ((latencyTrackMs + latencyFrameworkMs) * sampleRate / 1000f).toInt()
+            .coerceIn(0, MAX_PLANT_DELAY_SAMPLES)
+        plantElectricalDelaySamples = if (plantElectricalDelaySamples <= 0) {
+            bufferPlant
+        } else {
+            maxOf(plantElectricalDelaySamples, bufferPlant)
+                .coerceIn(64, MAX_PLANT_DELAY_SAMPLES)
+        }
         recomputeFxDelay()
         rumblePredictor.setPredictionHorizon(estimatedLatencyMs, estimatedLatencyMs)
         updateLatencyStrategy()
@@ -295,20 +313,49 @@ class MultiBandANCProcessor(
     override fun getMeasuredLatencyMs(): Float = measuredLatencyMs
     override fun getBoomPlantCorr(): Float = lastBoomPlantCorr
 
+    /** True when last refinePlantDelayFromProbe rejected a bogus peak (e.g. ~12 ms). */
+    fun wasLastPlantProbeRejected(): Boolean = lastProbeRejected
+    fun getLastPlantProbeRejectMs(): Float = lastProbeRejectMs
+    fun getBoomPolarity(): Float = boomPolarity
+
+    /**
+     * Accept probe only inside a window around HAL plant (track+framework).
+     * Rejects common AA false peaks (~12–14 ms) that pulled D down and unlocked boom.
+     */
+    fun shouldAcceptPlantProbeSamples(probeDelaySamples: Int): Boolean {
+        val p = probeDelaySamples
+        val halPlant = ((latencyTrackMs + latencyFrameworkMs) * sampleRate / 1000f).toInt()
+            .coerceAtLeast((sampleRate * 0.040f).toInt())
+        val minAccept = maxOf((sampleRate * 0.040f).toInt(), (halPlant * 0.55f).toInt())
+        val maxAccept = maxOf((halPlant * 2.5f).toInt(), (sampleRate * 0.320f).toInt())
+            .coerceAtMost(MAX_PLANT_DELAY_SAMPLES)
+        return p in minAccept..maxAccept
+    }
+
     override fun refinePlantDelayFromProbe(probeDelaySamples: Int): Int {
-        val p = probeDelaySamples.coerceIn(64, MAX_PLANT_DELAY_SAMPLES)
+        val p = probeDelaySamples.coerceIn(0, MAX_PLANT_DELAY_SAMPLES)
+        lastProbeRejected = false
+        lastProbeRejectMs = p * 1000f / sampleRate
+        // Allow loading a previously persisted plant even if HAL fields not yet set:
+        // only gate when we already have a HAL-scale estimate (track+fw > 20ms).
+        val halMs = latencyTrackMs + latencyFrameworkMs
+        if (halMs >= 20f && !shouldAcceptPlantProbeSamples(p)) {
+            lastProbeRejected = true
+            return plantElectricalDelaySamples
+        }
         // EMA blend: trust probe gradually (AA delay drifts)
         plantElectricalDelaySamples = if (plantElectricalDelaySamples <= 0) {
-            p
+            p.coerceIn(64, MAX_PLANT_DELAY_SAMPLES)
         } else {
             (0.72f * plantElectricalDelaySamples + 0.28f * p).toInt()
                 .coerceIn(64, MAX_PLANT_DELAY_SAMPLES)
         }
-        // Keep measured latency roughly consistent with plant samples
+        // Keep measured latency roughly consistent with plant samples (do not collapse to probe alone)
         val plantMs = plantElectricalDelaySamples * 1000f / sampleRate
-        measuredLatencyMs = (latencyTrackMs + latencyFrameworkMs + 40f + plantMs * 0.15f)
+        val halTotal = (latencyRecordMs + latencyTrackMs + latencyFrameworkMs + 1.5f)
             .coerceIn(15f, 400f)
-            .coerceAtLeast(plantMs + 20f)
+        measuredLatencyMs = maxOf(halTotal, plantMs + latencyRecordMs * 0.5f)
+            .coerceIn(15f, 400f)
         estimatedLatencyMs = measuredLatencyMs
         latencyBandLimits = LatencyAwareBandLimiter.limits(measuredLatencyMs)
         recomputeFxDelay()
@@ -317,16 +364,44 @@ class MultiBandANCProcessor(
         return plantElectricalDelaySamples
     }
 
-    /** Call once per block with last mic low and speaker anti (normalized floats). */
+    /** Call with mic low and speaker anti (normalized). Uses plant-lagged product (1.2.11). */
     fun updateBoomPlantCorrelation(micLow: Float, antiSample: Float) {
-        // Simple product EMA as corr proxy when energy present
+        antiCorrRing[antiCorrWrite and (antiCorrRing.size - 1)] = antiSample
+        antiCorrWrite++
+        if (antiCorrCount < antiCorrRing.size) antiCorrCount++
+        val dUse = boomDelaySamples().coerceIn(0, (antiCorrCount - 1).coerceAtLeast(0))
+        val delayedAnti = if (antiCorrCount > 8) {
+            antiCorrRing[(antiCorrWrite - 1 - dUse) and (antiCorrRing.size - 1)]
+        } else {
+            antiSample
+        }
         val m = micLow
-        val a = antiSample
-        val prod = -m * a // anti should oppose mic → positive when canceling
+        val a = delayedAnti
+        // Delayed anti arrives with mic now → opposite signs ⇒ cancel ⇒ positive
+        val prod = -m * a
         boomPlantCorrEma = 0.995f * boomPlantCorrEma + 0.005f * prod
         val norm = (kotlin.math.abs(m) + kotlin.math.abs(a) + 1e-4f)
         lastBoomPlantCorr = (boomPlantCorrEma / norm).coerceIn(-1f, 1f)
+
+        if (boomPolarityFlipCooldown > 0) boomPolarityFlipCooldown--
+        if (vehicleSpeedKmh >= 40f && lastBoomPlantCorr < -0.08f) {
+            boomNegCorrSamples += 4
+            if (boomNegCorrSamples >= sampleRate * 2 && boomPolarityFlipCooldown <= 0) {
+                boomPolarity = -boomPolarity
+                boomNegCorrSamples = 0
+                boomPlantCorrEma = 0f
+                lastBoomPlantCorr = 0f
+                boomPolarityFlipCooldown = sampleRate * 8
+            }
+        } else if (lastBoomPlantCorr > 0.05f) {
+            boomNegCorrSamples = 0
+        }
     }
+
+    /** Total measured path delay for boom FF (record+track+fw…), not track+fw alone. */
+    private fun boomDelaySamples(): Int =
+        (measuredLatencyMs * sampleRate / 1000f).toInt()
+            .coerceIn(64, MAX_PLANT_DELAY_SAMPLES)
 
     private fun updateLatencyStrategy() {
         // CORE FIX: abandoned FF_PREVIEW_ONLY open-loop magnitude inject (produced speaker noise).
@@ -778,31 +853,25 @@ class MultiBandANCProcessor(
             // Coherence gate (literature: drop bad accel channels)
             rumbleVibBoost *= (0.55f + 0.45f * lastCoherenceQuality)
 
-            // High-lat: plant-aligned / predictive bipolar ref for low path (not IMU envelope).
+            // High-lat: plant D belongs ONLY in filtered-x / boom — never pre-delay LMS x (double-D).
             val highLat = estimatedLatencyMs > HIGH_LATENCY_MS
             val boomFocusNow = lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE ||
                 lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.TIRE_NOISE ||
                 (lastEffectiveRumbleMode && vehicleSpeedKmh >= 22f)
-            // Full-rate plant delay on bipolar low ref (Predictive FxLMS / delay-compensated FF).
-            // Cap to ring capacity; mild predictFraction only (avoid inventing HF under AA).
-            val lowAudioRef = if (highLat && plantElectricalDelaySamples > 64) {
-                predictiveRef.plantAlignedReference(
-                    plantDelaySamples = plantElectricalDelaySamples.coerceAtMost(12000),
-                    predictFraction = if (lastEffectiveRumbleMode) 0.18f else 0.1f
+            // 1.2.11: mild lookahead only; do NOT feed x(n−D) into FxLMS (y would be double-delayed).
+            val lowAudioRef = if (highLat) {
+                val pred = predictiveRef.predict(
+                    (plantElectricalDelaySamples * 0.05f).toInt().coerceIn(0, 256)
                 )
+                (lowSample * 0.88f + pred * 0.12f).coerceIn(-1.2f, 1.2f)
             } else {
                 lowSample
             }
             val imuRefScale = if (lastEffectiveRumbleMode) {
                 (1f + rumbleEnergyProxy.coerceIn(0f, 1f) * 0.25f * lastCoherenceQuality).coerceIn(1f, 1.25f)
             } else 1f
-            // 1.2.8 P0: mix structural IMU axis ref into low path (RNC-style), not magnitude-only
-            val imuWave = lastImuRefSample * 0.12f // scale m/s²-ish into audio-ish
-            val lowSampleForLowBand = if (boomFocusNow || lastEffectiveRumbleMode) {
-                (lowAudioRef * 0.55f * imuRefScale + imuWave * 0.45f).coerceIn(-1.5f, 1.5f)
-            } else {
-                lowAudioRef * imuRefScale
-            }
+            // 1.2.11: IMU for mu/coherence only — do NOT mix accel waveform into audio ref (unlocked phase).
+            val lowSampleForLowBand = (lowAudioRef * imuRefScale).coerceIn(-1.5f, 1.5f)
 
             if (lastCoherenceQuality < 0.35f && effectiveRumbleMode) {
                 rumbleVibBoost *= 0.75f
@@ -1088,31 +1157,44 @@ class MultiBandANCProcessor(
                 weakDriveHiss -> combined * 0.45f
                 else -> combined
             }
-            // 1.2.7: push LF 悶 pressure hard; kill HF electronic character when boom-focused
+            // Boom speaker LPF / pressure: ROAD rumble (and driving rumble), NOT tire/wind focus
             val boomFocusOut = lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE ||
-                lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.TIRE_NOISE ||
-                (lastEffectiveRumbleMode && vehicleSpeedKmh >= 22f)
+                (lastEffectiveRumbleMode &&
+                    lastNvhFocus != com.example.caranc.shared.model.NvhFocusClass.TIRE_NOISE &&
+                    lastNvhFocus != com.example.caranc.shared.model.NvhFocusClass.WIND_SHEAR &&
+                    vehicleSpeedKmh >= 22f)
+            // Notch boomPriority only for ROAD — tire/wind steps must run their notches (1.2.11)
+            val notchBoomPriority =
+                lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE
             var totalScale = lastSpeedTotalAnti.coerceIn(0.05f, 1.45f)
             if (boomFocusOut && vehicleSpeedKmh >= 18f) {
                 totalScale = (totalScale * if (highLat) 1.28f else 1.20f).coerceAtMost(1.45f)
             }
             var speedScaled = gatedCombined * totalScale
 
-            // ★ Cabin boom pressure: plant-delayed inverted **mic** low (real LF SPL)
+            // ★ Cabin boom pressure: total-RTT delayed inverted mic low (1.2.11)
             val boomPress = boomPressure.process(
-                plantDelaySamples = plantElectricalDelaySamples,
+                plantDelaySamples = boomDelaySamples(),
                 speedKmh = vehicleSpeedKmh,
                 boomPriority = boomFocusOut && vehicleSpeedValid,
-                freeze = freeze
+                freeze = freeze,
+                polarity = boomPolarity
             )
             // KPI = block RMS (stable); mix uses instantaneous sample
             lastBoomPressureOut = boomPressure.kpiLevel().coerceAtLeast(kotlin.math.abs(boomPress) * 0.5f)
-            // 1.2.10: stronger mix so path is audible on AA (was 1.15 with tiny y → unhearable)
-            val pressMix = when {
-                boomFocusOut && vehicleSpeedKmh >= 40f -> 1.55f
-                boomFocusOut -> 1.35f
+            // Gate mix by plant-lagged corr — don't blast unlocked phase (cabin +0.97 dB root cause)
+            val corrGate = when {
+                lastBoomPlantCorr >= 0.15f -> 1.00f
+                lastBoomPlantCorr >= 0.05f -> 0.70f
+                lastBoomPlantCorr >= 0f -> 0.45f
+                else -> 0.28f
+            }
+            val pressMixBase = when {
+                boomFocusOut && vehicleSpeedKmh >= 40f -> 1.35f
+                boomFocusOut -> 1.15f
                 else -> 0f
             }
+            val pressMix = pressMixBase * corrGate
             speedScaled = (speedScaled + boomPress * pressMix).coerceIn(-1.40f, 1.40f)
 
             // ★ Adaptive boom notches (complex LMS) layered on pressure path
@@ -1125,7 +1207,7 @@ class MultiBandANCProcessor(
                 freeze = freeze,
                 allowOpenLoop = false,
                 highLatency = highLat,
-                boomPriority = boomFocusOut
+                boomPriority = notchBoomPriority
             )
             val notchMix = when {
                 boomFocusOut && highLat -> 1.45f
@@ -1340,8 +1422,11 @@ class MultiBandANCProcessor(
     }
 
     companion object {
-        /** Above this, treat path as AA high-lat: FF_PREVIEW_ONLY when rumble active. */
-        private const val HIGH_LATENCY_MS = 180f
+        /**
+         * 1.2.11: AA remote-submix is typically ~130–160 ms. Old 180 left real AA in NORMAL
+         * → Wiener open-loop + unlocked mid still mixed → cabin boom louder, not quieter.
+         */
+        private const val HIGH_LATENCY_MS = 120f
         /** Max pure-delay samples for AA secondary path (~333ms @48k). */
         private const val MAX_PLANT_DELAY_SAMPLES = 16000
         /** Ring buffer for x / filtered-x (must exceed MAX_PLANT_DELAY + filterLength). */

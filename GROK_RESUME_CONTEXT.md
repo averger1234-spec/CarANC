@@ -1,24 +1,26 @@
-# 最新多機同步索引（2026-08-12）
+# 最新多機同步索引（2026-08-18）
 
-**請先讀**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」+ **`CHANGELOG.md`**。
+**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.11**）。
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.9 / code 11** · iOS **1.2.6 (18)** 腳本對齊 1.2.7 |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.11 / code 13** · iOS **1.2.6 (18)**（framework 待重編） |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
-**1.2.9 重點**：P2 PlantPathStore + boomPlantCorr；1.2.8 antiE/tone/艙錄/IMU。
-**1.2.7 重點**：CabinBoomPressure 悶音壓 + 導測強制 PRO + boomPressureOut；腳本 car_road_tuning 1.2.7 文案。
-**1.2.6 重點**：spectrum_kpi + forceNvhFocus。
-**1.2.5 重點**：解鎖 high-lat low mu（0.08→0.90）+ 鎖相 boom 3-notch；禁假 open-loop 沙沙。  
-**1.2.4 重點**：核心審計假 anti（Wiener/open-loop/空 bank）閘死。  
-**1.1.0 重點**：`SpeedScheduledNvhGains`（路/輪/風 × 每 5 km/h）+ `car_road_tuning_v1`。  
+**1.2.11 重點**：相位對齊降噪 — HIGH_LAT 120、關 Wiener@AA、boom 總 RTT、拒 12ms probe、IMU 不混 ref、lagged boomPlantCorr。  
+**1.2.10 重點**：真 mute baseline + 可感 boom + 公平艙錄 A/B。  
+**1.2.9 重點**：P2 PlantPathStore + boomPlantCorr；1.2.8 antiE/tone/艙錄/IMU。  
+**1.2.7 重點**：CabinBoomPressure 悶音壓 + 導測強制 PRO + boomPressureOut。  
+**1.2.6 重點**：spectrum_kpi + forceNvhFocus。  
+**1.2.5 重點**：解鎖 high-lat low mu + 鎖相 boom 3-notch。  
+**1.2.4 重點**：閘死假 anti（Wiener/open-loop/空 bank）。  
+**1.1.0 重點**：`SpeedScheduledNvhGains` + `car_road_tuning_v1`。  
 **1.2.0 重點（iOS）**：CarPlay 對齊 AA；見 `iosApp/CARPLAY.md`。  
-**1.2.1 重點（雙端）**：無車速備用 — `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`）；log `speedSource` / UI 顯示。  
+**1.2.1 重點（雙端）**：無車速備用 `gps`→`gps_hold`→`imu_proxy`→`none`。  
 
 
 keystore **不在** GitHub，多機自行拷貝。
