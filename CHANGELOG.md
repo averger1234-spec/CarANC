@@ -59,6 +59,13 @@
 - 腳本／log：`muteAnti`、`forceBoomPolarity`、`boomPolarity`、`boom_polarity_winner`
 - 狀態頁 **`v1.2.12 (20)`** · `dist/CarANC-ios-kmp-debug.ipa`
 
+### iOS（build 21 · 通話結束車機音量暴衝）
+
+- CarPlay session **`.voiceChat` → `.default`**（避免掛斷後卡電話聲道／音樂暴衝）
+- 正確處理 `AVAudioSession` interruption：began 暫停引擎＋anti=0；ended 重套 session＋**1.6s 增益漸升**
+- Log：`audio_interruption` / `audio_interruption_resumed`
+- 狀態頁 **`v1.2.12 (21)`**
+
 ---
 
 ## [1.2.11] — 2026-08-18 · Android code 13 · 相位對齊：真正壓得下 40–80 Hz

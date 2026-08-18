@@ -46,6 +46,7 @@ final class CarAudioRouteMonitor: ObservableObject {
         ) { [weak self] _ in
             self?.refresh()
         })
+        // 路由刷新即可；通話中斷的 pause/resume 由 AncAudioEngine 處理（避免只 refresh 卻繼續播 anti）
         observers.append(nc.addObserver(
             forName: AVAudioSession.interruptionNotification,
             object: nil,
@@ -125,13 +126,15 @@ final class CarAudioRouteMonitor: ObservableObject {
     }
 
     /// 啟動 ANC 前呼叫，讓 session 偏好車機輸出（對齊 AA 不 fallback 手機喇叭的意圖）。
+    ///
+    /// **勿用 `.voiceChat`**：會開語音處理／AGC，通話結束後 CarPlay 音樂常變「電話聲道」或忽然很大聲。
     static func configureSessionForCarIfNeeded(preferCar: Bool) throws {
         let session = AVAudioSession.sharedInstance()
         if preferCar {
-            // 不強制 defaultToSpeaker，讓系統把輸出送到 CarPlay
+            // 不強制 defaultToSpeaker，讓系統把輸出送到 CarPlay；與音樂 mix，不搶通話聲道
             try session.setCategory(
                 .playAndRecord,
-                mode: .voiceChat, // 車機路徑較常見；高延遲由 DSP SpeedScheduled 吸收
+                mode: .default,
                 options: [.allowBluetoothA2DP, .mixWithOthers, .allowAirPlay]
             )
         } else {
@@ -143,6 +146,14 @@ final class CarAudioRouteMonitor: ObservableObject {
         }
         try session.setPreferredSampleRate(48_000)
         try session.setPreferredIOBufferDuration(preferCar ? 0.02 : 0.01)
-        try session.setActive(true)
+        try session.setActive(true, options: [])
+    }
+
+    /// 通話結束後重新套用「非語音」session，避免卡在 call audio 增益路徑。
+    static func restoreAfterCallInterruption(preferCar: Bool) throws {
+        let session = AVAudioSession.sharedInstance()
+        // 先讓出，再以 default mode 搶回 — 有助 CarPlay 音樂回到正常媒體音量
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        try configureSessionForCarIfNeeded(preferCar: preferCar)
     }
 }

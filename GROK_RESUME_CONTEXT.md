@@ -4,7 +4,7 @@
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.12 / code 14** · iOS **1.2.12 (20)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.12 / code 14** · iOS **1.2.12 (21)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |

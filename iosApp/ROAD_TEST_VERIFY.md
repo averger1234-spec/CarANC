@@ -1,6 +1,6 @@
 # iOS 實車驗證與 Log 指南
 
-**現行對版**：**iOS 狀態頁 `v1.2.12 (20)`** · Android **`v1.2.12` / code 14** · 腳本 1.2.12  
+**現行對版**：**iOS 狀態頁 `v1.2.12 (21)`** · Android **`v1.2.12` / code 14** · 腳本 1.2.12  
 **Log 欄位名與 Android `running_snapshot` 同一套**（見 `shared/.../AncRunningSnapshotSchema.kt`、`ANDROID_REUSE.md`）。  
 缺能力填 `n/a`，不改名。
 
@@ -110,7 +110,7 @@ DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路�
 | `tier` | Android 導測應 **PRO**（腳本強制） |
 | `forcedNvhFocus` | ROAD / TIRE / WIND |
 
-腳本顯示名：三目標·1.2.7悶音壓+PRO強制（**現行為 1.2.12**）。iOS **build 20** 已含 mute/極性/艙錄。
+腳本顯示名：三目標·1.2.7悶音壓+PRO強制（**現行為 1.2.12**）。iOS **build 21** 已含 mute/極性/艙錄。
 
 ## 1.2.8–1.2.9 診斷 + P2 plant
 

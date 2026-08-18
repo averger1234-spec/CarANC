@@ -1,7 +1,17 @@
 # iOS CarPlay（對齊 Android Auto）
 
 **本功能自 iOS 1.2.0 起**；現行全包 **iOS / Android 1.2.1**（含車速 hold／IMU 備用）。  
-狀態頁應顯示 **`v1.2.12 (20)`**。
+狀態頁應顯示 **`v1.2.12 (21)`**。
+
+## 通話結束後車機音樂忽然很大（已修 · build 21）
+
+| 原因 | 處理 |
+|------|------|
+| CarPlay session 曾用 `.voiceChat` | 改 `.default`，避免卡在「電話聲道」增益 |
+| 中斷只 refresh 路由、ANC 仍灌 anti | `audio_interruption` began → 暫停引擎／anti=0 |
+| 掛斷後立刻全增益搶 session | `restoreAfterCallInterruption` + **約 1.6s 增益漸升** |
+
+Log：`audio_interruption` / `audio_interruption_resumed`。
 
 ## 架構對照
 

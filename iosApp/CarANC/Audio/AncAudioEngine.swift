@@ -48,9 +48,174 @@ final class AncAudioEngine: ObservableObject {
     private var userAncGain: Float = 1
     private var forceBoomPolarity: Float = 0
     private var lastPlantResidualReductionDb: Float = 0
+    /// 通話／中斷：音訊執行緒讀；1=正常，0=靜音（恢復後漸升，避免車機音樂暴衝）
+    private var outputGain: Float = 1
+    private var interrupted = false
+    private var interruptionObserver: NSObjectProtocol?
+    private var secondarySilenceObserver: NSObjectProtocol?
+    private var resumeRampTimer: Timer?
 
     init(model: AncAppModel) {
         self.model = model
+        installInterruptionObservers()
+    }
+
+    deinit {
+        if let interruptionObserver {
+            NotificationCenter.default.removeObserver(interruptionObserver)
+        }
+        if let secondarySilenceObserver {
+            NotificationCenter.default.removeObserver(secondarySilenceObserver)
+        }
+        resumeRampTimer?.invalidate()
+    }
+
+    /// 來電／Siri 等中斷：暫停 anti；結束後重套 default session + 增益漸升
+    private func installInterruptionObservers() {
+        let nc = NotificationCenter.default
+        interruptionObserver = nc.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] note in
+            self?.handleInterruption(note)
+        }
+        secondarySilenceObserver = nc.addObserver(
+            forName: AVAudioSession.silenceSecondaryAudioHintNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let typeVal = note.userInfo?[AVAudioSessionSilenceSecondaryAudioHintTypeKey] as? UInt,
+                  let hint = AVAudioSession.SilenceSecondaryAudioHintType(rawValue: typeVal) else { return }
+            // 系統媒體成為主音訊時，暫時壓低我們的 anti，減少與車機搶增益
+            if hint == .begin {
+                self.outputGain = min(self.outputGain, 0.15)
+                Task { @MainActor in
+                    SessionLogger.shared.event("secondary_audio_hint", ["hint": "begin", "outputGain": "0.15"])
+                }
+            } else if !self.interrupted, self.isStarted {
+                self.beginOutputGainRamp(from: max(self.outputGain, 0.15), duration: 1.0)
+                Task { @MainActor in
+                    SessionLogger.shared.event("secondary_audio_hint", ["hint": "end"])
+                }
+            }
+        }
+    }
+
+    private func handleInterruption(_ note: Notification) {
+        guard let info = note.userInfo,
+              let typeVal = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeVal) else { return }
+
+        switch type {
+        case .began:
+            interrupted = true
+            outputGain = 0
+            resumeRampTimer?.invalidate()
+            resumeRampTimer = nil
+            // 立刻清輸出 ring，避免通話中還在灌 anti
+            ringLock.lock()
+            if !outputRing.isEmpty {
+                for i in 0..<outputRing.count { outputRing[i] = 0 }
+                outputWrite = 0
+                outputRead = 0
+            }
+            ringLock.unlock()
+            if engine.isRunning {
+                engine.pause()
+            }
+            Task { @MainActor in
+                if model.isRunning {
+                    model.phase = .paused
+                    model.statusDetail = "通話／中斷保護中"
+                }
+                SessionLogger.shared.event("audio_interruption", [
+                    "type": "began",
+                    "preferCar": "\(preferCarAudio)",
+                    "note": "mute_anti_pause_engine"
+                ])
+            }
+
+        case .ended:
+            let optsVal = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let opts = AVAudioSession.InterruptionOptions(rawValue: optsVal)
+            let shouldResume = opts.contains(.shouldResume)
+            Task { @MainActor in
+                SessionLogger.shared.event("audio_interruption", [
+                    "type": "ended",
+                    "shouldResume": "\(shouldResume)",
+                    "wasStarted": "\(isStarted)",
+                    "preferCar": "\(preferCarAudio)"
+                ])
+            }
+            guard isStarted, shouldResume else {
+                interrupted = false
+                return
+            }
+            resumeAfterInterruption()
+
+        @unknown default:
+            break
+        }
+    }
+
+    private func resumeAfterInterruption() {
+        // 關鍵：離開 voice/call 增益路徑，再輕柔恢復 anti（避免車機音樂忽然很大）
+        do {
+            try CarAudioRouteMonitor.restoreAfterCallInterruption(preferCar: preferCarAudio)
+        } catch {
+            Task { @MainActor in
+                SessionLogger.shared.event("audio_interruption_restore_error", [
+                    "error": error.localizedDescription
+                ])
+            }
+        }
+        interrupted = false
+        outputGain = 0
+        if !engine.isRunning {
+            do {
+                try engine.start()
+            } catch {
+                Task { @MainActor in
+                    SessionLogger.shared.event("audio_interruption_engine_start_error", [
+                        "error": error.localizedDescription
+                    ])
+                }
+            }
+        }
+        beginOutputGainRamp(from: 0, duration: 1.6)
+        Task { @MainActor in
+            if model.isRunning {
+                model.phase = preferCarAudio ? .driving : .running
+                model.statusDetail = "通話結束・音量漸升恢復"
+            }
+            SessionLogger.shared.event("audio_interruption_resumed", [
+                "rampSec": "1.6",
+                "sessionMode": "default",
+                "note": "avoid_carplay_music_volume_blast"
+            ])
+        }
+    }
+
+    private func beginOutputGainRamp(from start: Float, duration: TimeInterval) {
+        resumeRampTimer?.invalidate()
+        outputGain = start
+        let steps = max(Int(duration / 0.05), 1)
+        var step = 0
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] t in
+            guard let self else { t.invalidate(); return }
+            step += 1
+            let g = min(1, start + (1 - start) * Float(step) / Float(steps))
+            self.outputGain = g
+            if step >= steps {
+                self.outputGain = 1
+                t.invalidate()
+                self.resumeRampTimer = nil
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        resumeRampTimer = timer
     }
 
     /// 執行中切換等級（對齊 AA 車機 ActionStrip）
@@ -174,6 +339,10 @@ final class AncAudioEngine: ObservableObject {
             proc.setBoomPolarityForced(forceBoomPolarity)
         }
         kmpProcessor = proc
+        interrupted = false
+        outputGain = 1
+        resumeRampTimer?.invalidate()
+        resumeRampTimer = nil
 
         outputRing = [Float](repeating: 0, count: Int(sampleRate))
         outputWrite = 0
@@ -254,6 +423,10 @@ final class AncAudioEngine: ObservableObject {
     func stop() {
         uiTimer?.invalidate()
         uiTimer = nil
+        resumeRampTimer?.invalidate()
+        resumeRampTimer = nil
+        interrupted = false
+        outputGain = 1
         teardownGraph()
         speedProvider.stop()
         imuProvider.stop()
@@ -357,11 +530,16 @@ final class AncAudioEngine: ObservableObject {
             }
         }
         // 1.2.10/1.2.12：post-mute write（KPI 與喇叭一致）
-        if muted {
+        if muted || interrupted {
             for i in 0..<anti.count { anti[i] = 0 }
-        } else if userAncGain < 0.999 {
-            let g = userAncGain
-            for i in 0..<anti.count { anti[i] *= g }
+        } else {
+            var g = userAncGain
+            if g > 0.999 { g = 1 }
+            let og = outputGain
+            if g < 0.999 || og < 0.999 {
+                let m = g * og
+                for i in 0..<anti.count { anti[i] *= m }
+            }
         }
         pushAnti(anti)
         if GuidedCabinRecorder.shared.isRecording {
