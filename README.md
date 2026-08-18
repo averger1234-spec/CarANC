@@ -50,7 +50,7 @@ git push origin main
 |------|------|------|
 | **Android 版號** | **`1.2.12` / code `14`** · 主畫面 `v1.2.12` | ✅ |
 | **1.2.12 路測** | mute 時 `antiNoiseDb≈−200`；`road_off`→`ppos`→`pneg`；負 corr boom mix=0；禁不等長艙錄對 | ✅ |
-| **iOS 版號** | **`1.2.12` (build 21)** · 狀態頁 **`v1.2.12 (21)`** · mute+極性A/B+艙錄 | ✅ |
+| **iOS 版號** | **`1.2.12` (build 21)** · 狀態頁 **`v1.2.12 (21)`** · mute+極性A/B+艙錄+通話音量修復 | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
 | **CarPlay** | 對齊 AA（見 `iosApp/CARPLAY.md`） | ✅ 程式；圖示需 Apple entitlement |

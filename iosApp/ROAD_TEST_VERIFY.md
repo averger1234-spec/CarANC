@@ -130,3 +130,4 @@ DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路�
 | 極性 A/B | ✅ forceBoomPolarity ±1；`boom_polarity_winner` → UserDefaults PlantPathStore |
 | 艙錄 | ✅ 達速後 `cabin_*.wav`（Documents/anc_logs；用途同 Android m4a） |
 | corrGate / HIGH_LAT | ✅ 隨 KMP framework |
+| 通話結束車機音量 | ✅ build 21：`.default` session + interruption pause + 增益漸升（`audio_interruption*`） |

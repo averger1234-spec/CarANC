@@ -12,6 +12,7 @@
 | 腳本 | `scripts/README.md` |
 
 **1.2.12 重點**：真 mute KPI（post-write buffer）+ 極性 A/B（`road_ppos`/`road_pneg`→`PlantPathStore.boomPolarity`）+ 負 corr boom mix=0；只採信等長艙錄。  
+**iOS build 21**：通話／中斷後 CarPlay 音樂暴衝 — session 改 `.default`（勿 `.voiceChat`）+ interruption pause + 1.6s 增益漸升；見 `iosApp/CARPLAY.md`、`CHANGELOG.md`。  
 **1.2.11 重點**：相位對齊降噪 — HIGH_LAT 120、關 Wiener@AA、boom 總 RTT、拒 12ms probe、IMU 不混 ref、lagged boomPlantCorr。  
 **1.2.10 重點**：真 mute baseline + 可感 boom + 公平艙錄 A/B。  
 **1.2.9 重點**：P2 PlantPathStore + boomPlantCorr；1.2.8 antiE/tone/艙錄/IMU。  

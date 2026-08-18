@@ -42,11 +42,13 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 | 版號顯示 | ✅ 狀態頁 `v1.2.12 (21)` | ✅ 主畫面 `v1.2.12` |
 | 無車速備用 | ✅ gps_hold + imu_proxy | ✅ 同 `VehicleSpeedFusion` |
 | 多頻段 DSP | ✅ **KMP `MultiBandANCProcessor`** + SpeedScheduled | ✅ 同核心 |
-| `speedNvh*` / boom / antiE log | ✅ 1.2.9 | ✅ |
-| 路測腳本 | ✅ car_road_tuning_v1（1.2.9） | ✅ 同腳本 + 艙錄 m4a |
+| `speedNvh*` / boom / antiE / mute / 極性 | ✅ 1.2.12 | ✅ |
+| 路測腳本 | ✅ car_road_tuning_v1（1.2.12） | ✅ 同腳本 + 艙錄 m4a |
+| 艙錄 | ✅ 達速 `cabin_*.wav` | ✅ `cabin_*.m4a` |
 | Session log | ✅ running_snapshot 同欄位名 | ✅ JSONL |
 | GPS / IMU 三軸 | ✅ setImuAxes | ✅ |
-| Android Auto / CarPlay | ✅ CarPlay 對齊 AA（見 `CARPLAY.md`） | ✅ AA |
+| Android Auto / CarPlay | ✅ 見 `CARPLAY.md`（含通話結束音量修復） | ✅ AA |
+| 通話中斷保護 | ✅ pause + session restore + 增益漸升 | ✅ MODE_IN_CALL bypass |
 | 本機喇叭 duplex | ✅ AVAudioEngine + 50Hz tone | ✅ |
 | 預編 IPA | ✅ `dist/…ipa` **1.2.12 (21)** | — |
 
