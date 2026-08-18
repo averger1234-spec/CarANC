@@ -70,6 +70,12 @@ final class AncAppModel: ObservableObject {
     @Published var forcedNvhFocus: String = "auto"
     /// 1.2.8 診斷 tone（0=關；50=50Hz）
     @Published var diagToneHz: Float = 0
+    /// 1.2.10–1.2.12 mute / gain / polarity
+    @Published var muteAnti = false
+    @Published var userAncGain: Float = 1
+    @Published var forceBoomPolarity: Float = 0
+    @Published var boomPolarity: Float = 1
+    @Published var plantResidualReductionDb: Float = 0
     @Published var estimatedLatencyMs: Float = 0
     @Published var maxCancelHz: Float = 150
     @Published var nvhFocus: NvhFocus = .idle

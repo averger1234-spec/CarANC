@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Combine
+import CarANCShared
 
 /// 本機 / CarPlay duplex 音訊引擎：麥克風 → **KMP MultiBandANCProcessor** → 輸出
 /// - 本機：對齊 Android `LocalLowLatencyAudio`
@@ -42,6 +43,11 @@ final class AncAudioEngine: ObservableObject {
     /// 1.2.8 診斷 tone（音訊執行緒讀取）
     private var diagToneHz: Float = 0
     private var diagTonePhase: Double = 0
+    /// 1.2.10–1.2.12 mute / gain / polarity（音訊執行緒讀取）
+    private var muteAnti = false
+    private var userAncGain: Float = 1
+    private var forceBoomPolarity: Float = 0
+    private var lastPlantResidualReductionDb: Float = 0
 
     init(model: AncAppModel) {
         self.model = model
@@ -65,14 +71,57 @@ final class AncAudioEngine: ObservableObject {
     @MainActor
     func setDiagToneHz(_ hz: Float) {
         model.diagToneHz = hz
-        diagToneHz = hz
-        if hz > 0 {
+        diagToneHz = muteAnti ? 0 : hz
+        if hz > 0 && !muteAnti {
             SessionLogger.shared.event("diag_tone_active", [
                 "hz": String(format: "%.0f", hz),
                 "platform": "ios"
             ])
         }
     }
+
+    /// 1.2.10：真 mute anti（喇叭硬歸零 + KMP setAntiOutputMuted）
+    @MainActor
+    func setMuteAnti(_ muted: Bool) {
+        muteAnti = muted
+        model.muteAnti = muted
+        if muted {
+            userAncGain = 0
+            model.userAncGain = 0
+            diagToneHz = 0
+            model.diagToneHz = 0
+        }
+        kmpProcessor?.setAntiOutputMuted(muted || userAncGain <= 0.001)
+        SessionLogger.shared.event("mute_anti", [
+            "muteAnti": "\(muted)",
+            "userAncGain": String(format: "%.2f", userAncGain)
+        ])
+    }
+
+    @MainActor
+    func setUserAncGain(_ gain: Float) {
+        userAncGain = max(0, min(1, gain))
+        model.userAncGain = userAncGain
+        let muted = muteAnti || userAncGain <= 0.001
+        kmpProcessor?.setAntiOutputMuted(muted)
+    }
+
+    /// 1.2.12：forceBoomPolarity +1/−1；0=auto
+    @MainActor
+    func setForceBoomPolarity(_ polarity: Float) {
+        forceBoomPolarity = polarity
+        model.forceBoomPolarity = polarity
+        if abs(polarity) < 0.01 {
+            kmpProcessor?.setBoomPolarityForced(nil)
+        } else {
+            kmpProcessor?.setBoomPolarityForced(polarity)
+        }
+        SessionLogger.shared.event("force_boom_polarity", [
+            "forceBoomPolarity": String(format: "%.0f", polarity)
+        ])
+    }
+
+    var currentSampleRate: Double { sampleRate }
 
     @MainActor
     func start(preferCarAudio: Bool = false) async throws {
@@ -104,6 +153,26 @@ final class AncAudioEngine: ObservableObject {
         activeTier = model.tier
         let proc = KotlinAncBridge(sampleRate: Int(sampleRate), bufferSize: bufFrames, tier: activeTier)
         proc.setEstimatedLatencyMs(measuredLatencyMs)
+        // 1.2.9/1.2.12：載入持久化 plant D + boom 極性
+        let profileId = "ios_default"
+        let routeLink = AppController.shared.routeMonitor.linkType
+        let route = PlantPathStore.routeLabel(
+            carPlay: preferCarAudio || routeLink.isCarPlay,
+            wireless: routeLink.wirelessSuspected
+        )
+        if let snap = PlantPathStore.loadBest(profileId: profileId, routeLabel: route) {
+            proc.applyPersistedBoomPolarity(snap.boomPolarity)
+            SessionLogger.shared.event("plant_path_loaded", [
+                "profileId": snap.profileId,
+                "routeLabel": snap.routeLabel,
+                "electricalDelaySamples": "\(snap.electricalDelaySamples)",
+                "boomPolarity": String(format: "%.0f", snap.boomPolarity)
+            ])
+        }
+        proc.setAntiOutputMuted(muteAnti || userAncGain <= 0.001)
+        if abs(forceBoomPolarity) > 0.01 {
+            proc.setBoomPolarityForced(forceBoomPolarity)
+        }
         kmpProcessor = proc
 
         outputRing = [Float](repeating: 0, count: Int(sampleRate))
@@ -275,8 +344,9 @@ final class AncAudioEngine: ObservableObject {
         _ = kmpProcessor?.registerBlockEnergy(rms: linearRms)
 
         guard var anti = kmpProcessor?.process(mono: mono) else { return }
-        // 1.2.8 diag tone 疊加在 anti 上（50Hz 低頻路徑診斷）
-        let toneHz = diagToneHz
+        let muted = muteAnti || userAncGain <= 0.001
+        // 1.2.8 diag tone（mute 時關閉）
+        let toneHz = muted ? 0 : diagToneHz
         if toneHz > 0, sampleRate > 0 {
             let twoPi = 2.0 * Double.pi
             for i in 0..<anti.count {
@@ -286,12 +356,22 @@ final class AncAudioEngine: ObservableObject {
                 if diagTonePhase > twoPi { diagTonePhase -= twoPi }
             }
         }
+        // 1.2.10/1.2.12：post-mute write（KPI 與喇叭一致）
+        if muted {
+            for i in 0..<anti.count { anti[i] = 0 }
+        } else if userAncGain < 0.999 {
+            let g = userAncGain
+            for i in 0..<anti.count { anti[i] *= g }
+        }
         pushAnti(anti)
+        if GuidedCabinRecorder.shared.isRecording {
+            GuidedCabinRecorder.shared.append(mono: mono)
+        }
 
         lastVisInput = mono
         lastVisAnti = anti
         lastRawDb = rmsDb
-        lastAntiDb = SpectrumAnalyzer.rmsDb(anti)
+        lastAntiDb = SpectrumAnalyzer.rmsDb(anti) // post-mute
         if let k = kmpProcessor {
             lastLowUpdates = k.lowLmsUpdates
             lastCoherence = k.imuMicCoherence
@@ -362,6 +442,10 @@ final class AncAudioEngine: ObservableObject {
             model.boomPressureOut = self.kmpProcessor?.boomPressureOut ?? 0
             model.boomPlantCorr = self.kmpProcessor?.boomPlantCorr ?? 0
             model.plantElectricalDelaySamples = self.kmpProcessor?.plantElectricalDelaySamples ?? 0
+            model.boomPolarity = self.kmpProcessor?.boomPolarity ?? 1
+            model.muteAnti = self.muteAnti
+            model.userAncGain = self.userAncGain
+            model.forceBoomPolarity = self.forceBoomPolarity
             model.effectiveLowMu = self.kmpProcessor?.effectiveLowMu ?? 0
             model.effectiveMidMu = self.kmpProcessor?.effectiveMidMu ?? 0
 
@@ -454,9 +538,23 @@ final class AncAudioEngine: ObservableObject {
                     "boomPressureOut": String(format: "%.4f", model.boomPressureOut),
                     "boomPlantCorr": String(format: "%.3f", model.boomPlantCorr),
                     "plantDelaySamples": "\(model.plantElectricalDelaySamples)",
+                    "boomPolarity": String(format: "%.0f", model.boomPolarity),
+                    "muteAnti": "\(self.muteAnti)",
+                    "userAncGain": String(format: "%.2f", self.userAncGain),
+                    "forceBoomPolarity": String(format: "%.0f", self.forceBoomPolarity),
+                    "latencyStrategy": strategy,
+                    "antiNoiseDb": String(format: "%.1f", anti),
                     "guidedStep": SessionLogger.shared.guidedTestStepId,
                     "note": "ios_spectrum_kpi_input_plus_anti_proxy"
                 ])
+                // 1.2.12：極性 A/B 採樣（用 deltaBoomDb 作 plantResidualReductionDb 代理）
+                let plantRed = eMicBoom - ePlantBoom
+                self.lastPlantResidualReductionDb = plantRed
+                model.plantResidualReductionDb = plantRed
+                BoomPolarityAbTracker.shared.sample(
+                    stepId: SessionLogger.shared.guidedTestStepId,
+                    residualReductionDb: plantRed
+                )
                 // Overlay real KMP diagnostics into next event
                 SessionLogger.shared.event("kmp_diag", [
                     AndroidSnapshotKeys.imuMicCoherence: String(format: "%.3f", coh),

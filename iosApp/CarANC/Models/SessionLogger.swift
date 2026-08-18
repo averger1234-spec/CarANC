@@ -44,6 +44,10 @@ enum AndroidSnapshotKeys {
     static let boomPressureOut = "boomPressureOut"
     static let boomPlantCorr = "boomPlantCorr"
     static let plantElectricalDelaySamples = "plantElectricalDelaySamples"
+    static let boomPolarity = "boomPolarity"
+    static let muteAnti = "muteAnti"
+    static let userAncGain = "userAncGain"
+    static let forceBoomPolarity = "forceBoomPolarity"
     static let effectiveLowMu = "effectiveLowMu"
     static let effectiveMidMu = "effectiveMidMu"
 
@@ -177,8 +181,8 @@ final class SessionLogger: ObservableObject {
             // Plant residual — not yet on iOS Swift DSP (will come via KMP MultiBand path)
             AndroidSnapshotKeys.rawLowBandDb: f2(rawLow),
             AndroidSnapshotKeys.residualLowBandDb: f2(residualLow),
-            AndroidSnapshotKeys.plantResidualLowBandDb: "n/a",
-            AndroidSnapshotKeys.plantResidualReductionDb: "n/a",
+            AndroidSnapshotKeys.plantResidualLowBandDb: f2(model.rawDb - model.plantResidualReductionDb),
+            AndroidSnapshotKeys.plantResidualReductionDb: f2(model.plantResidualReductionDb),
             AndroidSnapshotKeys.bandE60Db: "n/a",
             AndroidSnapshotKeys.bandE80Db: "n/a",
             AndroidSnapshotKeys.bandE100Db: "n/a",
@@ -186,7 +190,7 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.outputPathActive: "\(outputActive)",
             AndroidSnapshotKeys.plantDelayForResidual: "\(model.plantElectricalDelaySamples)",
             AndroidSnapshotKeys.plantElectricalDelaySamples: "\(model.plantElectricalDelaySamples)",
-            "kpiSource": "ios_spectrum_proxy", // 分析時可知非 Android plant
+            "kpiSource": "ios_spectrum_proxy", // plant residual = mic−(mic+anti) band proxy
 
             // NVH + Android 1.1.0 speed-scheduled gains (from KMP)
             AndroidSnapshotKeys.nvhFocus: model.nvhFocus.rawValue,
@@ -208,6 +212,11 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.roadBoomWeightEnergy: f3(model.roadBoomWeightEnergy),
             AndroidSnapshotKeys.boomPressureOut: f3(model.boomPressureOut),
             AndroidSnapshotKeys.boomPlantCorr: f3(model.boomPlantCorr),
+            AndroidSnapshotKeys.boomPolarity: f1(model.boomPolarity),
+            AndroidSnapshotKeys.muteAnti: "\(model.muteAnti)",
+            AndroidSnapshotKeys.userAncGain: f2(model.userAncGain),
+            AndroidSnapshotKeys.forceBoomPolarity: f1(model.forceBoomPolarity),
+            AndroidSnapshotKeys.plantResidualReductionDb: f2(model.plantResidualReductionDb),
 
             // Vehicle / IMU（gps | gps_hold | imu_proxy）
             AndroidSnapshotKeys.vehicleSpeedKmh: f1(model.vehicleSpeedKmh),

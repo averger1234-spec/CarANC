@@ -36,8 +36,11 @@ final class KotlinAncBridge {
     private(set) var boomPressureOut: Float = 0
     private(set) var boomPlantCorr: Float = 0
     private(set) var plantElectricalDelaySamples: Int = 0
+    private(set) var boomPolarity: Float = 1
     private(set) var effectiveLowMu: Float = 0
     private(set) var effectiveMidMu: Float = 0
+    /// Soft mute inside KMP (zeros boom/notch/bank KPIs)
+    private(set) var antiOutputMuted: Bool = false
 
     init(sampleRate: Int, bufferSize: Int, tier: UserTier) {
         self.bufferSize = bufferSize
@@ -71,9 +74,29 @@ final class KotlinAncBridge {
         processor.setRumbleAccel(mag: mag)
     }
 
-    /// 1.2.8 P0：三軸 IMU 混入 low path
+    /// 1.2.8 P0：三軸 IMU（mu/coherence；1.2.11+ 不再混進 audio ref）
     func setImuAxes(ax: Float, ay: Float, az: Float) {
         processor.setImuAxes(ax: ax, ay: ay, az: az)
+    }
+
+    /// 1.2.12：腳本 mute — processor 內歸零 boom/notch/bank
+    func setAntiOutputMuted(_ muted: Bool) {
+        antiOutputMuted = muted
+        processor.setAntiOutputMuted(muted: muted)
+    }
+
+    /// 1.2.12：強制 boom 極性（+1 / −1）；nil 或 0 = auto
+    func setBoomPolarityForced(_ polarity: Float?) {
+        if let polarity, abs(polarity) > 0.01 {
+            let p: Float = polarity >= 0 ? 1 : -1
+            processor.setBoomPolarityForced(polarity: KotlinFloat(float: p))
+        } else {
+            processor.setBoomPolarityForced(polarity: nil)
+        }
+    }
+
+    func applyPersistedBoomPolarity(_ polarity: Float) {
+        processor.applyPersistedBoomPolarity(polarity: polarity)
     }
 
     /// 1.2.6：腳本強制 ROAD/TIRE/WIND
@@ -133,6 +156,7 @@ final class KotlinAncBridge {
         boomPressureOut = processor.getBoomPressureOut()
         boomPlantCorr = processor.getBoomPlantCorr()
         plantElectricalDelaySamples = Int(processor.getPlantElectricalDelaySamples())
+        boomPolarity = processor.getBoomPolarity()
         effectiveLowMu = processor.getLastEffectiveLowMu()
         effectiveMidMu = processor.getLastEffectiveMidMu()
         refreshLimits()

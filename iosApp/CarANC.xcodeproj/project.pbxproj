@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A12000000000000000000001 /* PlantPathStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12000000000000000000011 /* PlantPathStore.swift */; };
+		A12000000000000000000002 /* GuidedCabinRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12000000000000000000012 /* GuidedCabinRecorder.swift */; };
 		5C4A72784CD7447E88C37240 /* CarANCShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0BD129737DA94DFE9517086E /* CarANCShared.framework */; };
 		3188EEDCCD1E4406962EF7DC /* CarANCShared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0BD129737DA94DFE9517086E /* CarANCShared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A10000000000000000000001 /* AppController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* AppController.swift */; };
@@ -57,6 +59,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A12000000000000000000011 /* PlantPathStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlantPathStore.swift; sourceTree = "<group>"; };
+		A12000000000000000000012 /* GuidedCabinRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuidedCabinRecorder.swift; sourceTree = "<group>"; };
 		0BD129737DA94DFE9517086E /* CarANCShared.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CarANCShared.framework; path = Frameworks/CarANCShared.framework; sourceTree = "<group>"; };
 		A10000000000000000000011 /* AppController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppController.swift; sourceTree = "<group>"; };
 		A10000000000000000000012 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -206,6 +210,7 @@
 		2B6BDF17AAC1474E8D4BCF3F /* Audio */ = {
 			isa = PBXGroup;
 			children = (
+				A12000000000000000000012 /* GuidedCabinRecorder.swift */,
 				C214BBE26086497FB4BF2239 /* KotlinAncBridge.swift */,
 				DBD8B777F3E84517A8973E14 /* AncAudioEngine.swift */,
 				A10000000000000000000013 /* CarAudioRouteMonitor.swift */,
@@ -227,6 +232,7 @@
 		1D24C22A16D34169AA0659BE /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				A12000000000000000000011 /* PlantPathStore.swift */,
 				F9BCC0AF13734FCAACB2CF25 /* SessionLogger.swift */,
 				188AD9E8BAF9431CAE0A0845 /* GuidedTestScript.swift */,
 				2196C7012E8E4B67B711BCBA /* AncRuntimeState.swift */,
@@ -357,6 +363,8 @@
 				E092CB08A18E43E188F7C5A4 /* MultiBandAncProcessor.swift in Sources */,
 				A81DFF6910E9428DA53A46AD /* SpectrumAnalyzer.swift in Sources */,
 				96969129D0AB498D8B32E607 /* AncRuntimeState.swift in Sources */,
+				A12000000000000000000001 /* PlantPathStore.swift in Sources */,
+				A12000000000000000000002 /* GuidedCabinRecorder.swift in Sources */,
 				DDA09DD59D084B148F3E7897 /* UserTier.swift in Sources */,
 				E76ECD5EBD684360BBCFB5F7 /* ImuProvider.swift in Sources */,
 				CFC48E205611447BB34DB265 /* SpeedProvider.swift in Sources */,
@@ -427,7 +435,7 @@
 				);
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				CODE_SIGN_ENTITLEMENTS = CarANC/CarANC.entitlements;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = Q8U9PM5FTD;
 				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -449,7 +457,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.9;
+				MARKETING_VERSION = 1.2.12;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lutony.caranc.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -477,7 +485,7 @@
 				);
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				CODE_SIGN_ENTITLEMENTS = CarANC/CarANC.entitlements;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = Q8U9PM5FTD;
 				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -499,7 +507,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.9;
+				MARKETING_VERSION = 1.2.12;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lutony.caranc.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

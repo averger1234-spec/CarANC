@@ -50,6 +50,15 @@
 
 腳本：三目標·1.2.12 mute真靜音+極性A/B
 
+### iOS（build 20 · 對齊 1.2.12）
+
+- 重編 `CarANCShared`（mute / polarity / corrGate / HIGH_LAT 120）
+- **muteAnti**：喇叭硬歸零 + `setAntiOutputMuted`；KPI 用 **post-mute** antiDb
+- **極性 A/B**：`target_road_ppos` / `target_road_pneg`；`BoomPolarityAbTracker` → `PlantPathStore`（UserDefaults）
+- **艙錄**：達有效車速後從 ANC mic tap 寫 `cabin_*.wav`（與 Android m4a 同用途）
+- 腳本／log：`muteAnti`、`forceBoomPolarity`、`boomPolarity`、`boom_polarity_winner`
+- 狀態頁 **`v1.2.12 (20)`** · `dist/CarANC-ios-kmp-debug.ipa`
+
 ---
 
 ## [1.2.11] — 2026-08-18 · Android code 13 · 相位對齊：真正壓得下 40–80 Hz

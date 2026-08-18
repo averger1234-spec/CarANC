@@ -1,4 +1,5 @@
 import Foundation
+import CarANCShared
 
 /// 對齊 Android `CarRoadTuningScript`（`shared/.../AncTestScript.kt`）— **同源步驟 ID／秒數／門檻**
 /// 自動進階：有效行駛秒達標（或 maxWall）→ 下一步，對齊 `GuidedTestController.autoAdvance=true`
@@ -298,6 +299,13 @@ final class GuidedTestRunner: ObservableObject {
         logLines = []
         pauseReason = ""
         collectingNow = false
+        BoomPolarityAbTracker.shared.reset()
+        GuidedCabinRecorder.shared.stop(reason: "script_start")
+        GuidedCabinRecorder.shared.clearPending()
+        engine?.setMuteAnti(false)
+        engine?.setUserAncGain(1)
+        engine?.setForceBoomPolarity(0)
+        engine?.setDiagToneHz(0)
         SessionLogger.shared.guidedTestActive = true
         SessionLogger.shared.guidedTestStepId = CarRoadTuningScript.steps[0].id
         SessionLogger.shared.event("test_script_start", [
@@ -309,6 +317,12 @@ final class GuidedTestRunner: ObservableObject {
             "stepIds": CarRoadTuningScript.steps.map(\.id).joined(separator: ",")
         ])
         appendLog("script_start id=\(CarRoadTuningScript.scriptId) autoAdvance=\(autoAdvance) source=android_CarRoadTuningScript")
+        // 開始即開 ANC（對齊全自動；mute 步靠 muteAnti 真靜音）
+        Task { @MainActor in
+            if let model, !model.isRunning, model.safetyConsentAccepted {
+                try? await engine?.start(preferCarAudio: AppController.shared.routeMonitor.linkType.isCarPlay)
+            }
+        }
         applyPresets(for: CarRoadTuningScript.steps[0])
         statusLine = "自動進階 · \(CarRoadTuningScript.steps[0].title)"
         timer?.invalidate()
@@ -324,8 +338,14 @@ final class GuidedTestRunner: ObservableObject {
         active = false
         SessionLogger.shared.guidedTestActive = false
         engine?.setForcedNvhFocus(nil)
+        engine?.setMuteAnti(false)
+        engine?.setForceBoomPolarity(0)
+        engine?.setDiagToneHz(0)
+        GuidedCabinRecorder.shared.stop(reason: "script_abort")
+        GuidedCabinRecorder.shared.clearPending()
+        BoomPolarityAbTracker.shared.reset()
         model?.forcedNvhFocus = "auto"
-        SessionLogger.shared.event("test_script_abort", ["stepIndex": "\(stepIndex)"])
+        SessionLogger.shared.event("guided_test_abort", ["stepIndex": "\(stepIndex)"])
         statusLine = "已中止"
         appendLog("script_abort step=\(stepIndex)")
     }
@@ -369,6 +389,12 @@ final class GuidedTestRunner: ObservableObject {
             collectingNow = true
             pauseReason = ""
             validSec += 1
+            // 1.2.10：達有效車速才開始艙錄（等長 A/B）
+            if GuidedCabinRecorder.shared.hasPending {
+                GuidedCabinRecorder.shared.startIfPending(
+                    sampleRate: engine?.currentSampleRate ?? 48_000
+                )
+            }
         }
 
         if collectingNow {
@@ -445,8 +471,40 @@ final class GuidedTestRunner: ObservableObject {
         active = false
         finished = true
         SessionLogger.shared.guidedTestActive = false
+        GuidedCabinRecorder.shared.stop(reason: "script_end")
+        GuidedCabinRecorder.shared.clearPending()
         engine?.setForcedNvhFocus(nil)
+        engine?.setMuteAnti(false)
+        engine?.setForceBoomPolarity(0)
+        engine?.setDiagToneHz(0)
         model?.forcedNvhFocus = "auto"
+        // 1.2.12：極性 A/B winner → PlantPathStore
+        if let winner = BoomPolarityAbTracker.shared.winnerPolarity()?.floatValue {
+            let link = AppController.shared.routeMonitor.linkType
+            let route = PlantPathStore.routeLabel(carPlay: link.isCarPlay, wireless: link.wirelessSuspected)
+            let delay = model?.plantElectricalDelaySamples ?? 0
+            PlantPathStore.persistPolarityWinner(
+                winner: winner,
+                profileId: "ios_default",
+                routeLabel: route,
+                electricalDelaySamples: delay
+            )
+            engine?.setForceBoomPolarity(0)
+            // apply persisted for next run
+            // (forced cleared above; start() will load store)
+            SessionLogger.shared.event("boom_polarity_winner", [
+                "winner": String(format: "%.0f", winner),
+                "posAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.posAvg()?.floatValue ?? 0),
+                "negAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.negAvg()?.floatValue ?? 0),
+                "posN": "\(BoomPolarityAbTracker.shared.posCount())",
+                "negN": "\(BoomPolarityAbTracker.shared.negCount())",
+                "profileId": "ios_default",
+                "routeLabel": route,
+                "note": "1.2.12_persist_better_plantResidualReductionDb"
+            ])
+            appendLog("boom_polarity_winner=\(winner)")
+        }
+        BoomPolarityAbTracker.shared.reset()
         SessionLogger.shared.event("test_script_complete", [
             "scriptId": CarRoadTuningScript.scriptId,
             "advanceMode": "valid_drive_sec",
@@ -454,7 +512,6 @@ final class GuidedTestRunner: ObservableObject {
             "autoExport": "true"
         ])
         appendLog("script_complete")
-        // 先停 ANC（寫入 session_end），再組完整 export 並自動分享
         if model?.isRunning == true {
             engine?.stop()
         }
@@ -466,29 +523,76 @@ final class GuidedTestRunner: ObservableObject {
 
     private func applyPresets(for step: GuidedTestStep) {
         guard let model else { return }
+        // 1.2.7+ 腳本全程 PRO（除非步驟覆寫）
+        model.setTier(.pro)
+        engine?.applyTier(.pro)
         if let t = step.debugPresets["tier"] {
             switch t {
-            case "LIGHT": model.setTier(.light)
-            case "STANDARD": model.setTier(.standard)
-            case "PRO": model.setTier(.pro)
+            case "LIGHT": model.setTier(.light); engine?.applyTier(.light)
+            case "STANDARD": model.setTier(.standard); engine?.applyTier(.standard)
+            case "PRO": model.setTier(.pro); engine?.applyTier(.pro)
             default: break
             }
-            engine?.applyTier(model.tier)
         } else if let s = step.suggestedTier {
             model.setTier(s)
             engine?.applyTier(s)
         }
-        // 1.2.6：腳本強制 NVH（對齊 Android GuidedNvhOverride）
         let force = step.debugPresets["forceNvhFocus"]
         engine?.setForcedNvhFocus(force)
         model.forcedNvhFocus = force ?? "auto"
-        appendLog("presets step=\(step.id) \(step.debugPresets) appliedTier=\(model.tier.rawValue) forceNvh=\(force ?? "auto")")
+
+        let tone = Float(step.debugPresets["diagToneHz"] ?? "0") ?? 0
+        let mute = (step.debugPresets["muteAnti"] ?? "false").lowercased() == "true"
+        let gain = Float(step.debugPresets["userAncGain"] ?? (mute ? "0" : "1")) ?? 1
+        let pol = Float(step.debugPresets["forceBoomPolarity"] ?? "0") ?? 0
+
+        engine?.setMuteAnti(mute)
+        engine?.setUserAncGain(mute ? 0 : gain)
+        engine?.setForceBoomPolarity(pol)
+        engine?.setDiagToneHz(mute ? 0 : tone)
+
+        // 艙錄：換步先停；本步要錄則 pending（達速才開始）
+        let cabinOn = (step.debugPresets["cabinRecord"] ?? "false").lowercased() == "true"
+        if !cabinOn {
+            GuidedCabinRecorder.shared.stop(reason: "step_change")
+            GuidedCabinRecorder.shared.clearPending()
+        } else {
+            GuidedCabinRecorder.shared.stop(reason: "step_change")
+            let waitValid = (step.debugPresets["cabinRecordOnValidSpeed"] ?? "true").lowercased() != "false"
+            GuidedCabinRecorder.shared.setPending(stepId: step.id, waitValidSpeed: waitValid)
+            if !waitValid {
+                GuidedCabinRecorder.shared.startIfPending(sampleRate: engine?.currentSampleRate ?? 48_000)
+            }
+        }
+
+        // mute 步仍保持 ANC running（真靜音靠 muteAnti）；非 mute 且需 ANC 則確保開著
+        if step.requiresAncRunning || mute {
+            Task { @MainActor in
+                if !model.isRunning, model.safetyConsentAccepted {
+                    try? await engine?.start(preferCarAudio: AppController.shared.routeMonitor.linkType.isCarPlay)
+                    SessionLogger.shared.event("guided_anc_start", ["stepId": step.id])
+                }
+            }
+        }
+
+        appendLog(
+            "presets step=\(step.id) tier=\(model.tier.rawValue) forceNvh=\(force ?? "auto") " +
+            "mute=\(mute) gain=\(gain) pol=\(pol) tone=\(tone) cabin=\(cabinOn)"
+        )
         SessionLogger.shared.event("guided_presets", [
             "stepId": step.id,
             "tier": model.tier.rawValue,
             "forceNvhFocus": force ?? "auto",
+            "muteAnti": "\(mute)",
+            "userAncGain": "\(gain)",
+            "forceBoomPolarity": "\(pol)",
+            "diagToneHz": "\(tone)",
+            "cabinRecord": "\(cabinOn)",
             "presets": step.debugPresets.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ",")
         ])
+        SessionLogger.shared.event("debug_presets_apply", step.debugPresets.merging([
+            "stepId": step.id
+        ]) { _, new in new })
     }
 
     private func appendLog(_ line: String) {
@@ -501,18 +605,17 @@ final class GuidedTestRunner: ObservableObject {
         === GUIDED SCRIPT ===
         script=\(CarRoadTuningScript.scriptId)
         name=\(CarRoadTuningScript.scriptName)
-        align=android_CarRoadTuningScript_v1.2.9
+        align=android_CarRoadTuningScript_v1.2.12
         autoAdvance=\(autoAdvance)
         stepIndex=\(stepIndex) finished=\(finished)
 
-        === HOW TO VERIFY (1.2.9 P2 + 診斷) ===
-        PASS (Android full):
-          - diag_tone_50: 聽到 50Hz
-          - antiE40_80 ≫ antiE500_2k
-          - plant_path_saved / plantDelaySamples 有值
-          - cabin off/on m4a 比 40–80Hz
+        === HOW TO VERIFY (1.2.12 mute + 極性 A/B) ===
+        PASS:
+          - road_off: muteAnti=true、antiNoiseDb≤−90、boomPressureOut=0
+          - ppos/pneg: 各 ~20s 艙錄；boom_polarity_winner
+          - 等長 off vs 較佳極性：40–80 Hz on < off（≤−1.5 dB）
         FAIL:
-          - 50Hz 無低音 / antiE HF 主導 / plantDelay 永不更新
+          - mute 時 antiDb 仍高 / on 更響 / 採信不等長對
 
         === SCRIPT EVENT LINES ===
         """

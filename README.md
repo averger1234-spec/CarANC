@@ -5,7 +5,7 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**版號**：Android **`version.properties` → 1.2.12 / code 14** · iOS **Info.plist → 1.2.6 (18)**（Android 1.2.12 真 mute KPI + 極性 A/B；iOS KMP framework 待重編） · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+**版號**：Android **`version.properties` → 1.2.12 / code 14** · iOS **Info.plist → 1.2.12 (20)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 
 **跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
@@ -50,7 +50,7 @@ git push origin main
 |------|------|------|
 | **Android 版號** | **`1.2.12` / code `14`** · 主畫面 `v1.2.12` | ✅ |
 | **1.2.12 路測** | mute 時 `antiNoiseDb≈−200`；`road_off`→`ppos`→`pneg`；負 corr boom mix=0；禁不等長艙錄對 | ✅ |
-| **iOS 版號** | **`1.2.6` (build 18)** · 狀態頁 **`v1.2.6 (18)`** · 腳本文案對齊 1.2.12 | ✅ 文案；DSP framework 待重編 |
+| **iOS 版號** | **`1.2.12` (build 20)** · 狀態頁 **`v1.2.12 (20)`** · mute+極性A/B+艙錄 | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
 | **CarPlay** | 對齊 AA（見 `iosApp/CARPLAY.md`） | ✅ 程式；圖示需 Apple entitlement |
@@ -69,7 +69,7 @@ git push origin main
 ```bash
 git pull origin main
 # Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.12
-# iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.6 (18)
+# iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.12 (20)
 ```
 
 **注意**：plant residual KPI 在 iOS 仍多為代理／`n/a`。Android 路測仍以 USB AA + `lowBandRumbleReduction` 為準。無 GPS 時看 log `speedSource`（hold／imu_proxy 可餵速域，勿當精密 GPS KPI）。
