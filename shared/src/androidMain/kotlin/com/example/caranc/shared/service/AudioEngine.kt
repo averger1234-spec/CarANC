@@ -27,6 +27,7 @@ import com.example.caranc.shared.latency.NativeLowBandProcessor
 import com.example.caranc.shared.latency.LatencyAwareBandLimiter
 import com.example.caranc.shared.latency.AntiNoiseDelayLine
 import com.example.caranc.shared.latency.PlantAlignedResidual
+import com.example.caranc.shared.BoomPolarityAbTracker
 import com.example.caranc.shared.MultiBandANCProcessor  // for cast to access extra low-band counters (fdaf/multirate)
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -422,6 +423,7 @@ class AudioEngine(
                 if (plantSnap != null && plantSnap.electricalDelaySamples > 64) {
                     val applied = ancProcessor?.refinePlantDelayFromProbe(plantSnap.electricalDelaySamples)
                         ?: plantSnap.electricalDelaySamples
+                    ancProcessor?.applyPersistedBoomPolarity(plantSnap.boomPolarity)
                     AncSessionLogger.log(
                         phase = "plant_path_loaded",
                         fields = mapOf(
@@ -431,6 +433,7 @@ class AudioEngine(
                             "appliedSamples" to applied,
                             "probeCorrMs" to plantSnap.probeCorrMs,
                             "cabinAcousticDelaySamples" to plantSnap.cabinAcousticDelaySamples,
+                            "boomPolarity" to plantSnap.boomPolarity,
                             "updatedEpochMs" to plantSnap.updatedEpochMs
                         )
                     )
@@ -851,7 +854,25 @@ class AudioEngine(
                             Log.d("ANCService", "freeze_state: remaining=$freezeRemaining blockRms=${"%.4f".format(blockRms)}")
                         }
 
+                        // 1.2.12: mute + polarity MUST be applied before process() so boom/notch/KPI match send
+                        val userGain = AncTestPreferences.getUserAncGain(appContext)
+                        val muteAnti = AncTestPreferences.isMuteAntiOutput(appContext) || userGain <= 0.001f
+                        ancProcessor?.setAntiOutputMuted(muteAnti)
+                        val forcePol = AncTestPreferences.getForceBoomPolarity(appContext)
+                        ancProcessor?.setBoomPolarityForced(if (forcePol == 0f) null else forcePol)
+
                         val processed = ancProcessor?.process(preprocessed) ?: preprocessed
+
+                        (ancProcessor as? MultiBandANCProcessor)?.consumePolarityFlipLog()?.let { (before, after) ->
+                            AncSessionLogger.log(
+                                phase = "boom_polarity_flip",
+                                fields = mapOf(
+                                    "from" to before,
+                                    "to" to after,
+                                    "note" to "1.2.12_auto_flip_neg_corr"
+                                )
+                            )
+                        }
 
                         // CYCLE3_EXTRA: pull profiling counters from processor (updated in BandFxLms + now Fdaf/Multirate)
                         // + update sessionContext perfMetrics (exposed for UI/tests/logs, no direct globals)
@@ -877,9 +898,6 @@ class AudioEngine(
                         // Affects LIGHT (white noise complaint) and higher tiers equally in high-latency routes.
                         val limits = ancProcessor?.getLatencyBandLimits()
                         val antiArtifactGain = if ((limits?.maxCancelFrequencyHz ?: 100f) < 60f) 0.28f else 1f
-                        val userGain = AncTestPreferences.getUserAncGain(appContext)
-                        // 1.2.10: guided mute (road_off baseline) — hard zero anti to AA
-                        val muteAnti = AncTestPreferences.isMuteAntiOutput(appContext) || userGain <= 0.001f
                         // IDLE ARTIFACT SUPPRESS (minimal, speed<8 only): auto lower effective gain at idle/low speed to mask any residual telegraph clicks from low-energy LMS (musicLow + high mu).
                         // Full gain at 50+kmh for #6/#7 rumble breakthrough validation (effMid 0.6+). User can still override via TestLogPanel but idle caps it.
                         val speedForGain = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
@@ -927,14 +945,15 @@ class AudioEngine(
                             }
                         }
 
-                        // Accumulate anti PCM for send-path band energy KPI
+                        // Accumulate anti PCM for send-path band energy KPI (post-mute write buffer)
                         for (j in 0 until read) {
                             antiKpiAccum[antiKpiWrite] = output[j]
                             antiKpiWrite = (antiKpiWrite + 1) % antiKpiAccum.size
                         }
 
                         // occasional known signal insert (for runtime real latency meas round-trip in ANC loop)
-                        if (blockCount % 900L == 123L && blockCount - lastProbeBlock > 650 && diagHz < 40f) {
+                        // 1.2.12: never probe during mute — contaminates cabin off baseline
+                        if (!muteAnti && blockCount % 900L == 123L && blockCount - lastProbeBlock > 650 && diagHz < 40f) {
                             insertKnownProbe(output, read)
                             lastProbeBlock = blockCount
                         }
@@ -951,7 +970,8 @@ class AudioEngine(
                         }
                         audioTrack?.write(output, 0, read)
 
-                        updateVisualization(preprocessed, processed, read)
+                        // 1.2.12: KPI / plant residual must use **post-mute write** buffer (was pre-mute processed → fake antiNoiseDb≈−8 on mute)
+                        updateVisualization(preprocessed, output, read)
 
                         // CYCLE3_EXTRA: always compute full loop ms; update EMA + per-mode via perfMetrics (exposed in sessionContext)
                         val dtNs = System.nanoTime() - t0
@@ -1048,6 +1068,7 @@ class AudioEngine(
                                     )
                                 } else {
                                     val appliedPlant = ancProcessor?.refinePlantDelayFromProbe(plantSamp) ?: plantSamp
+                                    val polSave = ancProcessor?.getBoomPolarity() ?: 1f
                                     PlantPathStore.save(
                                         appContext,
                                         PlantPathStore.PlantPathSnapshot(
@@ -1056,7 +1077,8 @@ class AudioEngine(
                                             electricalDelaySamples = appliedPlant,
                                             probeCorrMs = meas,
                                             cabinAcousticDelaySamples = acousticDelaySamples,
-                                            updatedEpochMs = System.currentTimeMillis()
+                                            updatedEpochMs = System.currentTimeMillis(),
+                                            boomPolarity = polSave
                                         )
                                     )
                                     AncSessionLogger.log(
@@ -1082,6 +1104,7 @@ class AudioEngine(
                                             "probeCorrMs" to meas,
                                             "cabinAcousticDelaySamples" to acousticDelaySamples,
                                             "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f),
+                                            "boomPolarity" to (ancProcessor?.getBoomPolarity() ?: 1f),
                                             "note" to "P2_sHat_plant_delay_persisted"
                                         )
                                     )
@@ -1502,7 +1525,7 @@ class AudioEngine(
                     "boomPressureOut" to (ancProcessor?.getBoomPressureOut() ?: 0f),
                     "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f),
                     "plantDelaySamples" to (ancProcessor?.getPlantElectricalDelaySamples() ?: 0),
-                    "boomPolarity" to ((ancProcessor as? com.example.caranc.shared.MultiBandANCProcessor)?.getBoomPolarity() ?: 1f),
+                    "boomPolarity" to (ancProcessor?.getBoomPolarity() ?: 1f),
                     "latencyStrategy" to (ancProcessor?.getLatencyStrategy() ?: ""),
                     "speedKmh" to speed.speedKmh,
                     "nvhFocus" to (ancProcessor?.getNvhFocus() ?: "?"),
@@ -1510,8 +1533,10 @@ class AudioEngine(
                     "guidedStep" to (if (gs.active) (gs.currentStep?.id ?: "") else ""),
                     "diagToneHz" to AncTestPreferences.getDiagToneHz(appContext),
                     "muteAnti" to AncTestPreferences.isMuteAntiOutput(appContext),
+                    "antiSendMuted" to AncTestPreferences.isMuteAntiOutput(appContext),
                     "userAncGain" to AncTestPreferences.getUserAncGain(appContext),
-                    "note" to "1.2.11_phase_fix; antiE_*=send; cabin_m4a_A_B; lagged_boomPlantCorr"
+                    "forceBoomPolarity" to AncTestPreferences.getForceBoomPolarity(appContext),
+                    "note" to "1.2.12_mute_kpi_writebuf; polarity_AB; antiE_*=send; lagged_boomPlantCorr"
                 )
             )
         }
@@ -1569,11 +1594,16 @@ class AudioEngine(
             val route = currentRoute
             val latency = latencySnapshot
             val manualRpm = AncTestPreferences.getManualTestRpm(appContext)
+            val guidedStepId = GuidedTestController.state.value.currentStep?.id ?: ""
+            // 1.2.12: polarity A/B accumulator (plant residual — higher = better cancel)
+            if (!AncTestPreferences.isMuteAntiOutput(appContext)) {
+                BoomPolarityAbTracker.sample(guidedStepId, lastPlantResidualReductionDb)
+            }
             AncSessionLogger.log(
                 phase = "running_snapshot",
                 fields = latencyLogFields(
                     base = mapOf(
-                        "guidedTestStepId" to (GuidedTestController.state.value.currentStep?.id ?: ""),
+                        "guidedTestStepId" to guidedStepId,
                         "guidedTestActive" to GuidedTestController.state.value.active,
                         "rawDb" to rawDb,
                         "rawDbEstimated" to estimatedRawDb,
@@ -1606,6 +1636,8 @@ class AudioEngine(
                         "roadBoomWeightEnergy" to (ancProcessor?.getRoadBoomWeightEnergy() ?: 0f),
                         "boomPressureOut" to (ancProcessor?.getBoomPressureOut() ?: 0f),
                         "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f),
+                        "boomPolarity" to (ancProcessor?.getBoomPolarity() ?: 1f),
+                        "forceBoomPolarity" to AncTestPreferences.getForceBoomPolarity(appContext),
                         "plantDelaySamples" to (ancProcessor?.getPlantElectricalDelaySamples() ?: 0),
                         "forcedNvhFocus" to (com.example.caranc.shared.GuidedNvhOverride.forcedFocusName ?: "auto"),
                         // Closed-loop self-check (program band energy — not external phone recorder)
@@ -1613,6 +1645,7 @@ class AudioEngine(
                         "residualLowBandDb" to lastResidualLowBandDb,
                         "plantResidualLowBandDb" to lastPlantResidualLowBandDb,
                         "plantResidualReductionDb" to lastPlantResidualReductionDb,
+                        "antiSendMuted" to AncTestPreferences.isMuteAntiOutput(appContext),
                         "bandE60Db" to lastBandE60,
                         "bandE80Db" to lastBandE80,
                         "bandE100Db" to lastBandE100,

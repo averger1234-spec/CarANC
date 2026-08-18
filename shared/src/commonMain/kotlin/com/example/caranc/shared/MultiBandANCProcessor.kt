@@ -195,11 +195,18 @@ class MultiBandANCProcessor(
     private var antiCorrCount = 0
     /** Auto polarity for boom path when lagged corr stays negative. */
     private var boomPolarity = 1f
+    /** Non-null when script forces +1/−1 (disables auto-flip). */
+    private var boomPolarityForced: Float? = null
     private var boomNegCorrSamples = 0
     private var boomPolarityFlipCooldown = 0
+    /** 1.2.12: true mute — zero speaker anti + boom/notch KPI (road_off baseline). */
+    private var antiOutputMuted = false
     private var lastProbeRejected = false
     private var lastProbeRejectMs = 0f
     private var learningCaptured = false
+    /** Last polarity flip marker for AudioEngine log (consumed). Avoid @Volatile — not on native. */
+    var pendingPolarityFlipLog: Pair<Float, Float>? = null
+        private set
 
     // Dedicated RumblePreviewPredictor (architecture change for AA high-latency rumble).
     // Uses past IMU + speed to extrapolate future rumble ~250ms ahead (tuned by real probe/estimated latency).
@@ -316,7 +323,33 @@ class MultiBandANCProcessor(
     /** True when last refinePlantDelayFromProbe rejected a bogus peak (e.g. ~12 ms). */
     fun wasLastPlantProbeRejected(): Boolean = lastProbeRejected
     fun getLastPlantProbeRejectMs(): Float = lastProbeRejectMs
-    fun getBoomPolarity(): Float = boomPolarity
+    override fun getBoomPolarity(): Float = boomPolarityForced ?: boomPolarity
+
+    override fun setAntiOutputMuted(muted: Boolean) {
+        antiOutputMuted = muted
+    }
+
+    override fun setBoomPolarityForced(polarity: Float?) {
+        if (polarity == null || polarity == 0f) {
+            boomPolarityForced = null
+            return
+        }
+        val p = if (polarity >= 0f) 1f else -1f
+        boomPolarityForced = p
+        boomPolarity = p
+        boomNegCorrSamples = 0
+    }
+
+    override fun applyPersistedBoomPolarity(polarity: Float) {
+        if (boomPolarityForced != null) return
+        boomPolarity = if (polarity >= 0f) 1f else -1f
+    }
+
+    fun consumePolarityFlipLog(): Pair<Float, Float>? {
+        val v = pendingPolarityFlipLog
+        pendingPolarityFlipLog = null
+        return v
+    }
 
     /**
      * Accept probe only inside a window around HAL plant (track+framework).
@@ -384,14 +417,18 @@ class MultiBandANCProcessor(
         lastBoomPlantCorr = (boomPlantCorrEma / norm).coerceIn(-1f, 1f)
 
         if (boomPolarityFlipCooldown > 0) boomPolarityFlipCooldown--
-        if (vehicleSpeedKmh >= 40f && lastBoomPlantCorr < -0.08f) {
+        // 1.2.12: faster auto-flip when unlocked negative corr (skip if script-forced)
+        if (boomPolarityForced == null && vehicleSpeedKmh >= 40f && lastBoomPlantCorr < -0.05f) {
             boomNegCorrSamples += 4
-            if (boomNegCorrSamples >= sampleRate * 2 && boomPolarityFlipCooldown <= 0) {
+            // ~0.75 s at 48 kHz process rate (was ~2 s @ −0.08)
+            if (boomNegCorrSamples >= (sampleRate * 3 / 4) && boomPolarityFlipCooldown <= 0) {
+                val before = boomPolarity
                 boomPolarity = -boomPolarity
                 boomNegCorrSamples = 0
                 boomPlantCorrEma = 0f
                 lastBoomPlantCorr = 0f
-                boomPolarityFlipCooldown = sampleRate * 8
+                boomPolarityFlipCooldown = sampleRate * 6
+                pendingPolarityFlipLog = before to boomPolarity
             }
         } else if (lastBoomPlantCorr > 0.05f) {
             boomNegCorrSamples = 0
@@ -1157,37 +1194,45 @@ class MultiBandANCProcessor(
                 weakDriveHiss -> combined * 0.45f
                 else -> combined
             }
-            // Boom speaker LPF / pressure: ROAD rumble (and driving rumble), NOT tire/wind focus
-            val boomFocusOut = lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE ||
-                (lastEffectiveRumbleMode &&
-                    lastNvhFocus != com.example.caranc.shared.model.NvhFocusClass.TIRE_NOISE &&
-                    lastNvhFocus != com.example.caranc.shared.model.NvhFocusClass.WIND_SHEAR &&
-                    vehicleSpeedKmh >= 22f)
+            // Boom speaker LPF / pressure: ROAD rumble (and driving rumble), NOT tire/wind focus.
+            // 1.2.12: never mix boom while muted (road_off) — KPI must match silent send.
+            val boomFocusOut = !antiOutputMuted && (
+                lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE ||
+                    (lastEffectiveRumbleMode &&
+                        lastNvhFocus != com.example.caranc.shared.model.NvhFocusClass.TIRE_NOISE &&
+                        lastNvhFocus != com.example.caranc.shared.model.NvhFocusClass.WIND_SHEAR &&
+                        vehicleSpeedKmh >= 22f)
+                )
             // Notch boomPriority only for ROAD — tire/wind steps must run their notches (1.2.11)
             val notchBoomPriority =
-                lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE
+                !antiOutputMuted && lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE
             var totalScale = lastSpeedTotalAnti.coerceIn(0.05f, 1.45f)
             if (boomFocusOut && vehicleSpeedKmh >= 18f) {
                 totalScale = (totalScale * if (highLat) 1.28f else 1.20f).coerceAtMost(1.45f)
             }
             var speedScaled = gatedCombined * totalScale
 
-            // ★ Cabin boom pressure: total-RTT delayed inverted mic low (1.2.11)
+            val activePolarity = boomPolarityForced ?: boomPolarity
+            // ★ Cabin boom pressure: total-RTT delayed inverted mic low (1.2.11/1.2.12)
             val boomPress = boomPressure.process(
                 plantDelaySamples = boomDelaySamples(),
                 speedKmh = vehicleSpeedKmh,
                 boomPriority = boomFocusOut && vehicleSpeedValid,
                 freeze = freeze,
-                polarity = boomPolarity
+                polarity = activePolarity
             )
             // KPI = block RMS (stable); mix uses instantaneous sample
-            lastBoomPressureOut = boomPressure.kpiLevel().coerceAtLeast(kotlin.math.abs(boomPress) * 0.5f)
-            // Gate mix by plant-lagged corr — don't blast unlocked phase (cabin +0.97 dB root cause)
+            lastBoomPressureOut = if (antiOutputMuted) {
+                0f
+            } else {
+                boomPressure.kpiLevel().coerceAtLeast(kotlin.math.abs(boomPress) * 0.5f)
+            }
+            // 1.2.12: unlocked / negative plant-lagged corr → mix 0 (was 0.28 — cabin louder)
             val corrGate = when {
                 lastBoomPlantCorr >= 0.15f -> 1.00f
-                lastBoomPlantCorr >= 0.05f -> 0.70f
-                lastBoomPlantCorr >= 0f -> 0.45f
-                else -> 0.28f
+                lastBoomPlantCorr >= 0.05f -> 0.55f
+                lastBoomPlantCorr >= 0.02f -> 0.25f
+                else -> 0f
             }
             val pressMixBase = when {
                 boomFocusOut && vehicleSpeedKmh >= 40f -> 1.35f
@@ -1199,17 +1244,22 @@ class MultiBandANCProcessor(
 
             // ★ Adaptive boom notches (complex LMS) layered on pressure path
             val lowBoomErr = virtualBands.low - speedScaled * 0.10f
-            val notchAnti = narrowbandBank.process(
-                errorSample = lowBoomErr,
-                focus = lastNvhFocus,
-                speedKmh = vehicleSpeedKmh,
-                speedValid = vehicleSpeedValid,
-                freeze = freeze,
-                allowOpenLoop = false,
-                highLatency = highLat,
-                boomPriority = notchBoomPriority
-            )
+            val notchAnti = if (antiOutputMuted) {
+                0f
+            } else {
+                narrowbandBank.process(
+                    errorSample = lowBoomErr,
+                    focus = lastNvhFocus,
+                    speedKmh = vehicleSpeedKmh,
+                    speedValid = vehicleSpeedValid,
+                    freeze = freeze,
+                    allowOpenLoop = false,
+                    highLatency = highLat,
+                    boomPriority = notchBoomPriority
+                )
+            }
             val notchMix = when {
+                antiOutputMuted -> 0f
                 boomFocusOut && highLat -> 1.45f
                 boomFocusOut -> 1.30f
                 highLat -> 0.55f
@@ -1223,8 +1273,14 @@ class MultiBandANCProcessor(
                 speedScaled = roadLowPassOutput(speedScaled) // double for steeper rolloff
             }
 
+            // 1.2.12 hard mute: zero all send paths (LMS/bank/boom/notch) for clean cabin off baseline
+            if (antiOutputMuted) {
+                speedScaled = 0f
+                lastBoomPressureOut = 0f
+            }
+
             // 1.2.9 P2: boom-band opposition corr (positive ≈ anti opposing mic low)
-            if (i % 4 == 0) {
+            if (!antiOutputMuted && i % 4 == 0) {
                 updateBoomPlantCorrelation(virtualBands.low, speedScaled)
             }
 
@@ -1712,9 +1768,11 @@ class MultiBandANCProcessor(
     override fun getWindNotchEnergy(): Float = narrowbandBank.lastWindNotchEnergy
     override fun getTireNotchF0Hz(): Float = narrowbandBank.lastTireF0Hz
     override fun getWindNotchActiveCount(): Int = narrowbandBank.lastWindActiveCount
-    override fun getNotchMixAnti(): Float = narrowbandBank.lastMixAnti
+    override fun getNotchMixAnti(): Float =
+        if (antiOutputMuted) 0f else narrowbandBank.lastMixAnti
     /** Boom adaptive energy (weight-gated). Should rise when 悶 phase locks. */
     override fun getRoadNotchEnergy(): Float = narrowbandBank.lastRoadNotchEnergy
     override fun getRoadBoomWeightEnergy(): Float = narrowbandBank.lastRoadWeightEnergy
-    override fun getBoomPressureOut(): Float = lastBoomPressureOut
+    override fun getBoomPressureOut(): Float =
+        if (antiOutputMuted) 0f else lastBoomPressureOut
 }

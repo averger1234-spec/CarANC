@@ -509,4 +509,61 @@ class MultiBandANCProcessorTest {
         assertTrue(kotlin.math.abs(y) < 0.025f, "no soft-boost floor expected, got $y")
         assertEquals(delay, boom.lastDelayUsed)
     }
+
+    /** 1.2.12: mute zeros send + boom KPI even with ROAD focus / speed. */
+    @Test
+    fun antiOutputMuted_zerosBoomAndSamples() {
+        val proc = MultiBandANCProcessor(sampleRate, bufferSize, UserTier.PRO)
+        proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f)
+        proc.setVehicleSpeed(70f, true)
+        proc.setRumbleAccel(1.0f)
+        proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+        proc.setForcedNvhFocus("ROAD_RUMBLE")
+        proc.setAntiOutputMuted(false)
+        warmUp(proc, generateTone(50f, 512, 0.5f), 6)
+        proc.setAntiOutputMuted(true)
+        val out = proc.process(generateTone(50f, 64, 0.5f))
+        val peak = out.maxOf { kotlin.math.abs(it.toInt()) }
+        assertEquals(0, peak, "muted processor must emit silence")
+        assertEquals(0f, proc.getBoomPressureOut(), 1e-6f)
+        assertEquals(0f, proc.getNotchMixAnti(), 1e-6f)
+    }
+
+    /** 1.2.12: forced polarity sticks; opposite sign flips CabinBoomPressure output. */
+    @Test
+    fun boomPolarityForced_invertsCabinBoomPressure() {
+        val boom = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
+        val delay = 2000
+        repeat(delay + 64) { i -> boom.push(if (i % 2 == 0) 0.4f else -0.2f) }
+        val yPos = boom.process(delay, 70f, true, false, polarity = 1f)
+        // reset LPF state via new instance for clean compare
+        val boom2 = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
+        repeat(delay + 64) { i -> boom2.push(if (i % 2 == 0) 0.4f else -0.2f) }
+        val yNeg = boom2.process(delay, 70f, true, false, polarity = -1f)
+        assertTrue(
+            yPos * yNeg < 0f || (abs(yPos) + abs(yNeg)) < 1e-4f,
+            "opposite polarity should invert (or both ~0); yPos=$yPos yNeg=$yNeg"
+        )
+
+        val proc = createProcessor()
+        proc.setBoomPolarityForced(-1f)
+        assertEquals(-1f, proc.getBoomPolarity())
+        proc.setBoomPolarityForced(null)
+        proc.applyPersistedBoomPolarity(1f)
+        assertEquals(1f, proc.getBoomPolarity())
+    }
+
+    /** 1.2.12: polarity A/B tracker picks higher plantResidualReductionDb. */
+    @Test
+    fun boomPolarityAbTracker_picksBetterResidual() {
+        BoomPolarityAbTracker.reset()
+        repeat(5) { BoomPolarityAbTracker.sample("target_road_ppos", -8f) }
+        repeat(5) { BoomPolarityAbTracker.sample("target_road_pneg", 2f) }
+        assertEquals(-1f, BoomPolarityAbTracker.winnerPolarity())
+        BoomPolarityAbTracker.reset()
+        repeat(5) { BoomPolarityAbTracker.sample("target_road_ppos", 3f) }
+        repeat(5) { BoomPolarityAbTracker.sample("target_road_pneg", -1f) }
+        assertEquals(1f, BoomPolarityAbTracker.winnerPolarity())
+        BoomPolarityAbTracker.reset()
+    }
 }

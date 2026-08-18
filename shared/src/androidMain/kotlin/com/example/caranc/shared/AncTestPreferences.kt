@@ -178,6 +178,22 @@ object AncTestPreferences {
     }
 
     /**
+     * 1.2.12: scripted boom polarity A/B.
+     * +1 / −1 = force; 0 = auto (PlantPathStore + auto-flip).
+     */
+    fun getForceBoomPolarity(context: Context): Float =
+        prefs(context).getFloat("force_boom_polarity", 0f)
+
+    fun setForceBoomPolarity(context: Context, polarity: Float) {
+        val v = when {
+            polarity > 0.5f -> 1f
+            polarity < -0.5f -> -1f
+            else -> 0f
+        }
+        prefs(context).edit().putFloat("force_boom_polarity", v).apply()
+    }
+
+    /**
      * When true, cabin auto-record waits until guided step is collecting valid speed
      * (fair A/B duration; avoid 129s wait-in-file).
      */

@@ -1,16 +1,17 @@
 # 最新多機同步索引（2026-08-18）
 
-**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.11**）。
+**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.12**）。
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.11 / code 13** · iOS **1.2.6 (18)**（framework 待重編） |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.12 / code 14** · iOS **1.2.6 (18)**（framework 待重編） |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
+**1.2.12 重點**：真 mute KPI（post-write buffer）+ 極性 A/B（`road_ppos`/`road_pneg`→`PlantPathStore.boomPolarity`）+ 負 corr boom mix=0；只採信等長艙錄。  
 **1.2.11 重點**：相位對齊降噪 — HIGH_LAT 120、關 Wiener@AA、boom 總 RTT、拒 12ms probe、IMU 不混 ref、lagged boomPlantCorr。  
 **1.2.10 重點**：真 mute baseline + 可感 boom + 公平艙錄 A/B。  
 **1.2.9 重點**：P2 PlantPathStore + boomPlantCorr；1.2.8 antiE/tone/艙錄/IMU。  

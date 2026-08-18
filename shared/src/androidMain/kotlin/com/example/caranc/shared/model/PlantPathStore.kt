@@ -6,6 +6,8 @@ import android.content.Context
  * 1.2.9 P2: persist measured plant electrical delay (AA track+framework dominant)
  * separately from short cabin IR ŝ in [CabinProfileStore].
  *
+ * 1.2.12: also persist winning boom polarity (+1/−1) from road A/B.
+ *
  * Keyed by profileId + routeLabel so USB AA vs local can differ.
  */
 object PlantPathStore {
@@ -19,7 +21,9 @@ object PlantPathStore {
         val electricalDelaySamples: Int,
         val probeCorrMs: Float,
         val cabinAcousticDelaySamples: Int,
-        val updatedEpochMs: Long
+        val updatedEpochMs: Long,
+        /** Boom send polarity: +1 or −1 (default +1 for pre-1.2.12 records). */
+        val boomPolarity: Float = 1f
     )
 
     fun save(context: Context, snap: PlantPathSnapshot) {
@@ -56,7 +60,8 @@ object PlantPathStore {
             s.electricalDelaySamples.toString(),
             s.probeCorrMs.toString(),
             s.cabinAcousticDelaySamples.toString(),
-            s.updatedEpochMs.toString()
+            s.updatedEpochMs.toString(),
+            s.boomPolarity.toString()
         ).joinToString("|")
 
     private fun deserialize(raw: String): PlantPathSnapshot? {
@@ -69,7 +74,13 @@ object PlantPathStore {
                 electricalDelaySamples = p[2].toInt(),
                 probeCorrMs = p[3].toFloat(),
                 cabinAcousticDelaySamples = p[4].toInt(),
-                updatedEpochMs = p[5].toLong()
+                updatedEpochMs = p[5].toLong(),
+                boomPolarity = if (p.size >= 7) {
+                    val v = p[6].toFloat()
+                    if (v >= 0f) 1f else -1f
+                } else {
+                    1f
+                }
             )
         } catch (_: Exception) {
             null

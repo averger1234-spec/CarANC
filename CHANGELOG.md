@@ -22,6 +22,36 @@
 
 
 
+## [1.2.12] — 2026-08-18 · Android code 14 · 真 mute KPI + 極性 A/B + boom corr 鎖
+
+### 問題（1.2.11 公平艙錄）
+
+1. **muteAnti=true 但 log ntiNoiseDb≈−8**：AA 寫入已歸零，但 KPI 量的是 **mute 前** processed → A/B 日誌不可信
+2. **plantResidualReductionDb 在 road ON 大幅為負**：錯相疊加；負 oomPlantCorr 仍用 **0.28×** boom mix → 艙內更響
+3. **oomPressureOut 在 road_off 仍高**：mute 步仍算 boom；ON 時 corr 未鎖卻推幅
+4. **不等長艙錄對**（25s vs 112s）不可當 KPI
+
+### 修復
+
+| 項 | 內容 |
+|----|------|
+| **mute KPI** | updateVisualization 改用 **post-mute write**；mute 時 skip probe；processor setAntiOutputMuted 歸零 boom/notch/bank 輸出與 KPI |
+| **極性 A/B** | 腳本 	arget_road_ppos(+1) / 	arget_road_pneg(−1) 各 20s 艙錄；oom_polarity_winner → PlantPathStore.boomPolarity |
+| **auto-flip** | 負 corr 更快翻轉；腳本 force 時關閉 auto |
+| **corrGate** | corr<0.02 → **mix=0**（不再 0.28 盲推） |
+| **A/B 規則** | 只採信等長對（≈20±3s）；時長差>30% 作廢 |
+
+### 路測必收
+
+- off：muteAnti=true、ntiNoiseDb≤−90（≈−200）、oomPressureOut=0
+- ppos/pneg：各 ~20s 艙錄；看 oom_polarity_winner
+- 等長 off vs 較佳極性：40–80 Hz on < off（目標 ≤−1.5 dB）
+- **不要採信** 不等長對
+
+腳本：三目標·1.2.12 mute真靜音+極性A/B
+
+---
+
 ## [1.2.11] — 2026-08-18 · Android code 13 · 相位對齊：真正壓得下 40–80 Hz
 
 ### 問題（1.2.10 公平艙錄 A/B）

@@ -401,14 +401,14 @@ object CarAncTestScript {
 }
 
 object CarRoadTuningScript {
-    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.11-aligned. */
+    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.12-aligned. */
     const val SCRIPT_ID = "car_road_tuning_v1"
     /**
-     * === 1.2.11 phase-aligned cancel + fair cabin A/B ===
-     * prep → diag_tone_50 → road_off (mute) → road_on (20s) → tire → wind → finish
-     * 必收：cabin 40–80 on<off、HIGH_LAT strategy、probe 不吃 12ms 假峰、tier=PRO
+     * === 1.2.12 true mute KPI + polarity A/B + boom corr lock ===
+     * prep → diag_tone_50 → road_off (mute) → road_ppos (+1) → road_pneg (−1) → tire → wind → finish
+     * 必收：mute 時 antiNoiseDb≈−200；兩極性艙錄各 ~20s；只採信等長對；winner 寫入 PlantPathStore
      */
-    const val SCRIPT_NAME = "三目標·1.2.11相位對齊降噪"
+    const val SCRIPT_NAME = "三目標·1.2.12 mute真靜音+極性A/B"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -453,13 +453,14 @@ object CarRoadTuningScript {
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
             id = "tuning_prep",
-            title = "準備：1.2.11 相位對齊降噪",
+            title = "準備：1.2.12 mute+極性A/B",
             instructions = listOf(
-                "★ 版號 **v1.2.11**；腳本自動 PRO",
+                "★ 版號 **v1.2.12**；腳本自動 PRO",
                 "USB 有線 AA；placement=floor/seat；音樂關",
                 "啟動 ANC；下一步 **50Hz tone**；路步自動艙錄",
-                "★ off 真 mute；on 開 ANC；目標艙錄 40–80 Hz **on < off**",
-                "★ log 應見 latencyStrategy=HIGH_LAT*；12ms probe → probe_rejected"
+                "★ off 真 mute（antiNoiseDb≈−200）；再跑 **+1 / −1** 兩段 on",
+                "★ 只採信等長艙錄（≈20s）；不等長對（如 25s vs 112s）作廢",
+                "★ log：HIGH_LAT*；boom_polarity_winner；負 corr 時 boom mix=0"
             ),
             durationSec = 20,
             requiresAncRunning = false,
@@ -467,7 +468,7 @@ object CarRoadTuningScript {
             maxWallSec = 60,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "版號v1.2.11",
+                "版號v1.2.12",
                 "tier=PRO",
                 "USB AA",
                 "知plantD",
@@ -479,6 +480,7 @@ object CarRoadTuningScript {
                 "musicLowAncEnabled" to true,
                 "userAncGain" to 1.0f,
                 "muteAnti" to false,
+                "forceBoomPolarity" to 0f,
                 "tier" to "PRO",
                 "diagToneHz" to 0f
             )
@@ -518,19 +520,20 @@ object CarRoadTuningScript {
             instructions = listOf(
                 "45–60 km/h；**真 mute anti**（userAncGain=0，喇叭無 anti）",
                 "艙錄在 **達速後** 才開始 → cabin_target_road_off_*.m4a 約 20s",
-                "有效秒 20（≥45 km/h）；log：userAncGain=0、antiNoiseDb 應極低"
+                "有效秒 20（≥45 km/h）；log：muteAnti=true、**antiNoiseDb≤−90**（≈−200）、boomPressureOut=0"
             ),
             durationSec = 20,
             minSpeedKmh = 45f,
             maxWallSec = 120,
             requiresAncRunning = false,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("anti已mute", "達速艙錄", "45+kmh"),
+            checklist = listOf("anti已mute", "antiDb極低", "達速艙錄", "45+kmh"),
             logPhases = listOf("cabin_record_start", "cabin_record_stop", "spectrum_kpi", "running_snapshot"),
             debugPresets = mapOf(
                 "tier" to "PRO",
                 "userAncGain" to 0.0f,
                 "muteAnti" to true,
+                "forceBoomPolarity" to 0f,
                 "cabinRecord" to true,
                 "cabinRecordOnValidSpeed" to true,
                 "diagToneHz" to 0f,
@@ -538,25 +541,24 @@ object CarRoadTuningScript {
             )
         ),
         TestScriptStep(
-            id = "target_road",
-            title = "①b 路悶 開ANC 艙錄+antiE（20s）",
+            id = "target_road_ppos",
+            title = "①b 路悶 極性+1 艙錄 20s",
             instructions = listOf(
-                "同路段 45–60 km/h；**開 ANC**（userAncGain=1）；艙錄達速後 20s",
-                "★ log：antiE40_80、boomPressureOut、**lagged boomPlantCorr>0**、latencyStrategy",
-                "★ 對照 off 艙錄 40–80 Hz：應 ≤ −1.5 dB；變響=FAIL",
-                "主觀悶 0–10；純電子噪=FAIL"
+                "同路段 45–60 km/h；**開 ANC**；forceBoomPolarity=+1",
+                "艙錄達速後 ~20s → cabin_target_road_ppos_*.m4a",
+                "★ log：boomPolarity=+1、plantResidualReductionDb、boomPlantCorr、antiE40_80",
+                "★ 對照 off：40–80 Hz 應 on<off；變響暫記，與 −1 步比較",
+                "主觀悶 0–10"
             ),
-            // match off duration (20s) for fair A/B spectrum
             durationSec = 20,
             minSpeedKmh = 45f,
             maxWallSec = 120,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
+                "pol=+1",
                 "forced=ROAD",
                 "tier=PRO",
-                "userAncGain=1",
-                "boomPressureOut>0",
-                "艙錄on",
+                "艙錄~20s",
                 "主觀悶0-10"
             ),
             logPhases = listOf(
@@ -574,6 +576,51 @@ object CarRoadTuningScript {
                 "forceNormalMode" to true,
                 "userAncGain" to 1.0f,
                 "muteAnti" to false,
+                "forceBoomPolarity" to 1.0f,
+                "tier" to "PRO",
+                "forceNvhFocus" to "ROAD_RUMBLE",
+                "cabinRecord" to true,
+                "cabinRecordOnValidSpeed" to true,
+                "diagToneHz" to 0f
+            )
+        ),
+        TestScriptStep(
+            id = "target_road_pneg",
+            title = "①c 路悶 極性−1 艙錄 20s",
+            instructions = listOf(
+                "同路段 45–60 km/h；**開 ANC**；forceBoomPolarity=−1",
+                "艙錄達速後 ~20s → cabin_target_road_pneg_*.m4a",
+                "★ 與 ppos / off 對照；**較佳極性**結束時寫入 PlantPathStore",
+                "★ 禁止採信與 off 時長差 >30% 的對",
+                "主觀悶 0–10；純電子噪=FAIL"
+            ),
+            durationSec = 20,
+            minSpeedKmh = 45f,
+            maxWallSec = 120,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf(
+                "pol=-1",
+                "forced=ROAD",
+                "tier=PRO",
+                "艙錄~20s",
+                "主觀悶0-10"
+            ),
+            logPhases = listOf(
+                "running_snapshot",
+                "spectrum_kpi",
+                "cabin_record_start",
+                "cabin_record_stop",
+                "perf_timing"
+            ),
+            debugPresets = mapOf(
+                "lmsMuMultiplier" to 2.0f,
+                "freezeThreshold" to 10f,
+                "freezeConsec" to 2,
+                "musicLowAncEnabled" to true,
+                "forceNormalMode" to true,
+                "userAncGain" to 1.0f,
+                "muteAnti" to false,
+                "forceBoomPolarity" to -1.0f,
                 "tier" to "PRO",
                 "forceNvhFocus" to "ROAD_RUMBLE",
                 "cabinRecord" to true,
@@ -612,6 +659,7 @@ object CarRoadTuningScript {
                 "forceNormalMode" to true,
                 "userAncGain" to 1.0f,
                 "muteAnti" to false,
+                "forceBoomPolarity" to 0f,
                 "tier" to "PRO",
                 "forceNvhFocus" to "TIRE_NOISE"
             )
@@ -646,17 +694,19 @@ object CarRoadTuningScript {
                 "forceNormalMode" to true,
                 "userAncGain" to 1.0f,
                 "muteAnti" to false,
+                "forceBoomPolarity" to 0f,
                 "tier" to "PRO",
                 "forceNvhFocus" to "WIND_SHEAR"
             )
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束：1.2.11 對照匯出",
+            title = "結束：1.2.12 對照匯出",
             instructions = listOf(
-                "停 ANC → 存 Log；scenario：50Hz、off/on 悶、電子噪",
-                "★ PASS：艙錄 40–80 on<off（≤−1.5dB）+ HIGH_LAT + lagged corr>0",
-                "★ FAIL：on 更響 / Wiener 仍開 / plant 被 12ms 假峰拉走",
+                "停 ANC → 存 Log；scenario：50Hz、off / ppos / pneg、電子噪",
+                "★ PASS：等長艙錄（≈20±3s）40–80 on<off（≤−1.5dB）+ mute antiDb極低 + HIGH_LAT",
+                "★ 看 boom_polarity_winner；負 corr 不應再推 boom 幅",
+                "★ FAIL：on 更響 / mute 時 antiNoiseDb 仍高 / 採信不等長對（25s vs 112s）",
                 "tire 步可看 tireNotchEnergy（boomPriority 已不含 TIRE）"
             ),
             durationSec = 15,
@@ -665,16 +715,24 @@ object CarRoadTuningScript {
             maxWallSec = 50,
             checklist = listOf(
                 "已存Log",
-                "40-80on小於off",
+                "mute時antiDb極低",
+                "等長艙錄對",
+                "40-80較佳極性on小於off",
                 "HIGH_LAT",
-                "boomPlantCorr",
-                "含cabin_record",
+                "boom_polarity_winner",
                 "tier=PRO"
             ),
-            logPhases = listOf("test_script_complete", "spectrum_kpi", "plant_path_saved", "probe_rejected"),
+            logPhases = listOf(
+                "test_script_complete",
+                "boom_polarity_winner",
+                "spectrum_kpi",
+                "plant_path_saved",
+                "probe_rejected"
+            ),
             debugPresets = mapOf(
                 "userAncGain" to 1.0f,
                 "muteAnti" to false,
+                "forceBoomPolarity" to 0f,
                 "diagToneHz" to 0f
             )
         )

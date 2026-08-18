@@ -84,6 +84,14 @@ fun GuidedTestPanel(
                         AncTestPreferences.setUserAncGain(context, 0f)
                     }
                 }
+                // 1.2.12: force boom polarity A/B (+1 / −1 / 0=auto)
+                fields["forceBoomPolarity"]?.let { v ->
+                    val pol = when (v) {
+                        is Number -> v.toFloat()
+                        else -> v?.toString()?.toFloatOrNull() ?: 0f
+                    }
+                    AncTestPreferences.setForceBoomPolarity(context, pol)
+                }
                 fields["lmsMuMultiplier"]?.let { v ->
                     if (v is Number) AncTestPreferences.setDebugLmsMuMultiplier(context, v.toFloat())
                 }
@@ -160,14 +168,64 @@ fun GuidedTestPanel(
                 com.example.caranc.shared.GuidedNvhOverride.clear()
                 AncTestPreferences.setDiagToneHz(context, 0f)
                 AncTestPreferences.setMuteAntiOutput(context, false)
+                AncTestPreferences.setForceBoomPolarity(context, 0f)
                 AncTestPreferences.setPendingCabinStepId(context, null)
                 com.example.caranc.shared.service.GuidedCabinRecorder.stop(context, "script_end")
+                // 1.2.12: latch polarity A/B winner into PlantPathStore
+                if (phase == "test_script_complete") {
+                    val winner = com.example.caranc.shared.BoomPolarityAbTracker.winnerPolarity()
+                    if (winner != null) {
+                        val profileId = com.example.caranc.shared.model.CabinProfileStore
+                            .resolveProfileId(context)
+                        val routeLabel = "remote_submix"
+                        val prev = com.example.caranc.shared.model.PlantPathStore.loadBest(
+                            context, profileId, routeLabel
+                        )
+                        if (prev != null) {
+                            com.example.caranc.shared.model.PlantPathStore.save(
+                                context,
+                                prev.copy(
+                                    boomPolarity = winner,
+                                    updatedEpochMs = System.currentTimeMillis()
+                                )
+                            )
+                        } else {
+                            com.example.caranc.shared.model.PlantPathStore.save(
+                                context,
+                                com.example.caranc.shared.model.PlantPathStore.PlantPathSnapshot(
+                                    profileId = profileId,
+                                    routeLabel = routeLabel,
+                                    electricalDelaySamples = 4000,
+                                    probeCorrMs = 0f,
+                                    cabinAcousticDelaySamples = 0,
+                                    updatedEpochMs = System.currentTimeMillis(),
+                                    boomPolarity = winner
+                                )
+                            )
+                        }
+                        AncSessionLogger.log(
+                            phase = "boom_polarity_winner",
+                            fields = mapOf(
+                                "winner" to winner,
+                                "posAvg" to (com.example.caranc.shared.BoomPolarityAbTracker.posAvg() ?: 0f),
+                                "negAvg" to (com.example.caranc.shared.BoomPolarityAbTracker.negAvg() ?: 0f),
+                                "posN" to com.example.caranc.shared.BoomPolarityAbTracker.posCount(),
+                                "negN" to com.example.caranc.shared.BoomPolarityAbTracker.negCount(),
+                                "profileId" to profileId,
+                                "note" to "1.2.12_persist_better_plantResidualReductionDb"
+                            )
+                        )
+                    }
+                }
+                com.example.caranc.shared.BoomPolarityAbTracker.reset()
             }
             if (phase == "test_script_start") {
                 com.example.caranc.shared.GuidedNvhOverride.clear()
                 AncTestPreferences.setDiagToneHz(context, 0f)
                 AncTestPreferences.setMuteAntiOutput(context, false)
+                AncTestPreferences.setForceBoomPolarity(context, 0f)
                 AncTestPreferences.setPendingCabinStepId(context, null)
+                com.example.caranc.shared.BoomPolarityAbTracker.reset()
             }
         }
     }

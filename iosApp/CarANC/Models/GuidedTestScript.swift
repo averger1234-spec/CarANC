@@ -18,25 +18,25 @@ struct GuidedTestStep: Identifiable {
 
 enum CarRoadTuningScript {
     static let scriptId = "car_road_tuning_v1"
-    /// 對齊 Android 1.2.9：P2 plantD + antiE + 50Hz + 艙錄（文案；真值需 KMP 重編）
-    static let scriptName = "三目標·1.2.9 P2 plantD+診斷+antiE"
+    /// 對齊 Android 1.2.12：真 mute KPI + 極性 A/B
+    static let scriptName = "三目標·1.2.12 mute真靜音+極性A/B"
 
     static let steps: [GuidedTestStep] = [
         GuidedTestStep(
             id: "tuning_prep",
-            title: "準備：1.2.9 P2+診斷",
+            title: "準備：1.2.12 mute+極性A/B",
             instructions: [
-                "★ 對齊 Android v1.2.9（antiE / plantD / 50Hz / 艙錄）",
+                "★ 對齊 Android v1.2.12（真 mute KPI / 極性±1 / corr 鎖）",
                 "iOS 本機或 CarPlay；Android 有線 AA 完整診斷",
                 "★ placement=floor/seat；音樂關；PRO",
-                "Android 路測：diag_tone_50 → road_off 艙錄 → road_on",
-                "log：antiE*、plantDelaySamples、boomPlantCorr"
+                "Android：diag_tone_50 → road_off → road_ppos → road_pneg",
+                "只採信等長艙錄；不等長對作廢"
             ],
-            durationSec: 25,
+            durationSec: 20,
             suggestedTier: .pro,
             requiresAncRunning: false,
             checklist: [
-                "對齊1.2.9",
+                "對齊1.2.12",
                 "tier=PRO",
                 "placement=floor/seat",
                 "音樂關",
@@ -44,46 +44,119 @@ enum CarRoadTuningScript {
             ],
             minSpeedKmh: 0,
             wallClockOnly: true,
-            maxWallSec: 90,
+            maxWallSec: 60,
             debugPresets: [
                 "forceNormalMode": "true",
                 "musicLowAncEnabled": "true",
                 "userAncGain": "1.0",
+                "muteAnti": "false",
+                "forceBoomPolarity": "0",
                 "tier": "PRO"
             ]
         ),
         GuidedTestStep(
-            id: "target_road",
-            title: "① 路悶 ROAD（音壓 + boom）",
+            id: "diag_tone_50",
+            title: "⓪ AA 低頻診斷 50Hz tone（30s）",
             instructions: [
-                "45–60 km/h；60 秒有效秒（≥45）",
-                "forceNvhFocus=ROAD_RUMBLE",
-                "★ 必收：boomPressureOut（非0）、roadBoomWeightEnergy、roadNotchEnergy、effectiveLowMu",
-                "★ spectrum_kpi：deltaBoomDb / micE40_120",
-                "主觀悶 0–10：低頻有無在動／悶有無變；純電子噪=FAIL"
+                "停車或怠速；開 ANC",
+                "應聽到低沉 50Hz；完全沒低音 → 路徑不通"
             ],
-            durationSec: 60,
+            durationSec: 30,
             suggestedTier: .pro,
             requiresAncRunning: true,
-            checklist: [
-                "forced=ROAD",
-                "tier=PRO",
-                "boomPressureOut非0",
-                "roadBoomWeight有值",
-                "spectrum_kpi有",
-                "主觀悶0-10",
-                "低頻有無在動"
+            checklist: ["ANC開", "聽到50Hz?", "tier=PRO"],
+            minSpeedKmh: 0,
+            wallClockOnly: true,
+            maxWallSec: 45,
+            debugPresets: [
+                "tier": "PRO",
+                "userAncGain": "1.0",
+                "muteAnti": "false",
+                "diagToneHz": "50",
+                "forceNormalMode": "true"
+            ]
+        ),
+        GuidedTestStep(
+            id: "target_road_off",
+            title: "①a 路悶 mute anti 艙錄 20s（baseline）",
+            instructions: [
+                "45–60 km/h；真 mute anti",
+                "艙錄達速後 ~20s",
+                "log：antiNoiseDb≤−90、boomPressureOut=0"
             ],
+            durationSec: 20,
+            suggestedTier: .pro,
+            requiresAncRunning: false,
+            checklist: ["anti已mute", "antiDb極低", "達速艙錄", "45+kmh"],
             minSpeedKmh: 45,
             wallClockOnly: false,
-            maxWallSec: 720,
+            maxWallSec: 120,
+            debugPresets: [
+                "tier": "PRO",
+                "userAncGain": "0.0",
+                "muteAnti": "true",
+                "forceBoomPolarity": "0",
+                "cabinRecord": "true",
+                "cabinRecordOnValidSpeed": "true",
+                "diagToneHz": "0",
+                "forceNvhFocus": "ROAD_RUMBLE"
+            ]
+        ),
+        GuidedTestStep(
+            id: "target_road_ppos",
+            title: "①b 路悶 極性+1 艙錄 20s",
+            instructions: [
+                "同路段 45–60；forceBoomPolarity=+1",
+                "艙錄 ~20s；對照 off"
+            ],
+            durationSec: 20,
+            suggestedTier: .pro,
+            requiresAncRunning: true,
+            checklist: ["pol=+1", "forced=ROAD", "艙錄~20s", "主觀悶0-10"],
+            minSpeedKmh: 45,
+            wallClockOnly: false,
+            maxWallSec: 120,
             debugPresets: [
                 "lmsMuMultiplier": "2.0",
                 "musicLowAncEnabled": "true",
                 "forceNormalMode": "true",
                 "userAncGain": "1.0",
+                "muteAnti": "false",
+                "forceBoomPolarity": "1",
                 "tier": "PRO",
-                "forceNvhFocus": "ROAD_RUMBLE"
+                "forceNvhFocus": "ROAD_RUMBLE",
+                "cabinRecord": "true",
+                "cabinRecordOnValidSpeed": "true",
+                "diagToneHz": "0"
+            ]
+        ),
+        GuidedTestStep(
+            id: "target_road_pneg",
+            title: "①c 路悶 極性−1 艙錄 20s",
+            instructions: [
+                "同路段；forceBoomPolarity=−1",
+                "與 ppos/off 對照；較佳極性寫入 store",
+                "禁止採信時長差>30% 的對"
+            ],
+            durationSec: 20,
+            suggestedTier: .pro,
+            requiresAncRunning: true,
+            checklist: ["pol=-1", "forced=ROAD", "艙錄~20s", "主觀悶0-10"],
+            minSpeedKmh: 45,
+            wallClockOnly: false,
+            maxWallSec: 120,
+            debugPresets: [
+                "lmsMuMultiplier": "2.0",
+                "musicLowAncEnabled": "true",
+                "forceNormalMode": "true",
+                "userAncGain": "1.0",
+                "muteAnti": "false",
+                "forceBoomPolarity": "-1",
+                "tier": "PRO",
+                "forceNvhFocus": "ROAD_RUMBLE",
+                "cabinRecord": "true",
+                "cabinRecordOnValidSpeed": "true",
+                "diagToneHz": "0"
             ]
         ),
         GuidedTestStep(
@@ -112,6 +185,7 @@ enum CarRoadTuningScript {
                 "musicLowAncEnabled": "true",
                 "forceNormalMode": "true",
                 "userAncGain": "1.0",
+                "muteAnti": "false",
                 "tier": "PRO",
                 "forceNvhFocus": "TIRE_NOISE"
             ]
@@ -142,32 +216,37 @@ enum CarRoadTuningScript {
                 "musicLowAncEnabled": "true",
                 "forceNormalMode": "true",
                 "userAncGain": "1.0",
+                "muteAnti": "false",
                 "tier": "PRO",
                 "forceNvhFocus": "WIND_SHEAR"
             ]
         ),
         GuidedTestStep(
             id: "tuning_finish",
-            title: "結束：1.2.9 對照匯出",
+            title: "結束：1.2.12 對照匯出",
             instructions: [
                 "停 ANC → 匯出 Log",
-                "Android：antiE*、plant_path_*、cabin m4a、50Hz 結果",
-                "PASS：50Hz可聽 + antiE 低頻主導 + plantDelay 有值",
-                "FAIL：無低音路徑 / HF≫LF / 純電子噪"
+                "PASS：等長艙錄 40–80 on<off + mute antiDb極低 + boom_polarity_winner",
+                "FAIL：on更響 / mute時antiDb仍高 / 採信不等長對"
             ],
             durationSec: 15,
             suggestedTier: nil,
             requiresAncRunning: false,
             checklist: [
                 "已存Log",
-                "含antiE/plantD",
-                "含spectrum_kpi",
-                "placement已註"
+                "mute時antiDb極低",
+                "等長艙錄對",
+                "boom_polarity_winner",
+                "tier=PRO"
             ],
             minSpeedKmh: 0,
             wallClockOnly: true,
             maxWallSec: 50,
-            debugPresets: [:]
+            debugPresets: [
+                "userAncGain": "1.0",
+                "muteAnti": "false",
+                "forceBoomPolarity": "0"
+            ]
         )
     ]
 }

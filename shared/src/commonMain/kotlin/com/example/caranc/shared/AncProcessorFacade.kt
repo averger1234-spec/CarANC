@@ -170,6 +170,23 @@ interface AncProcessorFacade : AudioProcessor {
     /** 1.2.7: plant-delayed LF pressure path output level. */
     fun getBoomPressureOut(): Float = 0f
 
+    /**
+     * 1.2.12: guided mute — zero send-path anti inside processor (boom/notch/bank KPIs too).
+     * AudioEngine also applies write-gain 0; both must agree for trustworthy A/B logs.
+     */
+    fun setAntiOutputMuted(muted: Boolean) {}
+
+    /** Current boom path polarity (+1 / −1). */
+    fun getBoomPolarity(): Float = 1f
+
+    /**
+     * 1.2.12: force boom polarity for A/B (+1 / −1), or null/0 to resume auto-flip + persisted.
+     */
+    fun setBoomPolarityForced(polarity: Float?) {}
+
+    /** Apply PlantPathStore polarity when not forced by script. */
+    fun applyPersistedBoomPolarity(polarity: Float) {}
+
     /** IMU↔mic low coherence proxy 0..1 (literature multi-coherence gate). */
     fun getImuMicCoherenceQuality(): Float = 0.5f
     /** Bank latent soft-max peak mass 0..1 (US2025-style match quality). */
