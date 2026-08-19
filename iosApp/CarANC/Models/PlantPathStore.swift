@@ -41,6 +41,9 @@ enum PlantPathStore {
             .max(by: { $0.updatedEpochMs < $1.updatedEpochMs })
     }
 
+    /// 1.2.14 無 store 時預設 −1（艙錄偏好）
+    static let defaultPolarity: Float = -1
+
     static func persistPolarityWinner(
         winner: Float,
         profileId: String,
@@ -48,8 +51,9 @@ enum PlantPathStore {
         electricalDelaySamples: Int
     ) {
         let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let pol: Float = winner >= 0 ? 1 : -1
         if var prev = loadBest(profileId: profileId, routeLabel: routeLabel) {
-            prev.boomPolarity = winner
+            prev.boomPolarity = pol
             prev.updatedEpochMs = now
             if electricalDelaySamples > 0 {
                 prev.electricalDelaySamples = electricalDelaySamples
@@ -63,7 +67,7 @@ enum PlantPathStore {
                 probeCorrMs: 0,
                 cabinAcousticDelaySamples: 0,
                 updatedEpochMs: now,
-                boomPolarity: winner
+                boomPolarity: pol
             ))
         }
     }

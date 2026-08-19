@@ -36,7 +36,9 @@ final class KotlinAncBridge {
     private(set) var boomPressureOut: Float = 0
     private(set) var boomPlantCorr: Float = 0
     private(set) var plantElectricalDelaySamples: Int = 0
-    private(set) var boomPolarity: Float = 1
+    /// 1.2.14 default −1（艙錄偏好）
+    private(set) var boomPolarity: Float = -1
+    private(set) var openBoomActive: Bool = false
     private(set) var effectiveLowMu: Float = 0
     private(set) var effectiveMidMu: Float = 0
     /// Soft mute inside KMP (zeros boom/notch/bank KPIs)
@@ -157,6 +159,7 @@ final class KotlinAncBridge {
         boomPlantCorr = processor.getBoomPlantCorr()
         plantElectricalDelaySamples = Int(processor.getPlantElectricalDelaySamples())
         boomPolarity = processor.getBoomPolarity()
+        openBoomActive = processor.isOpenBoomActive()
         effectiveLowMu = processor.getLastEffectiveLowMu()
         effectiveMidMu = processor.getLastEffectiveMidMu()
         refreshLimits()

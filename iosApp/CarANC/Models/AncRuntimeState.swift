@@ -74,7 +74,9 @@ final class AncAppModel: ObservableObject {
     @Published var muteAnti = false
     @Published var userAncGain: Float = 1
     @Published var forceBoomPolarity: Float = 0
-    @Published var boomPolarity: Float = 1
+    /// 1.2.14 預設 −1
+    @Published var boomPolarity: Float = -1
+    @Published var openBoomActive = false
     @Published var plantResidualReductionDb: Float = 0
     @Published var estimatedLatencyMs: Float = 0
     @Published var maxCancelHz: Float = 150

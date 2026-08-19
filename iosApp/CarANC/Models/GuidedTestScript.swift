@@ -19,25 +19,25 @@ struct GuidedTestStep: Identifiable {
 
 enum CarRoadTuningScript {
     static let scriptId = "car_road_tuning_v1"
-    /// 對齊 Android 1.2.13：真 LF 終端 LPF + 極性 A/B（步驟同 1.2.12）
-    static let scriptName = "三目標·1.2.13真LF濾波+極性A/B"
+    /// 對齊 Android 1.2.14：openBoom + 艙錄極性預設 −1
+    static let scriptName = "三目標·1.2.14 openBoom+艙錄極性"
 
     static let steps: [GuidedTestStep] = [
         GuidedTestStep(
             id: "tuning_prep",
-            title: "準備：1.2.13 真LF+極性A/B",
+            title: "準備：1.2.14 openBoom+艙錄極性",
             instructions: [
-                "★ 對齊 Android v1.2.13（85Hz 終端 LPF / 停中頻加噪 / 極性±1）",
+                "★ 對齊 Android v1.2.14（openBoom / 預設極性−1 / cabin winner）",
                 "iOS 本機或 CarPlay；Android 有線 AA 完整診斷",
                 "★ placement=floor/seat；音樂關；PRO",
-                "流程：diag_tone_50 → road_off → road_ppos → road_pneg",
-                "★ 目標：40–80 on<off 且 180–350 不大增；只採信等長艙錄"
+                "★ 只收等長 ~20s 三件套 off/ppos/pneg（≥45 km/h）",
+                "★ 停速場作廢；on 應 boomPressureOut≫0、openBoom=true"
             ],
             durationSec: 20,
             suggestedTier: .pro,
             requiresAncRunning: false,
             checklist: [
-                "對齊1.2.13",
+                "對齊1.2.14",
                 "tier=PRO",
                 "placement=floor/seat",
                 "音樂關",
@@ -110,12 +110,12 @@ enum CarRoadTuningScript {
             instructions: [
                 "同路段 45–60；forceBoomPolarity=+1",
                 "艙錄 ~20s；對照 off 的 40–80 與 180–350",
-                "★ 1.2.13：HIGH_LAT 應只推 LF，中頻不應大增"
+                "★ 1.2.14：openBoom 應 true；boomPressureOut≫0；中頻不應大增"
             ],
             durationSec: 20,
             suggestedTier: .pro,
             requiresAncRunning: true,
-            checklist: ["pol=+1", "forced=ROAD", "艙錄~20s", "主觀悶0-10", "中頻無大增?"],
+            checklist: ["pol=+1", "forced=ROAD", "艙錄~20s", "boomOut有?", "中頻無大增?"],
             minSpeedKmh: 45,
             wallClockOnly: false,
             maxWallSec: 120,
@@ -229,12 +229,12 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "tuning_finish",
-            title: "結束：1.2.13 對照匯出",
+            title: "結束：1.2.14 對照匯出",
             instructions: [
                 "停 ANC → 匯出 Log",
-                "★ PASS：40–80 on<off（≤−1.5dB）且 180–350 增幅 <+1.5dB",
-                "★ mute antiDb極低；HIGH_LAT；boom_polarity_winner",
-                "FAIL：中頻明顯變吵 / on 更響 / 採信不等長對"
+                "★ PASS：等長三件套 40–80 on<off；180–350 <+1.5dB；boomOut≫0",
+                "★ mute≈−200；openBoom；boom_polarity_winner（cabin 優先，預設−1）",
+                "FAIL：停速場 / 不等長 / boomOut≈0 / on 更響"
             ],
             durationSec: 15,
             suggestedTier: nil,
@@ -242,9 +242,10 @@ enum CarRoadTuningScript {
             checklist: [
                 "已存Log",
                 "mute時antiDb極低",
-                "等長艙錄對",
+                "等長三件套",
+                "非停速場",
+                "boomOut有值",
                 "40-80on小於off",
-                "180-350不大增",
                 "boom_polarity_winner",
                 "tier=PRO"
             ],
@@ -487,32 +488,33 @@ final class GuidedTestRunner: ObservableObject {
         engine?.setForceBoomPolarity(0)
         engine?.setDiagToneHz(0)
         model?.forcedNvhFocus = "auto"
-        // 1.2.12：極性 A/B winner → PlantPathStore
-        if let winner = BoomPolarityAbTracker.shared.winnerPolarity()?.floatValue {
-            let link = AppController.shared.routeMonitor.linkType
-            let route = PlantPathStore.routeLabel(carPlay: link.isCarPlay, wireless: link.wirelessSuspected)
-            let delay = model?.plantElectricalDelaySamples ?? 0
-            PlantPathStore.persistPolarityWinner(
-                winner: winner,
-                profileId: "ios_default",
-                routeLabel: route,
-                electricalDelaySamples: delay
-            )
-            engine?.setForceBoomPolarity(0)
-            // apply persisted for next run
-            // (forced cleared above; start() will load store)
-            SessionLogger.shared.event("boom_polarity_winner", [
-                "winner": String(format: "%.0f", winner),
-                "posAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.posAvg()?.floatValue ?? 0),
-                "negAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.negAvg()?.floatValue ?? 0),
-                "posN": "\(BoomPolarityAbTracker.shared.posCount())",
-                "negN": "\(BoomPolarityAbTracker.shared.negCount())",
-                "profileId": "ios_default",
-                "routeLabel": route,
-                "note": "1.2.13_persist_better_plantResidualReductionDb"
-            ])
-            appendLog("boom_polarity_winner=\(winner)")
-        }
+        // 1.2.14：cabin 優先 winner（永不 null；不足樣本則 −1）
+        let winner = BoomPolarityAbTracker.shared.winnerPolarity()
+        let link = AppController.shared.routeMonitor.linkType
+        let route = PlantPathStore.routeLabel(carPlay: link.isCarPlay, wireless: link.wirelessSuspected)
+        let delay = model?.plantElectricalDelaySamples ?? 0
+        PlantPathStore.persistPolarityWinner(
+            winner: winner,
+            profileId: "ios_default",
+            routeLabel: route,
+            electricalDelaySamples: delay
+        )
+        engine?.setForceBoomPolarity(0)
+        SessionLogger.shared.event("boom_polarity_winner", [
+            "winner": String(format: "%.0f", winner),
+            "posAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.posAvg()?.floatValue ?? 0),
+            "negAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.negAvg()?.floatValue ?? 0),
+            "posCabinAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.posCabinAvg()?.floatValue ?? 0),
+            "negCabinAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.negCabinAvg()?.floatValue ?? 0),
+            "posN": "\(BoomPolarityAbTracker.shared.posCount())",
+            "negN": "\(BoomPolarityAbTracker.shared.negCount())",
+            "discardedLowSpeed": "\(BoomPolarityAbTracker.shared.discardedLowSpeedCount())",
+            "fairAb": "\(BoomPolarityAbTracker.shared.isFairAbComplete())",
+            "profileId": "ios_default",
+            "routeLabel": route,
+            "note": "1.2.14_cabin_winner_default_neg1"
+        ])
+        appendLog("boom_polarity_winner=\(winner) fair=\(BoomPolarityAbTracker.shared.isFairAbComplete()) discardedLowSpeed=\(BoomPolarityAbTracker.shared.discardedLowSpeedCount())")
         BoomPolarityAbTracker.shared.reset()
         SessionLogger.shared.event("test_script_complete", [
             "scriptId": CarRoadTuningScript.scriptId,
@@ -614,18 +616,18 @@ final class GuidedTestRunner: ObservableObject {
         === GUIDED SCRIPT ===
         script=\(CarRoadTuningScript.scriptId)
         name=\(CarRoadTuningScript.scriptName)
-        align=android_CarRoadTuningScript_v1.2.13
+        align=android_CarRoadTuningScript_v1.2.14
         autoAdvance=\(autoAdvance)
         stepIndex=\(stepIndex) finished=\(finished)
 
-        === HOW TO VERIFY (1.2.13 真LF + 極性 A/B) ===
+        === HOW TO VERIFY (1.2.14 openBoom + 艙錄極性−1) ===
         PASS:
           - road_off: muteAnti=true、antiNoiseDb≤−90、boomPressureOut=0
-          - ppos/pneg: 各 ~20s；40–80 on<off（≤−1.5 dB）
-          - 180–350 增幅 <+1.5 dB（真 LF 終端，不中頻加噪）
-          - boom_polarity_winner；HIGH_LAT
+          - ppos/pneg: 等長 ~20s ≥45 km/h；openBoom=true；boomOut≫0
+          - 40–80 on<off（≤−1.5 dB）；180–350 <+1.5 dB
+          - boom_polarity_winner（cabin 優先；預設−1）
         FAIL:
-          - 中頻明顯變吵 / on 更響 / mute 時 antiDb 仍高 / 採信不等長對
+          - 停速場 / 不等長 / boomOut≈0 / 中頻變吵 / mute 時 antiDb 仍高
 
         === SCRIPT EVENT LINES ===
         """

@@ -48,7 +48,15 @@
 - 40–80 on < off（≤ −1.5 dB）；180–350 <+1.5 dB
 - oom_polarity_winner 以 cabin 為準
 
-腳本：三目標·1.2.14 openBoom+艙錄極性
+腳本：`三目標·1.2.14 openBoom+艙錄極性`
+
+### iOS（build 24 · 對齊 1.2.14）
+
+- 重編 `CarANCShared`（openBoom、預設極性 −1、cabin winner、短延遲 probe flip）
+- 腳本／log：`openBoom`、cabin A/B sample（≥45 km/h）、`boom_polarity_winner` 預設 −1
+- 無 PlantPathStore 時啟動套用 default −1
+- 保留 Embed framework（防開機閃退）
+- 狀態頁 **`v1.2.14 (24)`** · `dist/CarANC-ios-kmp-debug.ipa`
 
 ---
 

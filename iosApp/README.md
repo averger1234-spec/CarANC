@@ -13,8 +13,8 @@ SwiftUI + AVAudioEngine 本機主動降噪 App，對齊 Android 產品策略（�
 | `app/` | **Android only** | Compose UI、AA、install-debug、Play flavor |
 | `iosApp/` | **iOS only** | Xcode / SwiftUI / 本機 AVAudioEngine |
 | `shared/` | **共用 KMP** | 演算法與 commercial；Android 完整、iosMain 有 actual |
-| `version.properties` | Android 版號 | 目前 **1.2.13 / code 15** · 主畫面 `v1.2.13` |
-| `iosApp/.../Info.plist` + Xcode | iOS 版號 | 目前 **1.2.13 (23)** · **狀態頁顯示 `v1.2.13 (23)`** |
+| `version.properties` | Android 版號 | 目前 **1.2.14 / code 16** · 主畫面 `v1.2.14` |
+| `iosApp/.../Info.plist` + Xcode | iOS 版號 | 目前 **1.2.14 (24)** · **狀態頁顯示 `v1.2.14 (24)`** |
 
 推 GitHub 時 **一次 push 兩邊都在**；改 iOS 不影響 Android APK 建置，反之亦然。  
 Commit 訊息建議標前綴：`ios:` / `android:` / `shared:`。
@@ -39,24 +39,24 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 
 | 能力 | iOS 現況 | Android |
 |------|----------|---------|
-| 版號顯示 | ✅ 狀態頁 `v1.2.13 (23)` | ✅ 主畫面 `v1.2.13` |
+| 版號顯示 | ✅ 狀態頁 `v1.2.14 (24)` | ✅ 主畫面 `v1.2.14` |
 | 無車速備用 | ✅ gps_hold + imu_proxy | ✅ 同 `VehicleSpeedFusion` |
 | 多頻段 DSP | ✅ **KMP `MultiBandANCProcessor`** + SpeedScheduled | ✅ 同核心 |
-| `speedNvh*` / boom / antiE / mute / 極性 / 真LF | ✅ 1.2.13 | ✅ |
-| 路測腳本 | ✅ car_road_tuning_v1（1.2.13） | ✅ 同腳本 + 艙錄 m4a |
+| `speedNvh*` / boom / antiE / mute / 極性 / 真LF | ✅ 1.2.14 | ✅ |
+| 路測腳本 | ✅ car_road_tuning_v1（1.2.14） | ✅ 同腳本 + 艙錄 m4a |
 | 艙錄 | ✅ 達速 `cabin_*.wav` | ✅ `cabin_*.m4a` |
 | Session log | ✅ running_snapshot 同欄位名 | ✅ JSONL |
 | GPS / IMU 三軸 | ✅ setImuAxes | ✅ |
 | Android Auto / CarPlay | ✅ 見 `CARPLAY.md`（含通話結束音量修復） | ✅ AA |
 | 通話中斷保護 | ✅ pause + session restore + 增益漸升 | ✅ MODE_IN_CALL bypass |
 | 本機喇叭 duplex | ✅ AVAudioEngine + 50Hz tone | ✅ |
-| 預編 IPA | ✅ `dist/…ipa` **1.2.13 (23)** | — |
+| 預編 IPA | ✅ `dist/…ipa` **1.2.14 (24)** | — |
 | 開機不閃退 | ✅ Embed `CarANCShared`（build 23；勿用 22） | — |
 
 ### 路測對版（必看）
 
-1. 打開 App → **狀態** 頁右上角 / 副標：**`v1.2.13 (23)`**（**勿裝 build 22**，會閃退）  
-2. Session log 開頭：`appVersion=1.2.13` `build=23`  
+1. 打開 App → **狀態** 頁右上角 / 副標：**`v1.2.14 (24)`**（**勿裝 build 22（缺 Embed）**，會閃退）  
+2. Session log 開頭：`appVersion=1.2.13` `build=24`  
 3. 改功能後：`CFBundleVersion` +1，功能包再升 marketing，並寫 `CHANGELOG.md`  
 4. 重編 IPA 必須確認 `.app/Frameworks/CarANCShared.framework` 存在，且 **刪除舊 IPA 再打包**（勿 `zip` 覆蓋殘留舊 framework）
 

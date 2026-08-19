@@ -333,6 +333,13 @@ final class AncAudioEngine: ObservableObject {
                 "electricalDelaySamples": "\(snap.electricalDelaySamples)",
                 "boomPolarity": String(format: "%.0f", snap.boomPolarity)
             ])
+        } else {
+            // 1.2.14：無 store 亦套預設 −1
+            proc.applyPersistedBoomPolarity(PlantPathStore.defaultPolarity)
+            SessionLogger.shared.event("plant_path_default_polarity", [
+                "boomPolarity": String(format: "%.0f", PlantPathStore.defaultPolarity),
+                "note": "1.2.14_cabin_pref_default_neg1"
+            ])
         }
         proc.setAntiOutputMuted(muteAnti || userAncGain <= 0.001)
         if abs(forceBoomPolarity) > 0.01 {
@@ -620,7 +627,8 @@ final class AncAudioEngine: ObservableObject {
             model.boomPressureOut = self.kmpProcessor?.boomPressureOut ?? 0
             model.boomPlantCorr = self.kmpProcessor?.boomPlantCorr ?? 0
             model.plantElectricalDelaySamples = self.kmpProcessor?.plantElectricalDelaySamples ?? 0
-            model.boomPolarity = self.kmpProcessor?.boomPolarity ?? 1
+            model.boomPolarity = self.kmpProcessor?.boomPolarity ?? PlantPathStore.defaultPolarity
+            model.openBoomActive = self.kmpProcessor?.openBoomActive ?? false
             model.muteAnti = self.muteAnti
             model.userAncGain = self.userAncGain
             model.forceBoomPolarity = self.forceBoomPolarity
@@ -717,6 +725,7 @@ final class AncAudioEngine: ObservableObject {
                     "boomPlantCorr": String(format: "%.3f", model.boomPlantCorr),
                     "plantDelaySamples": "\(model.plantElectricalDelaySamples)",
                     "boomPolarity": String(format: "%.0f", model.boomPolarity),
+                    "openBoom": "\(model.openBoomActive)",
                     "muteAnti": "\(self.muteAnti)",
                     "userAncGain": String(format: "%.2f", self.userAncGain),
                     "forceBoomPolarity": String(format: "%.0f", self.forceBoomPolarity),
@@ -725,13 +734,16 @@ final class AncAudioEngine: ObservableObject {
                     "guidedStep": SessionLogger.shared.guidedTestStepId,
                     "note": "ios_spectrum_kpi_input_plus_anti_proxy"
                 ])
-                // 1.2.12：極性 A/B 採樣（用 deltaBoomDb 作 plantResidualReductionDb 代理）
+                // 1.2.14：極性 A/B — cabin low-band 優先；plant residual 次之；丟棄 <45 km/h
                 let plantRed = eMicBoom - ePlantBoom
+                let cabinLow = SpectrumAnalyzer.bandRangeEnergyDb(mic, sampleRate: sr, fLo: 40, fHi: 120)
                 self.lastPlantResidualReductionDb = plantRed
                 model.plantResidualReductionDb = plantRed
                 BoomPolarityAbTracker.shared.sample(
                     stepId: SessionLogger.shared.guidedTestStepId,
-                    residualReductionDb: plantRed
+                    residualReductionDb: plantRed,
+                    cabinLowBandDb: KotlinFloat(float: cabinLow),
+                    speedKmh: model.vehicleSpeedKmh
                 )
                 // Overlay real KMP diagnostics into next event
                 SessionLogger.shared.event("kmp_diag", [

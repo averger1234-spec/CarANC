@@ -15,7 +15,7 @@
 | 平台 | 版號 | App 怎麼對版 |
 |------|------|----------------|
 | Android | **1.2.14 / code 16** | 主畫面 `v1.2.14` |
-| iOS | **1.2.13 (build 23)** | 狀態頁 **`v1.2.13 (23)`**；真LF+mute+極性+艙錄；**修開機閃退（Embed CarANCShared）** |
+| iOS | **1.2.14 (build 24)** | 狀態頁 **`v1.2.14 (24)`**；openBoom+極性−1+真LF；**Embed 防閃退** |
 
 ### 1. 拉程式（每台、每次開工）
 
@@ -37,7 +37,7 @@ git log -5 --oneline
 | **這版改了什麼** | `CHANGELOG.md` + `version.properties` + iOS Info.plist |
 | 專案總覽 / iOS+Android 現況 | `README.md` →「最新進度」 |
 | Android 日常裝機 / 拉 log | `scripts/README.md` |
-| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md`（應寫 1.2.13 (23)） |
+| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md`（應寫 1.2.14 (24)） |
 | iOS 專案 / CarPlay / 路測 | `iosApp/README.md`、`iosApp/CARPLAY.md`、`iosApp/ROAD_TEST_VERIFY.md` |
 | Play 上架 / store vs internal | `DISTRIBUTION.md`、`PLAY_RELEASE_CHECKLIST.md` |
 | Play 資料安全怎麼填 | `DATA_SAFETY.md` |
