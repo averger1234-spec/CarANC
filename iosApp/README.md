@@ -42,8 +42,8 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 | 版號顯示 | ✅ 狀態頁 `v1.2.14 (24)` | ✅ 主畫面 `v1.2.14` |
 | 無車速備用 | ✅ gps_hold + imu_proxy | ✅ 同 `VehicleSpeedFusion` |
 | 多頻段 DSP | ✅ **KMP `MultiBandANCProcessor`** + SpeedScheduled | ✅ 同核心 |
-| `speedNvh*` / boom / antiE / mute / 極性 / 真LF | ✅ 1.2.14 | ✅ |
-| 路測腳本 | ✅ car_road_tuning_v1（1.2.14） | ✅ 同腳本 + 艙錄 m4a |
+| `speedNvh*` / boom / antiE / mute / 極性 / 真LF / openBoom | ✅ 1.2.14 | ✅ |
+| 路測腳本 | ✅ car_road_tuning_v1（1.2.14 openBoom+艙錄極性） | ✅ 同腳本 + 艙錄 m4a |
 | 艙錄 | ✅ 達速 `cabin_*.wav` | ✅ `cabin_*.m4a` |
 | Session log | ✅ running_snapshot 同欄位名 | ✅ JSONL |
 | GPS / IMU 三軸 | ✅ setImuAxes | ✅ |
