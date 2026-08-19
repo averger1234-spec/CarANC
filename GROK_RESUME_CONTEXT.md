@@ -4,7 +4,7 @@
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.13 / code 15** · iOS **1.2.13 (22)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.13 / code 15** · iOS **1.2.13 (23)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
@@ -13,7 +13,7 @@
 
 **1.2.13 重點**：85Hz 真 LF 終端 LPF（修 speed 320Hz 假低通）；HIGH_LAT ROAD 清 FDAF/bank/engine；forced 極性 boom floor；notch 不盲播。  
 **1.2.12 重點**：真 mute KPI + 極性 A/B + 負 corr boom mix=0；只採信等長艙錄。  
-**iOS build 22**：對齊 1.2.13 KMP 真 LF；**build 21**：通話結束 CarPlay 音量暴衝修復。  
+**iOS build 23**：修 Embed 閃退；**build 22**：對齊 1.2.13 KMP 真 LF；**build 21**：通話結束 CarPlay 音量暴衝修復。  
 **1.2.11 重點**：相位對齊 — HIGH_LAT 120、關 Wiener、拒 12ms probe、IMU 不混 ref。  
 **1.2.10 重點**：真 mute baseline + 可感 boom + 公平艙錄 A/B。  
 **1.2.9 重點**：P2 PlantPathStore + boomPlantCorr；1.2.8 antiE/tone/艙錄/IMU。  

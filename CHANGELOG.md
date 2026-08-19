@@ -59,6 +59,12 @@ Mute／極性 A/B／probe 皆正確，但艙錄仍：
 - 保留 build 21 通話結束車機音量修復
 - 狀態頁 **`v1.2.13 (22)`** · `dist/CarANC-ios-kmp-debug.ipa`
 
+### iOS（build 23 · 修開機閃退）
+
+- **根因**：Xcode 未 Embed `CarANCShared.framework`；IPA 用 `zip` 覆蓋時留下舊 framework → dyld 找不到／符號不符 → 一開就閃退
+- **修復**：補上 Embed Frameworks（Copy Files → Frameworks）；IPA 改為刪檔重建；確認 bundle 內 framework 與 App 同編
+- 狀態頁 **`v1.2.13 (23)`**
+
 ---
 
 ## [1.2.12] — 2026-08-18 · Android code 14 · 真 mute KPI + 極性 A/B + boom corr 鎖

@@ -58,6 +58,20 @@
 		DFFE14E4C03543099EB22670 /* StatusTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0117D78F7DB14D2B89B5E34A /* StatusTabView.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		E12000000000000000000001 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				3188EEDCCD1E4406962EF7DC /* CarANCShared.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		A12000000000000000000011 /* PlantPathStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlantPathStore.swift; sourceTree = "<group>"; };
 		A12000000000000000000012 /* GuidedCabinRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuidedCabinRecorder.swift; sourceTree = "<group>"; };
@@ -274,6 +288,7 @@
 				6F3BC751E39046E3B7768DC2 /* Sources */,
 				C4067059531341DE94A2559C /* Frameworks */,
 				0F2C0EB54FF04F748A988AB2 /* Resources */,
+				E12000000000000000000001 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -435,7 +450,7 @@
 				);
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				CODE_SIGN_ENTITLEMENTS = CarANC/CarANC.entitlements;
-				CURRENT_PROJECT_VERSION = 22;
+				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = Q8U9PM5FTD;
 				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -485,7 +500,7 @@
 				);
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				CODE_SIGN_ENTITLEMENTS = CarANC/CarANC.entitlements;
-				CURRENT_PROJECT_VERSION = 22;
+				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = Q8U9PM5FTD;
 				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = (
