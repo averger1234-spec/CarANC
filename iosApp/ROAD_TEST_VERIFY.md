@@ -110,7 +110,7 @@ DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路�
 | `tier` | Android 導測應 **PRO**（腳本強制） |
 | `forcedNvhFocus` | ROAD / TIRE / WIND |
 
-腳本顯示名：三目標·1.2.7悶音壓+PRO強制（**現行為 1.2.12**）。iOS **build 22** 已含 mute/極性/艙錄。
+腳本顯示名：三目標·1.2.7悶音壓+PRO強制（**現行為 1.2.13**）。iOS **build 22** 已含真 LF + mute/極性/艙錄。
 
 ## 1.2.8–1.2.9 診斷 + P2 plant
 
