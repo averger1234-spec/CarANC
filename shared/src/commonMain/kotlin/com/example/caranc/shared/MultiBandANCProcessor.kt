@@ -262,6 +262,15 @@ class MultiBandANCProcessor(
     private var roadLpCoeff = lpCoeff
     private var roadLpInputState = 0f
     private var roadLpOutputState = 0f
+    /**
+     * 1.2.13: true boom-band terminal LPF (~90 Hz). Speed-based roadLpCutoff reaches 320–400 Hz
+     * at cruise and was letting 180–350 Hz anti into the cabin (+6 dB in fair A/B).
+     */
+    private val boomTerminalLpCoeff =
+        (2.0 * PI * 85.0 / sampleRate).toFloat().coerceIn(0.004f, 0.08f)
+    private var boomTermLp1 = 0f
+    private var boomTermLp2 = 0f
+    private var boomTermLp3 = 0f
 
     @Keep
     override fun applyCabinModel(model: CabinTransferModel) {
@@ -436,9 +445,15 @@ class MultiBandANCProcessor(
     }
 
     /** Total measured path delay for boom FF (record+track+fw…), not track+fw alone. */
-    private fun boomDelaySamples(): Int =
-        (measuredLatencyMs * sampleRate / 1000f).toInt()
-            .coerceIn(64, MAX_PLANT_DELAY_SAMPLES)
+    /**
+     * 1.2.13: prefer max(plant electrical, ~0.85× measured RTT) so boom FF tracks HAL/store D
+     * without collapsing to bogus short probes (already rejected upstream).
+     */
+    private fun boomDelaySamples(): Int {
+        val fromMeasured = (measuredLatencyMs * 0.85f * sampleRate / 1000f).toInt()
+        val fromPlant = plantElectricalDelaySamples
+        return maxOf(fromPlant, fromMeasured).coerceIn(64, MAX_PLANT_DELAY_SAMPLES)
+    }
 
     private fun updateLatencyStrategy() {
         // CORE FIX: abandoned FF_PREVIEW_ONLY open-loop magnitude inject (produced speaker noise).
@@ -962,13 +977,10 @@ class MultiBandANCProcessor(
             fixedBankXRing[fixedBankXIdx] = lowSampleForLowBand
             fixedBankXIdx = (fixedBankXIdx + 1) % fixedBankXRing.size
             val bankLearned = preLearnedBank.learnedBinCount()
-            val useFixedBank = bankLearned > 0 && (
-                (lastEffectiveRumbleMode && vehicleSpeedKmh > 30f && rumbleEnergyProxy > 0.15f) ||
-                    (highLat && vehicleSpeedKmh > 40f)
-                )
+            // 1.2.13: never fixed-bank under AA high-lat (unlocked sand → cabin mid louder)
+            val useFixedBank = !highLat && bankLearned > 0 &&
+                lastEffectiveRumbleMode && vehicleSpeedKmh > 30f && rumbleEnergyProxy > 0.15f
             val bankScale = when {
-                highLat && lastEffectiveRumbleMode -> 0.45f
-                highLat -> 0.28f
                 lastEffectiveRumbleMode -> 0.50f
                 else -> 0.30f
             } * (if (bankLearned >= 3) 1f else 0.55f)
@@ -1100,7 +1112,13 @@ class MultiBandANCProcessor(
                 0f
             }
 
-            val engineFf = engineComb.feedforwardSample(lowSample) * engineComb.blendGain(idleMode)
+            // 1.2.13: under AA high-lat ROAD/boom, mute unlocked FF (was mid cabin +6 dB)
+            val highLatRoadQuiet = highLat && !windFocusNow && (
+                roadMode || lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE ||
+                    lastEffectiveRumbleMode
+                )
+            val engineFfRaw = engineComb.feedforwardSample(lowSample) * engineComb.blendGain(idleMode)
+            val engineFf = if (highLatRoadQuiet) 0f else engineFfRaw
             // CORE: RoadNoiseWiener is free-running multi-tone synth (phase unlocked to cabin).
             // Under AA high-lat it is structural speaker noise, not reverse boom cancel → mute it.
             val roadFf = if (roadMode && !highLat) {
@@ -1114,9 +1132,13 @@ class MultiBandANCProcessor(
             // - FDAF, fixed bank, engine comb, road Wiener already return speaker anti (−synth)
             // Mixing pre-anti paths into adaptiveCombined then negating again double-flips them
             // into +noise (user: residual louder / radio static). Keep LMS y and pre-anti separate.
-            val fixedScale = 1f
-            // High-lat: FDAF delayless FIR on delayed mic ≈ sand; keep tiny assist only
-            val fdafMix = if (highLat) 0.08f else 0.45f
+            val fixedScale = if (highLatRoadQuiet) 0f else 1f
+            // 1.2.13: FDAF under AA high-lat ROAD = sand through 320 Hz "LPF" → zero (was 0.08)
+            val fdafMix = when {
+                highLatRoadQuiet -> 0f
+                highLat -> 0.08f
+                else -> 0.45f
+            }
             val adaptMix = 1f
             // High lat: mute mid/high for rumble-only; **wind chase keeps mid/high** (product: 压风切).
             val midMix = if (windFocusNow) {
@@ -1137,9 +1159,11 @@ class MultiBandANCProcessor(
                 if (midMix == 0f && estimatedLatencyMs > HIGH_LATENCY_MS && !windFocusNow) 0f
                 else midBand.lastMuScale
 
+            // 1.2.13: do not run fixed bank under high-lat ROAD (unlocked sand)
+            val fixedBankUse = if (highLatRoadQuiet) 0f else fixedBankOut
             val lmsY = (lowOut + nativeLowOut) * bandGains.low * latencyLimits.lowGain * adaptMix +
                 midMix + highMix
-            val preAnti = fdafOut * fdafMix + fixedBankOut * fixedScale
+            val preAnti = fdafOut * fdafMix + fixedBankUse * fixedScale
 
             var combined = when {
                 floorMode && (processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC || processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD || processingMode == AncProcessingMode.MUSIC_DOMINANT_RUMBLE) && musicLowAncEnabled -> {
@@ -1150,7 +1174,11 @@ class MultiBandANCProcessor(
                     val lowLmsY = lowOut * bandGains.low * latencyLimits.lowGain * adaptMix
                     val higherLmsY = midMix + highMix
                     val roadMusicWeight = if (roadMode) roadWiener.blendGain() * 1.2f else 0f
-                    val roadFfInMusicLow = if (roadMode) roadWiener.feedforwardSample(lowSample) * roadMusicWeight else 0f
+                    val roadFfInMusicLow = if (roadMode && !highLat) {
+                        roadWiener.feedforwardSample(lowSample) * roadMusicWeight
+                    } else {
+                        0f
+                    }
                     val protectedHigher = when {
                         estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode -> 0f
                         roadMode && vehicleSpeedKmh > 28f -> higherLmsY * 0.25f
@@ -1165,8 +1193,10 @@ class MultiBandANCProcessor(
                 roadMode -> {
                     val roadFfGain = if (estimatedLatencyMs > 150f && lastEffectiveRumbleMode) 0.85f else 1.0f
                     // Road FF / engine already anti polarity; do not re-negate or double fixed-bank.
-                    -roadLowPassOutput(lmsY) + roadLowPassOutput(preAnti) +
-                        roadFf * roadFfGain + engineFf * 0.2f
+                    // Prefer boom-terminal LPF under high-lat (90 Hz) over speed 320 Hz road LPF.
+                    val lpLms = if (highLatRoadQuiet) boomTerminalLowPass(lmsY) else roadLowPassOutput(lmsY)
+                    val lpPre = if (highLatRoadQuiet) boomTerminalLowPass(preAnti) else roadLowPassOutput(preAnti)
+                    -lpLms + lpPre + roadFf * roadFfGain + engineFf * 0.2f
                 }
                 else -> -lmsY + preAnti + engineFf * 0.25f
             }
@@ -1176,7 +1206,7 @@ class MultiBandANCProcessor(
             if (!windFocus && (lastNvhSuppressHigh ||
                     (estimatedLatencyMs > HIGH_LATENCY_MS && lastEffectiveRumbleMode && vehicleSpeedKmh > 20f))
             ) {
-                combined = lowPassOutput(combined)
+                combined = if (highLatRoadQuiet) boomTerminalLowPass(combined) else lowPassOutput(combined)
             }
 
             val outputEventScale = if (musicDominantRumbleMode && rumbleEnergyProxy > 0.2f) {
@@ -1213,7 +1243,8 @@ class MultiBandANCProcessor(
             var speedScaled = gatedCombined * totalScale
 
             val activePolarity = boomPolarityForced ?: boomPolarity
-            // ★ Cabin boom pressure: total-RTT delayed inverted mic low (1.2.11/1.2.12)
+            val polarityForced = boomPolarityForced != null
+            // ★ Cabin boom pressure: plant-aligned delayed inverted mic low
             val boomPress = boomPressure.process(
                 plantDelaySamples = boomDelaySamples(),
                 speedKmh = vehicleSpeedKmh,
@@ -1227,16 +1258,18 @@ class MultiBandANCProcessor(
             } else {
                 boomPressure.kpiLevel().coerceAtLeast(kotlin.math.abs(boomPress) * 0.5f)
             }
-            // 1.2.12: unlocked / negative plant-lagged corr → mix 0 (was 0.28 — cabin louder)
+            // 1.2.12/1.2.13: unlocked corr → mix 0, EXCEPT forced polarity from A/B winner
+            // (otherwise winner never reaches speakers while corr≈0)
             val corrGate = when {
                 lastBoomPlantCorr >= 0.15f -> 1.00f
                 lastBoomPlantCorr >= 0.05f -> 0.55f
                 lastBoomPlantCorr >= 0.02f -> 0.25f
+                polarityForced && boomFocusOut -> 0.55f // validated polarity floor
                 else -> 0f
             }
             val pressMixBase = when {
-                boomFocusOut && vehicleSpeedKmh >= 40f -> 1.35f
-                boomFocusOut -> 1.15f
+                boomFocusOut && vehicleSpeedKmh >= 40f -> 1.20f
+                boomFocusOut -> 1.00f
                 else -> 0f
             }
             val pressMix = pressMixBase * corrGate
@@ -1258,19 +1291,20 @@ class MultiBandANCProcessor(
                     boomPriority = notchBoomPriority
                 )
             }
+            // 1.2.13: lower high-lat notch mix; further duck when corr unlocked
             val notchMix = when {
                 antiOutputMuted -> 0f
-                boomFocusOut && highLat -> 1.45f
-                boomFocusOut -> 1.30f
-                highLat -> 0.55f
+                boomFocusOut && highLat -> 0.70f * (if (lastBoomPlantCorr < 0.02f && !polarityForced) 0.5f else 1f)
+                boomFocusOut -> 1.00f
+                highLat -> 0.40f
                 else -> 0.90f
             }
             speedScaled = (speedScaled + notchAnti * notchMix).coerceIn(-1.40f, 1.40f)
 
-            // Boom mode: hard very-low LPF on final anti → LF pressure only (strip electronic mid/HF)
-            if (boomFocusOut && vehicleSpeedKmh >= 18f) {
-                speedScaled = roadLowPassOutput(speedScaled)
-                speedScaled = roadLowPassOutput(speedScaled) // double for steeper rolloff
+            // Boom / high-lat ROAD: true ~90 Hz terminal LPF (NOT speed 320 Hz road LPF)
+            if ((boomFocusOut || highLatRoadQuiet) && vehicleSpeedKmh >= 18f) {
+                speedScaled = boomTerminalLowPass(speedScaled)
+                speedScaled = boomTerminalLowPass(speedScaled)
             }
 
             // 1.2.12 hard mute: zero all send paths (LMS/bank/boom/notch) for clean cabin off baseline
@@ -1439,6 +1473,14 @@ class MultiBandANCProcessor(
     private fun roadLowPassOutput(x: Float): Float {
         roadLpOutputState += roadLpCoeff * (x - roadLpOutputState)
         return roadLpOutputState
+    }
+
+    /** 1.2.13: ~85 Hz triple 1-pole — strips 180–350 Hz anti that speed-based road LPF passes. */
+    private fun boomTerminalLowPass(x: Float): Float {
+        boomTermLp1 += boomTerminalLpCoeff * (x - boomTermLp1)
+        boomTermLp2 += boomTerminalLpCoeff * (boomTermLp1 - boomTermLp2)
+        boomTermLp3 += boomTerminalLpCoeff * (boomTermLp2 - boomTermLp3)
+        return boomTermLp3
     }
 
     private fun tierLength(tier: UserTier) = when (tier) {

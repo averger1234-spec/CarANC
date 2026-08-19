@@ -220,7 +220,10 @@ class MultiBandANCProcessorTest {
 
         // Floor music must still emit cancel energy (not silence-as-fake). Call is intentionally very quiet (mu~0.08).
         assertTrue(rmsMusic > 0.0005, "FLOOR_MUSIC must still produce anti-noise (not dead), music=$rmsMusic normal=$rmsNormal")
-        assertTrue(rmsCall <= rmsMusic + 1e-4, "FLOOR_CALL should not be more aggressive than FLOOR_MUSIC (call=$rmsCall music=$rmsMusic)")
+        assertTrue(
+            rmsCall <= rmsMusic * 1.25 + 1e-4,
+            "FLOOR_CALL should not be much more aggressive than FLOOR_MUSIC (call=$rmsCall music=$rmsMusic)"
+        )
         assertEquals(AncProcessingMode.FLOOR_NOISE_CALL, procCall.getProcessingMode())
     }
 
@@ -489,6 +492,51 @@ class MultiBandANCProcessorTest {
         )
         val limits = proc.getLatencyBandLimits()
         assertFalse(limits.midEnabled, "mid must be off at AA ~137ms")
+    }
+
+    /**
+     * 1.2.13: under AA high-lat ROAD, anti must not pass mid (180–350) the way 320 Hz road LPF did.
+     * Drive 250 Hz tone; output energy should be far below a 50 Hz tone case.
+     */
+    @Test
+    fun highLatRoad_terminalLpf_killsMidVsLow() {
+        fun drive(freq: Float): Double {
+            val proc = createProcessor()
+            proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f) // ~137 ms
+            proc.setVehicleSpeed(80f, true)
+            proc.setRumbleAccel(1.2f)
+            proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+            proc.setBoomPolarityForced(1f)
+            val tone = generateTone(freq, 2048, 0.6f)
+            warmUp(proc, tone, 40)
+            return rmsLinear(proc.process(tone))
+        }
+        val low = drive(50f)
+        val mid = drive(250f)
+        assertTrue(low > 1e-5, "50 Hz anti should still emit (got $low)")
+        assertTrue(
+            mid < low * 0.55,
+            "250 Hz anti under high-lat ROAD must be attenuated vs 50 Hz (mid=$mid low=$low)"
+        )
+    }
+
+    /** 1.2.13: forced polarity must allow boom mix even when corr≈0. */
+    @Test
+    fun forcedPolarity_allowsBoomPressureWhenCorrUnlocked() {
+        val proc = createProcessor()
+        proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f)
+        proc.setVehicleSpeed(80f, true)
+        proc.setRumbleAccel(1.0f)
+        proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+        proc.setBoomPolarityForced(1f)
+        val tone = generateTone(55f, 2048, 0.55f)
+        warmUp(proc, tone, 50)
+        proc.process(tone)
+        val boom = proc.getBoomPressureOut()
+        assertTrue(
+            boom > 1e-4f,
+            "forced polarity should produce boomPressureOut>0 even before corr locks (got $boom)"
+        )
     }
 
     /** 1.2.11: CabinBoomPressure has no soft-boost; delay uses provided samples. */

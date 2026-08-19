@@ -401,14 +401,14 @@ object CarAncTestScript {
 }
 
 object CarRoadTuningScript {
-    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.12-aligned. */
+    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.13-aligned. */
     const val SCRIPT_ID = "car_road_tuning_v1"
     /**
-     * === 1.2.12 true mute KPI + polarity A/B + boom corr lock ===
+     * === 1.2.13 LF-only terminal + no mid leak + forced-polarity boom ===
      * prep → diag_tone_50 → road_off (mute) → road_ppos (+1) → road_pneg (−1) → tire → wind → finish
-     * 必收：mute 時 antiNoiseDb≈−200；兩極性艙錄各 ~20s；只採信等長對；winner 寫入 PlantPathStore
+     * 必收：cabin 40–80 on<off；180–350 不得 +3dB；mute≈−200；winner 寫入 PlantPathStore
      */
-    const val SCRIPT_NAME = "三目標·1.2.12 mute真靜音+極性A/B"
+    const val SCRIPT_NAME = "三目標·1.2.13真LF濾波+極性A/B"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -453,14 +453,14 @@ object CarRoadTuningScript {
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
             id = "tuning_prep",
-            title = "準備：1.2.12 mute+極性A/B",
+            title = "準備：1.2.13 真LF+極性A/B",
             instructions = listOf(
-                "★ 版號 **v1.2.12**；腳本自動 PRO",
+                "★ 版號 **v1.2.13**；腳本自動 PRO",
                 "USB 有線 AA；placement=floor/seat；音樂關",
                 "啟動 ANC；下一步 **50Hz tone**；路步自動艙錄",
-                "★ off 真 mute（antiNoiseDb≈−200）；再跑 **+1 / −1** 兩段 on",
-                "★ 只採信等長艙錄（≈20s）；不等長對（如 25s vs 112s）作廢",
-                "★ log：HIGH_LAT*；boom_polarity_winner；負 corr 時 boom mix=0"
+                "★ off 真 mute；再跑 **+1 / −1**；目標 40–80 on<off 且 180–350 不大增",
+                "★ 只採信等長艙錄（≈20s）；HIGH_LAT + 90Hz 終端 LPF",
+                "★ forced 極性可推 boom；log：boom_polarity_winner"
             ),
             durationSec = 20,
             requiresAncRunning = false,
@@ -468,7 +468,7 @@ object CarRoadTuningScript {
             maxWallSec = 60,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "版號v1.2.12",
+                "版號v1.2.13",
                 "tier=PRO",
                 "USB AA",
                 "知plantD",
@@ -701,13 +701,13 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束：1.2.12 對照匯出",
+            title = "結束：1.2.13 對照匯出",
             instructions = listOf(
                 "停 ANC → 存 Log；scenario：50Hz、off / ppos / pneg、電子噪",
-                "★ PASS：等長艙錄（≈20±3s）40–80 on<off（≤−1.5dB）+ mute antiDb極低 + HIGH_LAT",
-                "★ 看 boom_polarity_winner；負 corr 不應再推 boom 幅",
-                "★ FAIL：on 更響 / mute 時 antiNoiseDb 仍高 / 採信不等長對（25s vs 112s）",
-                "tire 步可看 tireNotchEnergy（boomPriority 已不含 TIRE）"
+                "★ PASS：等長艙錄 40–80 on<off（≤−1.5dB）且 180–350 增幅 <+1.5dB",
+                "★ mute antiDb極低；HIGH_LAT；boom_polarity_winner",
+                "★ FAIL：中頻明顯變吵 / on 更響 / 採信不等長對",
+                "tire 步可看 tireNotchEnergy"
             ),
             durationSec = 15,
             requiresAncRunning = false,
@@ -717,7 +717,8 @@ object CarRoadTuningScript {
                 "已存Log",
                 "mute時antiDb極低",
                 "等長艙錄對",
-                "40-80較佳極性on小於off",
+                "40-80on小於off",
+                "180-350不大增",
                 "HIGH_LAT",
                 "boom_polarity_winner",
                 "tier=PRO"

@@ -22,6 +22,38 @@
 
 
 
+## [1.2.13] — 2026-08-19 · Android code 15 · 真 LF 終端濾波 + 停中頻加噪
+
+### 問題（1.2.12 公平艙錄）
+
+Mute／極性 A/B／probe 皆正確，但艙錄仍：
+
+1. **40–80 Hz +0.83 dB**（ppos 較佳仍變吵）
+2. **180–350 Hz +6 dB** — 主因：`roadLowPassCutoffHz` 巡航 **320–400 Hz**，終端「boom LPF」根本沒擋中頻
+3. FDAF / fixedBank / engineFf 在 HIGH_LAT ROAD 仍混入
+4. boom corrGate=0 時 **forced 極性不影響送出**；notch soft-gate 地板 0.35 盲播
+
+### 修復
+
+| 項 | 內容 |
+|----|------|
+| **85 Hz 終端 LPF** | boom/high-lat ROAD 用三重 1-pole ~85 Hz，**忽略** speed 320 Hz cutoff |
+| **清支路** | HIGH_LAT ROAD：FDAF=0、fixedBank=0、engineFf=0 |
+| **forced boom** | `forceBoomPolarity` / winner 時 pressMix floor 0.55（corr≈0 也能推） |
+| **notch** | high-lat gate 地板 0→權重；notchMix 1.45→0.7 |
+| **boom delay** | `max(plantElectrical, 0.85×measured)` |
+
+### 路測必收
+
+- 等長 off/ppos/pneg ~20s
+- **40–80 on < off（≤ −1.5 dB）**
+- **180–350 增幅 < +1.5 dB**
+- mute≈−200；forced 時 boomPressureOut 可 >0
+
+腳本：`三目標·1.2.13真LF濾波+極性A/B`
+
+---
+
 ## [1.2.12] — 2026-08-18 · Android code 14 · 真 mute KPI + 極性 A/B + boom corr 鎖
 
 ### 問題（1.2.11 公平艙錄）

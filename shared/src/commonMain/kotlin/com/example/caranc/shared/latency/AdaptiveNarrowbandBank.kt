@@ -118,11 +118,12 @@ class AdaptiveNarrowbandBank(
                 val yAdapt = stepChannel(road[i], freqs[i], errorSample, mu, leak, freeze, true, wClip)
                 val we = abs(road[i].w1) + abs(road[i].w2)
                 roadW += we
-                // Soft gate: still play partial pressure early; full when weights grow
-                val gate = if (boomPriority) {
-                    (0.35f + 0.65f * (we / 0.12f)).coerceIn(0.35f, 1f)
-                } else {
-                    (we / 0.06f).coerceIn(0f, 1f)
+                // Soft gate: high-lat must NOT floor at 0.35 (blind mid/LF sand → cabin louder).
+                // 1.2.13: highLatency+boomPriority → gate from 0 when weights tiny.
+                val gate = when {
+                    boomPriority && highLatency -> (we / 0.12f).coerceIn(0f, 1f)
+                    boomPriority -> (0.35f + 0.65f * (we / 0.12f)).coerceIn(0.35f, 1f)
+                    else -> (we / 0.06f).coerceIn(0f, 1f)
                 }
                 val ol = olBase * if (i == 0) 1f else 0.7f
                 val y = (yAdapt + ol * sin(road[i].phase)) * gate
