@@ -52,6 +52,13 @@ Mute／極性 A/B／probe 皆正確，但艙錄仍：
 
 腳本：`三目標·1.2.13真LF濾波+極性A/B`
 
+### iOS（build 22 · 對齊 1.2.13）
+
+- 重編 `CarANCShared`（85Hz 終端 LPF、HIGH_LAT 清 FDAF/bank/engine、forced boom floor、notch 收緊）
+- 腳本文案／驗收對齊 Android 1.2.13（步驟同 1.2.12：mute + ppos/pneg）
+- 保留 build 21 通話結束車機音量修復
+- 狀態頁 **`v1.2.13 (22)`** · `dist/CarANC-ios-kmp-debug.ipa`
+
 ---
 
 ## [1.2.12] — 2026-08-18 · Android code 14 · 真 mute KPI + 極性 A/B + boom corr 鎖

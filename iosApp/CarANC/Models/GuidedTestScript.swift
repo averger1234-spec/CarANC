@@ -19,25 +19,25 @@ struct GuidedTestStep: Identifiable {
 
 enum CarRoadTuningScript {
     static let scriptId = "car_road_tuning_v1"
-    /// 對齊 Android 1.2.12：真 mute KPI + 極性 A/B
-    static let scriptName = "三目標·1.2.12 mute真靜音+極性A/B"
+    /// 對齊 Android 1.2.13：真 LF 終端 LPF + 極性 A/B（步驟同 1.2.12）
+    static let scriptName = "三目標·1.2.13真LF濾波+極性A/B"
 
     static let steps: [GuidedTestStep] = [
         GuidedTestStep(
             id: "tuning_prep",
-            title: "準備：1.2.12 mute+極性A/B",
+            title: "準備：1.2.13 真LF+極性A/B",
             instructions: [
-                "★ 對齊 Android v1.2.12（真 mute KPI / 極性±1 / corr 鎖）",
+                "★ 對齊 Android v1.2.13（85Hz 終端 LPF / 停中頻加噪 / 極性±1）",
                 "iOS 本機或 CarPlay；Android 有線 AA 完整診斷",
                 "★ placement=floor/seat；音樂關；PRO",
-                "Android：diag_tone_50 → road_off → road_ppos → road_pneg",
-                "只採信等長艙錄；不等長對作廢"
+                "流程：diag_tone_50 → road_off → road_ppos → road_pneg",
+                "★ 目標：40–80 on<off 且 180–350 不大增；只採信等長艙錄"
             ],
             durationSec: 20,
             suggestedTier: .pro,
             requiresAncRunning: false,
             checklist: [
-                "對齊1.2.12",
+                "對齊1.2.13",
                 "tier=PRO",
                 "placement=floor/seat",
                 "音樂關",
@@ -52,7 +52,8 @@ enum CarRoadTuningScript {
                 "userAncGain": "1.0",
                 "muteAnti": "false",
                 "forceBoomPolarity": "0",
-                "tier": "PRO"
+                "tier": "PRO",
+                "diagToneHz": "0"
             ]
         ),
         GuidedTestStep(
@@ -108,12 +109,13 @@ enum CarRoadTuningScript {
             title: "①b 路悶 極性+1 艙錄 20s",
             instructions: [
                 "同路段 45–60；forceBoomPolarity=+1",
-                "艙錄 ~20s；對照 off"
+                "艙錄 ~20s；對照 off 的 40–80 與 180–350",
+                "★ 1.2.13：HIGH_LAT 應只推 LF，中頻不應大增"
             ],
             durationSec: 20,
             suggestedTier: .pro,
             requiresAncRunning: true,
-            checklist: ["pol=+1", "forced=ROAD", "艙錄~20s", "主觀悶0-10"],
+            checklist: ["pol=+1", "forced=ROAD", "艙錄~20s", "主觀悶0-10", "中頻無大增?"],
             minSpeedKmh: 45,
             wallClockOnly: false,
             maxWallSec: 120,
@@ -137,12 +139,13 @@ enum CarRoadTuningScript {
             instructions: [
                 "同路段；forceBoomPolarity=−1",
                 "與 ppos/off 對照；較佳極性寫入 store",
-                "禁止採信時長差>30% 的對"
+                "禁止採信時長差>30% 的對",
+                "PASS：40–80 on<off 且 180–350 增幅 <+1.5 dB"
             ],
             durationSec: 20,
             suggestedTier: .pro,
             requiresAncRunning: true,
-            checklist: ["pol=-1", "forced=ROAD", "艙錄~20s", "主觀悶0-10"],
+            checklist: ["pol=-1", "forced=ROAD", "艙錄~20s", "主觀悶0-10", "中頻無大增?"],
             minSpeedKmh: 45,
             wallClockOnly: false,
             maxWallSec: 120,
@@ -187,6 +190,7 @@ enum CarRoadTuningScript {
                 "forceNormalMode": "true",
                 "userAncGain": "1.0",
                 "muteAnti": "false",
+                "forceBoomPolarity": "0",
                 "tier": "PRO",
                 "forceNvhFocus": "TIRE_NOISE"
             ]
@@ -218,17 +222,19 @@ enum CarRoadTuningScript {
                 "forceNormalMode": "true",
                 "userAncGain": "1.0",
                 "muteAnti": "false",
+                "forceBoomPolarity": "0",
                 "tier": "PRO",
                 "forceNvhFocus": "WIND_SHEAR"
             ]
         ),
         GuidedTestStep(
             id: "tuning_finish",
-            title: "結束：1.2.12 對照匯出",
+            title: "結束：1.2.13 對照匯出",
             instructions: [
                 "停 ANC → 匯出 Log",
-                "PASS：等長艙錄 40–80 on<off + mute antiDb極低 + boom_polarity_winner",
-                "FAIL：on更響 / mute時antiDb仍高 / 採信不等長對"
+                "★ PASS：40–80 on<off（≤−1.5dB）且 180–350 增幅 <+1.5dB",
+                "★ mute antiDb極低；HIGH_LAT；boom_polarity_winner",
+                "FAIL：中頻明顯變吵 / on 更響 / 採信不等長對"
             ],
             durationSec: 15,
             suggestedTier: nil,
@@ -237,6 +243,8 @@ enum CarRoadTuningScript {
                 "已存Log",
                 "mute時antiDb極低",
                 "等長艙錄對",
+                "40-80on小於off",
+                "180-350不大增",
                 "boom_polarity_winner",
                 "tier=PRO"
             ],
@@ -246,7 +254,8 @@ enum CarRoadTuningScript {
             debugPresets: [
                 "userAncGain": "1.0",
                 "muteAnti": "false",
-                "forceBoomPolarity": "0"
+                "forceBoomPolarity": "0",
+                "diagToneHz": "0"
             ]
         )
     ]
@@ -500,7 +509,7 @@ final class GuidedTestRunner: ObservableObject {
                 "negN": "\(BoomPolarityAbTracker.shared.negCount())",
                 "profileId": "ios_default",
                 "routeLabel": route,
-                "note": "1.2.12_persist_better_plantResidualReductionDb"
+                "note": "1.2.13_persist_better_plantResidualReductionDb"
             ])
             appendLog("boom_polarity_winner=\(winner)")
         }
@@ -605,17 +614,18 @@ final class GuidedTestRunner: ObservableObject {
         === GUIDED SCRIPT ===
         script=\(CarRoadTuningScript.scriptId)
         name=\(CarRoadTuningScript.scriptName)
-        align=android_CarRoadTuningScript_v1.2.12
+        align=android_CarRoadTuningScript_v1.2.13
         autoAdvance=\(autoAdvance)
         stepIndex=\(stepIndex) finished=\(finished)
 
-        === HOW TO VERIFY (1.2.12 mute + 極性 A/B) ===
+        === HOW TO VERIFY (1.2.13 真LF + 極性 A/B) ===
         PASS:
           - road_off: muteAnti=true、antiNoiseDb≤−90、boomPressureOut=0
-          - ppos/pneg: 各 ~20s 艙錄；boom_polarity_winner
-          - 等長 off vs 較佳極性：40–80 Hz on < off（≤−1.5 dB）
+          - ppos/pneg: 各 ~20s；40–80 on<off（≤−1.5 dB）
+          - 180–350 增幅 <+1.5 dB（真 LF 終端，不中頻加噪）
+          - boom_polarity_winner；HIGH_LAT
         FAIL:
-          - mute 時 antiDb 仍高 / on 更響 / 採信不等長對
+          - 中頻明顯變吵 / on 更響 / mute 時 antiDb 仍高 / 採信不等長對
 
         === SCRIPT EVENT LINES ===
         """

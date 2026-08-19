@@ -68,7 +68,7 @@ Windows：`git pull` 後再跑 `scripts\install-ios-sideloadly.bat`。
 
 ## 本包內容（KMP 共用 DSP）
 
-- App 版本：**1.2.12 (21)** — 狀態頁應顯示 **`v1.2.12 (21)`**
+- App 版本：**1.2.13 (22)** — 狀態頁應顯示 **`v1.2.13 (22)`**
 - 含：1.2.12 mute/極性A/B/艙錄 + **通話結束後車機音樂暴衝修復**（見 `iosApp/CARPLAY.md`）
 - DSP：KMP MultiBand + `SpeedScheduledNvhGains`
 - 車速備用：`speedSource=gps|gps_hold|imu_proxy`（無 GPS 仍可能餵速域）
