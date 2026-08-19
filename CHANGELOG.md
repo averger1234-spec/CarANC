@@ -22,6 +22,36 @@
 
 
 
+## [1.2.14] — 2026-08-19 · Android code 16 · open boom + 艙錄極性 −1
+
+### 問題（1.2.13 公平艙錄）
+
+1. **forced 時 boomPressureOut≈0**：y=−delayed·gain，delayed≈0 時能量地板只抬增益不抬訊號
+2. **plant residual winner 選 +1**，但艙錄金標準 **−1 更好**（40–80 −1.1 vs −0.04）
+3. corr≈0 時需要可控 open boom（40–80）+ 短延遲 probe 極性
+4. 停速 / 不等長場仍被誤採信
+
+### 修復
+
+| 項 | 內容 |
+|----|------|
+| **openBoom** | forced 或 corr<0.05 且 ≥35 km/h：mic 過小時用 ±energyFloor 驅動；pressMix↑；KPI 應 ≫0 |
+| **預設極性 −1** | processor / PlantPathStore 預設 −1；無 store 亦套 −1 |
+| **cabin winner** | BoomPolarityAbTracker：mic low-band dB 優先（更安靜勝）；丟棄 <45 km/h；否則 plant；再否則 −1 |
+| **short-lag probe** | ~35 ms corr 持續負 → auto-flip（非 forced） |
+| **路測規則** | 只收等長 ~20s 三件套；停速場 log discardedLowSpeed |
+
+### 路測必收
+
+- 等長 off/ppos/pneg ~20s，≥45 km/h
+- on：oomPressureOut med ≫ 0.01、openBoom=true
+- 40–80 on < off（≤ −1.5 dB）；180–350 <+1.5 dB
+- oom_polarity_winner 以 cabin 為準
+
+腳本：三目標·1.2.14 openBoom+艙錄極性
+
+---
+
 ## [1.2.13] — 2026-08-19 · Android code 15 · 真 LF 終端濾波 + 停中頻加噪
 
 ### 問題（1.2.12 公平艙錄）

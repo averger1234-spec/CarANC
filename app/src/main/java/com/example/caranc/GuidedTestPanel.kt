@@ -171,51 +171,54 @@ fun GuidedTestPanel(
                 AncTestPreferences.setForceBoomPolarity(context, 0f)
                 AncTestPreferences.setPendingCabinStepId(context, null)
                 com.example.caranc.shared.service.GuidedCabinRecorder.stop(context, "script_end")
-                // 1.2.12: latch polarity A/B winner into PlantPathStore
+                // 1.2.14: latch cabin-preferred polarity winner (fallback −1)
                 if (phase == "test_script_complete") {
-                    val winner = com.example.caranc.shared.BoomPolarityAbTracker.winnerPolarity()
-                    if (winner != null) {
-                        val profileId = com.example.caranc.shared.model.CabinProfileStore
-                            .resolveProfileId(context)
-                        val routeLabel = "remote_submix"
-                        val prev = com.example.caranc.shared.model.PlantPathStore.loadBest(
-                            context, profileId, routeLabel
+                    val tracker = com.example.caranc.shared.BoomPolarityAbTracker
+                    val winner = tracker.winnerPolarity()
+                    val profileId = com.example.caranc.shared.model.CabinProfileStore
+                        .resolveProfileId(context)
+                    val routeLabel = "remote_submix"
+                    val prev = com.example.caranc.shared.model.PlantPathStore.loadBest(
+                        context, profileId, routeLabel
+                    )
+                    if (prev != null) {
+                        com.example.caranc.shared.model.PlantPathStore.save(
+                            context,
+                            prev.copy(
+                                boomPolarity = winner,
+                                updatedEpochMs = System.currentTimeMillis()
+                            )
                         )
-                        if (prev != null) {
-                            com.example.caranc.shared.model.PlantPathStore.save(
-                                context,
-                                prev.copy(
-                                    boomPolarity = winner,
-                                    updatedEpochMs = System.currentTimeMillis()
-                                )
-                            )
-                        } else {
-                            com.example.caranc.shared.model.PlantPathStore.save(
-                                context,
-                                com.example.caranc.shared.model.PlantPathStore.PlantPathSnapshot(
-                                    profileId = profileId,
-                                    routeLabel = routeLabel,
-                                    electricalDelaySamples = 4000,
-                                    probeCorrMs = 0f,
-                                    cabinAcousticDelaySamples = 0,
-                                    updatedEpochMs = System.currentTimeMillis(),
-                                    boomPolarity = winner
-                                )
-                            )
-                        }
-                        AncSessionLogger.log(
-                            phase = "boom_polarity_winner",
-                            fields = mapOf(
-                                "winner" to winner,
-                                "posAvg" to (com.example.caranc.shared.BoomPolarityAbTracker.posAvg() ?: 0f),
-                                "negAvg" to (com.example.caranc.shared.BoomPolarityAbTracker.negAvg() ?: 0f),
-                                "posN" to com.example.caranc.shared.BoomPolarityAbTracker.posCount(),
-                                "negN" to com.example.caranc.shared.BoomPolarityAbTracker.negCount(),
-                                "profileId" to profileId,
-                                "note" to "1.2.12_persist_better_plantResidualReductionDb"
+                    } else {
+                        com.example.caranc.shared.model.PlantPathStore.save(
+                            context,
+                            com.example.caranc.shared.model.PlantPathStore.PlantPathSnapshot(
+                                profileId = profileId,
+                                routeLabel = routeLabel,
+                                electricalDelaySamples = 4000,
+                                probeCorrMs = 0f,
+                                cabinAcousticDelaySamples = 0,
+                                updatedEpochMs = System.currentTimeMillis(),
+                                boomPolarity = winner
                             )
                         )
                     }
+                    AncSessionLogger.log(
+                        phase = "boom_polarity_winner",
+                        fields = mapOf(
+                            "winner" to winner,
+                            "fairAb" to tracker.isFairAbComplete(),
+                            "posAvg" to (tracker.posAvg() ?: 0f),
+                            "negAvg" to (tracker.negAvg() ?: 0f),
+                            "posCabinAvg" to (tracker.posCabinAvg() ?: 0f),
+                            "negCabinAvg" to (tracker.negCabinAvg() ?: 0f),
+                            "posN" to tracker.posCount(),
+                            "negN" to tracker.negCount(),
+                            "discardedLowSpeed" to tracker.discardedLowSpeedCount(),
+                            "profileId" to profileId,
+                            "note" to "1.2.14_cabin_proxy_then_plant_else_default_neg1"
+                        )
+                    )
                 }
                 com.example.caranc.shared.BoomPolarityAbTracker.reset()
             }

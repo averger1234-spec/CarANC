@@ -7,6 +7,7 @@ import android.content.Context
  * separately from short cabin IR ŝ in [CabinProfileStore].
  *
  * 1.2.12: also persist winning boom polarity (+1/−1) from road A/B.
+ * 1.2.14: default polarity **−1** (cabin fair A/B preference); cabin proxy beats plant residual.
  *
  * Keyed by profileId + routeLabel so USB AA vs local can differ.
  */
@@ -22,8 +23,8 @@ object PlantPathStore {
         val probeCorrMs: Float,
         val cabinAcousticDelaySamples: Int,
         val updatedEpochMs: Long,
-        /** Boom send polarity: +1 or −1 (default +1 for pre-1.2.12 records). */
-        val boomPolarity: Float = 1f
+        /** Boom send polarity: +1 or −1 (1.2.14 default −1). */
+        val boomPolarity: Float = -1f
     )
 
     fun save(context: Context, snap: PlantPathSnapshot) {
@@ -79,7 +80,7 @@ object PlantPathStore {
                     val v = p[6].toFloat()
                     if (v >= 0f) 1f else -1f
                 } else {
-                    1f
+                    -1f // 1.2.14: missing field → cabin-preferred default
                 }
             )
         } catch (_: Exception) {

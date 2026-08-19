@@ -5,7 +5,7 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**版號**：Android **`version.properties` → 1.2.13 / code 15** · iOS **1.2.13 (23)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+**版號**：Android **`version.properties` → 1.2.14 / code 16** · iOS **1.2.13 (23)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 
 **跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
@@ -44,12 +44,12 @@ git push origin main
 
 ---
 
-## 最新進度（2026-08-19）— 1.2.13 真 LF 終端 + 停中頻加噪
+## 最新進度（2026-08-19）— 1.2.14 open boom + 艙錄極性 −1
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| **Android 版號** | **`1.2.13` / code `15`** · 主畫面 `v1.2.13` | ✅ |
-| **1.2.13 路測** | 85Hz 終端 LPF；HIGH_LAT 清 FDAF/bank/engine；forced 極性 boom；40–80↓且 180–350 不大增 | ✅ |
+| **Android 版號** | **`1.2.14` / code `16`** · 主畫面 `v1.2.14` | ✅ |
+| **1.2.14 路測** | openBoom 可感悶壓；預設極性−1；cabin winner；等長三件套；停速場作廢 | ✅ |
 | **iOS 版號** | **`1.2.13` (build 23)** · 狀態頁 **`v1.2.13 (23)`** · 真LF+mute+極性+艙錄+通話音量；**修開機閃退（Embed）** | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
@@ -68,7 +68,7 @@ git push origin main
 
 ```bash
 git pull origin main
-# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.13
+# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.14
 # iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.13 (23)
 ```
 

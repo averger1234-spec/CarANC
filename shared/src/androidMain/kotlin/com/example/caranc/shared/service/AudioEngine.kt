@@ -437,6 +437,9 @@ class AudioEngine(
                             "updatedEpochMs" to plantSnap.updatedEpochMs
                         )
                     )
+                } else {
+                    // 1.2.14: no store → cabin-preferred default −1
+                    ancProcessor?.applyPersistedBoomPolarity(com.example.caranc.shared.BoomPolarityAbTracker.DEFAULT_POLARITY)
                 }
                 ancProcessor?.setPersonalRumbleBias(AncTestPreferences.getPersonalRumbleBias(appContext))  // ensure personal bias applied early (acoustic ID follows phone)
                 logMimoProfile(cabinModel)
@@ -1525,7 +1528,8 @@ class AudioEngine(
                     "boomPressureOut" to (ancProcessor?.getBoomPressureOut() ?: 0f),
                     "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f),
                     "plantDelaySamples" to (ancProcessor?.getPlantElectricalDelaySamples() ?: 0),
-                    "boomPolarity" to (ancProcessor?.getBoomPolarity() ?: 1f),
+                    "boomPolarity" to (ancProcessor?.getBoomPolarity() ?: -1f),
+                    "openBoom" to ((ancProcessor as? MultiBandANCProcessor)?.isOpenBoomActive() == true),
                     "latencyStrategy" to (ancProcessor?.getLatencyStrategy() ?: ""),
                     "speedKmh" to speed.speedKmh,
                     "nvhFocus" to (ancProcessor?.getNvhFocus() ?: "?"),
@@ -1536,7 +1540,7 @@ class AudioEngine(
                     "antiSendMuted" to AncTestPreferences.isMuteAntiOutput(appContext),
                     "userAncGain" to AncTestPreferences.getUserAncGain(appContext),
                     "forceBoomPolarity" to AncTestPreferences.getForceBoomPolarity(appContext),
-                    "note" to "1.2.12_mute_kpi_writebuf; polarity_AB; antiE_*=send; lagged_boomPlantCorr"
+                    "note" to "1.2.14_open_boom; cabin_polarity; mute_kpi; antiE_*=send"
                 )
             )
         }
@@ -1595,9 +1599,14 @@ class AudioEngine(
             val latency = latencySnapshot
             val manualRpm = AncTestPreferences.getManualTestRpm(appContext)
             val guidedStepId = GuidedTestController.state.value.currentStep?.id ?: ""
-            // 1.2.12: polarity A/B accumulator (plant residual — higher = better cancel)
+            // 1.2.14: polarity A/B — cabin low-band proxy primary; discard low speed
             if (!AncTestPreferences.isMuteAntiOutput(appContext)) {
-                BoomPolarityAbTracker.sample(guidedStepId, lastPlantResidualReductionDb)
+                BoomPolarityAbTracker.sample(
+                    stepId = guidedStepId,
+                    residualReductionDb = lastPlantResidualReductionDb,
+                    cabinLowBandDb = lastRawLowBandDb,
+                    speedKmh = speed.speedKmh
+                )
             }
             AncSessionLogger.log(
                 phase = "running_snapshot",
@@ -1636,8 +1645,9 @@ class AudioEngine(
                         "roadBoomWeightEnergy" to (ancProcessor?.getRoadBoomWeightEnergy() ?: 0f),
                         "boomPressureOut" to (ancProcessor?.getBoomPressureOut() ?: 0f),
                         "boomPlantCorr" to (ancProcessor?.getBoomPlantCorr() ?: 0f),
-                        "boomPolarity" to (ancProcessor?.getBoomPolarity() ?: 1f),
+                        "boomPolarity" to (ancProcessor?.getBoomPolarity() ?: -1f),
                         "forceBoomPolarity" to AncTestPreferences.getForceBoomPolarity(appContext),
+                        "openBoom" to ((ancProcessor as? MultiBandANCProcessor)?.isOpenBoomActive() == true),
                         "plantDelaySamples" to (ancProcessor?.getPlantElectricalDelaySamples() ?: 0),
                         "forcedNvhFocus" to (com.example.caranc.shared.GuidedNvhOverride.forcedFocusName ?: "auto"),
                         // Closed-loop self-check (program band energy — not external phone recorder)

@@ -539,23 +539,41 @@ class MultiBandANCProcessorTest {
         )
     }
 
-    /** 1.2.11: CabinBoomPressure has no soft-boost; delay uses provided samples. */
+    /** 1.2.11/1.2.14: without openBoom, silence stays near 0; with openBoom, LF pressure appears. */
     @Test
-    fun cabinBoomPressure_noSoftBoost_usesDelay() {
+    fun cabinBoomPressure_openBoom_liftsSilentRing() {
         val boom = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
-        val delay = 2000 // must be >= sampleRate/80 or CabinBoomPressure substitutes ~25ms floor
-        // Fill ring with silence so delayed read is ~0 (energy floor still raises gain, but no synth spike)
+        val delay = 2000
         repeat(delay + 64) { boom.push(0f) }
-        val y = boom.process(
+        val yClosed = boom.process(
             plantDelaySamples = delay,
             speedKmh = 70f,
             boomPriority = true,
             freeze = false,
-            polarity = 1f
+            polarity = 1f,
+            openBoom = false
         )
-        // Soft-boost used to invent ±0.035..0.12 when |y| tiny — must stay near 0 from silent ring
-        assertTrue(kotlin.math.abs(y) < 0.025f, "no soft-boost floor expected, got $y")
-        assertEquals(delay, boom.lastDelayUsed)
+        assertTrue(abs(yClosed) < 0.025f, "closed boom on silence ~0, got $yClosed")
+
+        val boom2 = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
+        repeat(delay + 64) { boom2.push(0f) }
+        // Dual ~85 Hz LPF needs several samples to rise from cold state
+        var yOpen = 0f
+        repeat(256) {
+            boom2.push(0f)
+            yOpen = boom2.process(
+                plantDelaySamples = delay,
+                speedKmh = 70f,
+                boomPriority = true,
+                freeze = false,
+                polarity = -1f,
+                openBoom = true
+            )
+        }
+        assertTrue(abs(yOpen) > 0.04f, "openBoom must produce audible LF after LPF settle, got $yOpen")
+        assertTrue(boom2.lastUsedOpenFloor, "open floor should engage on silence")
+        assertTrue(boom2.kpiLevel() > 0.02f, "kpiLevel=${boom2.kpiLevel()}")
+        assertEquals(delay, boom2.lastDelayUsed)
     }
 
     /** 1.2.12: mute zeros send + boom KPI even with ROAD focus / speed. */
@@ -601,17 +619,47 @@ class MultiBandANCProcessorTest {
         assertEquals(1f, proc.getBoomPolarity())
     }
 
-    /** 1.2.12: polarity A/B tracker picks higher plantResidualReductionDb. */
+    /** 1.2.14: cabin proxy beats plant; low speed discarded; default −1. */
     @Test
-    fun boomPolarityAbTracker_picksBetterResidual() {
+    fun boomPolarityAbTracker_cabinPreferred_andDiscardLowSpeed() {
         BoomPolarityAbTracker.reset()
-        repeat(5) { BoomPolarityAbTracker.sample("target_road_ppos", -8f) }
-        repeat(5) { BoomPolarityAbTracker.sample("target_road_pneg", 2f) }
-        assertEquals(-1f, BoomPolarityAbTracker.winnerPolarity())
+        // plant says +1 better, but cabin quieter on −1
+        repeat(5) {
+            BoomPolarityAbTracker.sample("target_road_ppos", residualReductionDb = 3f, cabinLowBandDb = -20f, speedKmh = 60f)
+        }
+        repeat(5) {
+            BoomPolarityAbTracker.sample("target_road_pneg", residualReductionDb = -5f, cabinLowBandDb = -28f, speedKmh = 60f)
+        }
+        assertEquals(-1f, BoomPolarityAbTracker.winnerPolarity(), "quieter cabin (−28) wins")
+
         BoomPolarityAbTracker.reset()
-        repeat(5) { BoomPolarityAbTracker.sample("target_road_ppos", 3f) }
-        repeat(5) { BoomPolarityAbTracker.sample("target_road_pneg", -1f) }
-        assertEquals(1f, BoomPolarityAbTracker.winnerPolarity())
+        repeat(5) {
+            BoomPolarityAbTracker.sample("target_road_ppos", 1f, cabinLowBandDb = -25f, speedKmh = 5f)
+        }
+        repeat(5) {
+            BoomPolarityAbTracker.sample("target_road_pneg", 1f, cabinLowBandDb = -30f, speedKmh = 5f)
+        }
+        assertTrue(BoomPolarityAbTracker.discardedLowSpeedCount() >= 10)
+        assertEquals(-1f, BoomPolarityAbTracker.winnerPolarity(), "incomplete → default −1")
         BoomPolarityAbTracker.reset()
+    }
+
+    /** 1.2.14: forced polarity at cruise → open boom → boomPressureOut ≫ 0. */
+    @Test
+    fun forcedPolarity_openBoom_pressureOutNonZero() {
+        val proc = MultiBandANCProcessor(sampleRate, bufferSize, UserTier.PRO)
+        proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f)
+        proc.setVehicleSpeed(70f, true)
+        proc.setRumbleAccel(1.0f)
+        proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+        proc.setForcedNvhFocus("ROAD_RUMBLE")
+        proc.setBoomPolarityForced(-1f)
+        proc.setAntiOutputMuted(false)
+        warmUp(proc, generateTone(50f, 512, 0.35f), 8)
+        val out = proc.process(generateTone(50f, 256, 0.35f))
+        val peak = out.maxOf { abs(it.toInt()) }
+        assertTrue(peak > 500, "forced open boom should send LF energy, peak=$peak")
+        assertTrue(proc.getBoomPressureOut() > 0.02f, "boomPressureOut=${proc.getBoomPressureOut()}")
+        assertTrue(proc.isOpenBoomActive(), "openBoom should be active")
     }
 }

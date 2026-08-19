@@ -1,48 +1,107 @@
 package com.example.caranc.shared
 
 /**
- * 1.2.12: accumulate plantResidualReductionDb during scripted polarity A/B
- * (`target_road_ppos` / `target_road_pneg`) and pick the winning sign.
+ * 1.2.12/1.2.14: polarity A/B accumulator for `target_road_ppos` / `target_road_pneg`.
+ *
+ * Prefer **cabin proxy** (lower mic low-band dB = quieter = better) over plant residual.
+ * Discard samples below [minSpeedKmh] (stopped / unequal sessions).
+ * Default winner fallback: **−1** (1.2.14 cabin preference).
  */
 object BoomPolarityAbTracker {
-    private var posSum = 0.0
-    private var posN = 0
-    private var negSum = 0.0
-    private var negN = 0
+    const val DEFAULT_POLARITY = -1f
+    const val MIN_SPEED_KMH = 45f
+
+    private var posPlantSum = 0.0
+    private var posPlantN = 0
+    private var negPlantSum = 0.0
+    private var negPlantN = 0
+
+    private var posCabinSum = 0.0
+    private var posCabinN = 0
+    private var negCabinSum = 0.0
+    private var negCabinN = 0
+
+    private var discardedLowSpeed = 0
 
     fun reset() {
-        posSum = 0.0
-        posN = 0
-        negSum = 0.0
-        negN = 0
+        posPlantSum = 0.0
+        posPlantN = 0
+        negPlantSum = 0.0
+        negPlantN = 0
+        posCabinSum = 0.0
+        posCabinN = 0
+        negCabinSum = 0.0
+        negCabinN = 0
+        discardedLowSpeed = 0
     }
 
-    fun sample(stepId: String?, residualReductionDb: Float) {
+    /**
+     * @param residualReductionDb plant KPI (higher better) — secondary
+     * @param cabinLowBandDb mic low-band dB during step (lower quieter = better cabin) — primary
+     * @param speedKmh discard if &lt; [MIN_SPEED_KMH]
+     */
+    fun sample(
+        stepId: String?,
+        residualReductionDb: Float,
+        cabinLowBandDb: Float? = null,
+        speedKmh: Float = 100f
+    ) {
+        if (stepId != "target_road_ppos" && stepId != "target_road_pneg") return
+        if (speedKmh < MIN_SPEED_KMH) {
+            discardedLowSpeed++
+            return
+        }
         when (stepId) {
             "target_road_ppos" -> {
-                posSum += residualReductionDb.toDouble()
-                posN++
+                posPlantSum += residualReductionDb.toDouble()
+                posPlantN++
+                if (cabinLowBandDb != null) {
+                    posCabinSum += cabinLowBandDb.toDouble()
+                    posCabinN++
+                }
             }
             "target_road_pneg" -> {
-                negSum += residualReductionDb.toDouble()
-                negN++
+                negPlantSum += residualReductionDb.toDouble()
+                negPlantN++
+                if (cabinLowBandDb != null) {
+                    negCabinSum += cabinLowBandDb.toDouble()
+                    negCabinN++
+                }
             }
         }
     }
 
-    fun posCount(): Int = posN
-    fun negCount(): Int = negN
+    fun posCount(): Int = posPlantN
+    fun negCount(): Int = negPlantN
+    fun discardedLowSpeedCount(): Int = discardedLowSpeed
 
-    fun posAvg(): Float? = if (posN >= 3) (posSum / posN).toFloat() else null
-    fun negAvg(): Float? = if (negN >= 3) (negSum / negN).toFloat() else null
+    fun posAvg(): Float? = if (posPlantN >= 3) (posPlantSum / posPlantN).toFloat() else null
+    fun negAvg(): Float? = if (negPlantN >= 3) (negPlantSum / negPlantN).toFloat() else null
+
+    fun posCabinAvg(): Float? = if (posCabinN >= 3) (posCabinSum / posCabinN).toFloat() else null
+    fun negCabinAvg(): Float? = if (negCabinN >= 3) (negCabinSum / negCabinN).toFloat() else null
 
     /**
-     * @return +1 or −1 when both legs have enough samples; null if incomplete.
-     * Higher plantResidualReductionDb wins (anti reducing plant residual).
+     * Winner polarity:
+     * 1) cabin proxy if both legs have ≥3 samples — **lower** low-band dB wins
+     * 2) else plant residual — **higher** reduction wins
+     * 3) else [DEFAULT_POLARITY] (−1)
      */
-    fun winnerPolarity(): Float? {
-        val p = posAvg() ?: return null
-        val n = negAvg() ?: return null
-        return if (n > p) -1f else 1f
+    fun winnerPolarity(): Float {
+        val pc = posCabinAvg()
+        val nc = negCabinAvg()
+        if (pc != null && nc != null) {
+            // quieter cabin (more negative / lower dB) wins
+            return if (nc < pc) -1f else 1f
+        }
+        val p = posAvg()
+        val n = negAvg()
+        if (p != null && n != null) {
+            return if (n > p) -1f else 1f
+        }
+        return DEFAULT_POLARITY
     }
+
+    /** True when both polarity legs had enough *in-speed* samples. */
+    fun isFairAbComplete(): Boolean = posPlantN >= 3 && negPlantN >= 3
 }

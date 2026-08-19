@@ -3,19 +3,22 @@ package com.example.caranc.shared.latency
 import com.example.caranc.shared.Keep
 import kotlin.math.abs
 import kotlin.math.min
+import kotlin.math.sign
 import kotlin.math.sqrt
 
 /**
  * **Cabin boom pressure path** — put real low-frequency anti energy on the speakers for 悶.
  *
- * 1.2.11: delay must match **total AA RTT** (not track+framework alone); no soft-boost
- * synthetic samples (they were uncorrelated LF that made cabin louder); optional polarity.
+ * 1.2.11: delay = total AA RTT; no uncontrolled soft-boost.
+ * 1.2.14: **openBoom** — when corr unlocked / polarity forced, enforce min LF drive
+ * so boomPressureOut is audible (40–80 via dual ~85 Hz LPF). Without this,
+ * `y = −delayed·gain` stays ≈0 whenever delayed mic sample is tiny (1.2.13 road FAIL).
  *
  * Mechanism:
  * - Ring-buffer cabin mic low-band sample
- * - Read x(n − D) where D ≈ total measured path delay (record+track+framework…)
- * - Output anti = polarity · (−gain · lowpass(x(n−D)))
- * - Gain scales with speed + |low| energy; floor so cruise always has pressure
+ * - Read x(n − D)
+ * - Output anti = polarity · (−gain · lowpass(drive))
+ * - drive = delayed, or ±energyFloor when openBoom and |delayed| too small
  */
 @Keep
 class CabinBoomPressure(
@@ -36,14 +39,14 @@ class CabinBoomPressure(
         private set
     var lastGain = 0f
         private set
-    /** Block RMS of |y| for KPI (log). */
     var lastRms = 0f
         private set
-    /** Block peak of |y| for KPI (log). */
     var lastPeak = 0f
         private set
-    /** Last delay actually used (samples). */
     var lastDelayUsed = 0
+        private set
+    /** 1.2.14: true when open-boom energy floor substituted for tiny delayed mic. */
+    var lastUsedOpenFloor = false
         private set
 
     private var sumSq = 0.0
@@ -58,11 +61,8 @@ class CabinBoomPressure(
     }
 
     /**
-     * @param plantDelaySamples total path delay at process sample rate (prefer measured RTT)
-     * @param speedKmh vehicle speed
-     * @param boomPriority ROAD / rumble focus
-     * @param polarity +1 or −1 (auto-flip from lagged corr when phase is inverted)
-     * @return speaker anti sample (already − polarity × LPF, then × polarity latch)
+     * @param openBoom when true (forced polarity / unlocked corr), guarantee min LF pressure
+     * @param polarity +1 or −1
      */
     @Keep
     fun process(
@@ -70,8 +70,10 @@ class CabinBoomPressure(
         speedKmh: Float,
         boomPriority: Boolean,
         freeze: Boolean,
-        polarity: Float = 1f
+        polarity: Float = 1f,
+        openBoom: Boolean = false
     ): Float {
+        lastUsedOpenFloor = false
         if (!boomPriority || speedKmh < 16f || count < 8) {
             lastOutput *= 0.92f
             lastGain = 0f
@@ -79,7 +81,6 @@ class CabinBoomPressure(
             return lastOutput
         }
         val d = plantDelaySamples.coerceIn(0, min(count - 1, ring.size - 1))
-        // Prefer usable delay: if plant tiny, ~25 ms acoustic floor (not full AA)
         val dUse = if (d < sampleRate / 80) (sampleRate / 40).coerceAtMost(count - 1) else d
         lastDelayUsed = dUse
         val idx = (write - 1 - dUse).mod(ring.size)
@@ -87,20 +88,27 @@ class CabinBoomPressure(
 
         val speedNorm = ((speedKmh - 12f) / 65f).coerceIn(0.20f, 1.35f)
         val energyFloor = when {
-            speedKmh >= 50f -> 0.12f
-            speedKmh >= 35f -> 0.08f
-            else -> 0.04f
+            speedKmh >= 50f -> 0.14f
+            speedKmh >= 35f -> 0.10f
+            else -> 0.06f
         }
-        val energy = abs(delayed).coerceIn(energyFloor, 0.90f)
-        val gain = (0.85f + 0.70f * speedNorm) * (0.55f + 1.35f * energy)
-            .coerceIn(0.55f, 1.75f)
+        // 1.2.14: open boom drives at least energyFloor (sign from mic or +1)
+        val drive = if (openBoom && abs(delayed) < energyFloor) {
+            lastUsedOpenFloor = true
+            val s = if (abs(delayed) > 1e-8f) sign(delayed) else 1f
+            s * energyFloor
+        } else {
+            delayed
+        }
+        val energy = abs(drive).coerceIn(if (openBoom) energyFloor else 0.02f, 0.90f)
+        val gain = (0.95f + 0.80f * speedNorm) * (0.60f + 1.40f * energy)
+            .coerceIn(0.65f, 1.85f)
         lastGain = if (freeze) lastGain * 0.99f else gain
 
-        // 1.2.11: no soft-boost invention — only real delayed mic (was +cabin energy)
-        var y = -delayed * lastGain
+        var y = -drive * lastGain
         val pol = if (polarity >= 0f) 1f else -1f
         y *= pol
-        // Dual 1-pole ~85 Hz
+        // Dual 1-pole ~85 Hz → 40–80 dominant, kill mid hiss
         lp1 += lpCoeff * (y - lp1)
         lp2 += lpCoeff * (lp1 - lp2)
         y = lp2.coerceIn(-0.95f, 0.95f)
@@ -114,7 +122,6 @@ class CabinBoomPressure(
         sumSq += (y * y).toDouble()
         if (a > peakAbs) peakAbs = a
         blockN++
-        // ~10 ms at 48 kHz → refresh KPI
         if (blockN >= (sampleRate / 100).coerceAtLeast(64)) {
             lastRms = sqrt((sumSq / blockN).toFloat())
             lastPeak = peakAbs
@@ -124,7 +131,6 @@ class CabinBoomPressure(
         }
     }
 
-    /** Prefer RMS for log (stable); falls back to |last|. */
     @Keep
     fun kpiLevel(): Float {
         val r = lastRms
@@ -149,6 +155,7 @@ class CabinBoomPressure(
         lastRms = 0f
         lastPeak = 0f
         lastDelayUsed = 0
+        lastUsedOpenFloor = false
         sumSq = 0.0
         peakAbs = 0f
         blockN = 0

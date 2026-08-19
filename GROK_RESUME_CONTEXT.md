@@ -1,16 +1,17 @@
 # 最新多機同步索引（2026-08-19）
 
-**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.13**）。
+**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.14**）。
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.13 / code 15** · iOS **1.2.13 (23)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.14 / code 16** · iOS **1.2.13 (23)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
+**1.2.14 重點**：open boom（corr≈0/forced 可感悶壓）+ 預設極性−1 + cabin winner；停速場作廢。  
 **1.2.13 重點**：85Hz 真 LF 終端 LPF（修 speed 320Hz 假低通）；HIGH_LAT ROAD 清 FDAF/bank/engine；forced 極性 boom floor；notch 不盲播。  
 **1.2.12 重點**：真 mute KPI + 極性 A/B + 負 corr boom mix=0；只採信等長艙錄。  
 **iOS build 23**：修開機閃退（Xcode Embed `CarANCShared` + IPA 刪檔重建）；**build 22**：對齊 1.2.13 KMP 真 LF（IPA 有缺 embed 問題，勿用）；**build 21**：通話結束 CarPlay 音量暴衝修復。  

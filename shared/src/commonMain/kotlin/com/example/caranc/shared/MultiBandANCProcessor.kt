@@ -193,14 +193,20 @@ class MultiBandANCProcessor(
     private val antiCorrRing = FloatArray(X_BUFFER_SIZE)
     private var antiCorrWrite = 0
     private var antiCorrCount = 0
-    /** Auto polarity for boom path when lagged corr stays negative. */
-    private var boomPolarity = 1f
+    /**
+     * Boom polarity. **1.2.14 default −1** (cabin fair A/B preferred −1 on Skoda Octavia).
+     * Overridden by PlantPathStore / cabin winner / script force.
+     */
+    private var boomPolarity = -1f
     /** Non-null when script forces +1/−1 (disables auto-flip). */
     private var boomPolarityForced: Float? = null
     private var boomNegCorrSamples = 0
     private var boomPolarityFlipCooldown = 0
+    private var shortLagNegSamples = 0
     /** 1.2.12: true mute — zero speaker anti + boom/notch KPI (road_off baseline). */
     private var antiOutputMuted = false
+    /** 1.2.14: open-boom energy floor active (KPI). */
+    private var lastOpenBoom = false
     private var lastProbeRejected = false
     private var lastProbeRejectMs = 0f
     private var learningCaptured = false
@@ -425,22 +431,44 @@ class MultiBandANCProcessor(
         val norm = (kotlin.math.abs(m) + kotlin.math.abs(a) + 1e-4f)
         lastBoomPlantCorr = (boomPlantCorrEma / norm).coerceIn(-1f, 1f)
 
+        // 1.2.14: short-lag probe polarity (~35 ms) — faster phase check when plant D unlocked
+        val dShort = (sampleRate * 0.035f).toInt().coerceIn(16, (antiCorrCount - 1).coerceAtLeast(16))
+        val shortAnti = if (antiCorrCount > dShort) {
+            antiCorrRing[(antiCorrWrite - 1 - dShort) and (antiCorrRing.size - 1)]
+        } else {
+            antiSample
+        }
+        val shortCorr = ((-m * shortAnti) / (kotlin.math.abs(m) + kotlin.math.abs(shortAnti) + 1e-4f))
+            .coerceIn(-1f, 1f)
+
         if (boomPolarityFlipCooldown > 0) boomPolarityFlipCooldown--
-        // 1.2.12: faster auto-flip when unlocked negative corr (skip if script-forced)
-        if (boomPolarityForced == null && vehicleSpeedKmh >= 40f && lastBoomPlantCorr < -0.05f) {
-            boomNegCorrSamples += 4
-            // ~0.75 s at 48 kHz process rate (was ~2 s @ −0.08)
-            if (boomNegCorrSamples >= (sampleRate * 3 / 4) && boomPolarityFlipCooldown <= 0) {
+        // 1.2.12/1.2.14: auto-flip on plant-lag OR sustained short-lag negative (skip if forced)
+        if (boomPolarityForced == null && vehicleSpeedKmh >= 40f) {
+            if (lastBoomPlantCorr < -0.05f) {
+                boomNegCorrSamples += 4
+            } else if (lastBoomPlantCorr > 0.05f) {
+                boomNegCorrSamples = 0
+            }
+            if (shortCorr < -0.08f && kotlin.math.abs(shortCorr) > kotlin.math.abs(lastBoomPlantCorr) + 0.02f) {
+                shortLagNegSamples += 4
+            } else if (shortCorr > 0.05f) {
+                shortLagNegSamples = 0
+            }
+            val flipByPlant = boomNegCorrSamples >= (sampleRate * 3 / 4)
+            val flipByShort = shortLagNegSamples >= (sampleRate / 2)
+            if ((flipByPlant || flipByShort) && boomPolarityFlipCooldown <= 0) {
                 val before = boomPolarity
                 boomPolarity = -boomPolarity
                 boomNegCorrSamples = 0
+                shortLagNegSamples = 0
                 boomPlantCorrEma = 0f
                 lastBoomPlantCorr = 0f
                 boomPolarityFlipCooldown = sampleRate * 6
                 pendingPolarityFlipLog = before to boomPolarity
             }
-        } else if (lastBoomPlantCorr > 0.05f) {
+        } else {
             boomNegCorrSamples = 0
+            shortLagNegSamples = 0
         }
     }
 
@@ -1244,32 +1272,36 @@ class MultiBandANCProcessor(
 
             val activePolarity = boomPolarityForced ?: boomPolarity
             val polarityForced = boomPolarityForced != null
-            // ★ Cabin boom pressure: plant-aligned delayed inverted mic low
+            // 1.2.14: open boom when forced OR corr unlocked at cruise — guarantee audible 40–80
+            val openBoom = boomFocusOut && vehicleSpeedValid && vehicleSpeedKmh >= 35f &&
+                (polarityForced || lastBoomPlantCorr < 0.05f)
+            lastOpenBoom = openBoom && !antiOutputMuted
+            // ★ Cabin boom pressure: plant-aligned delayed inverted mic low (+ open floor)
             val boomPress = boomPressure.process(
                 plantDelaySamples = boomDelaySamples(),
                 speedKmh = vehicleSpeedKmh,
                 boomPriority = boomFocusOut && vehicleSpeedValid,
                 freeze = freeze,
-                polarity = activePolarity
+                polarity = activePolarity,
+                openBoom = openBoom
             )
-            // KPI = block RMS (stable); mix uses instantaneous sample
+            // KPI = block RMS of boom path (must be ≫0 when openBoom — was stuck ~0 in 1.2.13)
             lastBoomPressureOut = if (antiOutputMuted) {
                 0f
             } else {
                 boomPressure.kpiLevel().coerceAtLeast(kotlin.math.abs(boomPress) * 0.5f)
             }
-            // 1.2.12/1.2.13: unlocked corr → mix 0, EXCEPT forced polarity from A/B winner
-            // (otherwise winner never reaches speakers while corr≈0)
+            // 1.2.14: always allow mix when openBoom; scale up with corr when locked
             val corrGate = when {
                 lastBoomPlantCorr >= 0.15f -> 1.00f
-                lastBoomPlantCorr >= 0.05f -> 0.55f
-                lastBoomPlantCorr >= 0.02f -> 0.25f
-                polarityForced && boomFocusOut -> 0.55f // validated polarity floor
+                lastBoomPlantCorr >= 0.05f -> 0.70f
+                openBoom && boomFocusOut -> 0.85f // controllable open push (was 0 / 0.55)
+                lastBoomPlantCorr >= 0.02f -> 0.35f
                 else -> 0f
             }
             val pressMixBase = when {
-                boomFocusOut && vehicleSpeedKmh >= 40f -> 1.20f
-                boomFocusOut -> 1.00f
+                boomFocusOut && vehicleSpeedKmh >= 40f -> if (openBoom) 1.45f else 1.25f
+                boomFocusOut -> if (openBoom) 1.25f else 1.05f
                 else -> 0f
             }
             val pressMix = pressMixBase * corrGate
@@ -1817,4 +1849,7 @@ class MultiBandANCProcessor(
     override fun getRoadBoomWeightEnergy(): Float = narrowbandBank.lastRoadWeightEnergy
     override fun getBoomPressureOut(): Float =
         if (antiOutputMuted) 0f else lastBoomPressureOut
+
+    /** 1.2.14: open-boom energy floor engaged (forced polarity or unlocked corr). */
+    fun isOpenBoomActive(): Boolean = lastOpenBoom && !antiOutputMuted
 }
