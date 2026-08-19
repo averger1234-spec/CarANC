@@ -51,12 +51,14 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 | 通話中斷保護 | ✅ pause + session restore + 增益漸升 | ✅ MODE_IN_CALL bypass |
 | 本機喇叭 duplex | ✅ AVAudioEngine + 50Hz tone | ✅ |
 | 預編 IPA | ✅ `dist/…ipa` **1.2.13 (23)** | — |
+| 開機不閃退 | ✅ Embed `CarANCShared`（build 23；勿用 22） | — |
 
 ### 路測對版（必看）
 
-1. 打開 App → **狀態** 頁右上角 / 副標：**`v1.2.13 (23)`**  
+1. 打開 App → **狀態** 頁右上角 / 副標：**`v1.2.13 (23)`**（**勿裝 build 22**，會閃退）  
 2. Session log 開頭：`appVersion=1.2.13` `build=23`  
-3. 改功能後：`CFBundleVersion` +1，功能包再升 marketing，並寫 `CHANGELOG.md`
+3. 改功能後：`CFBundleVersion` +1，功能包再升 marketing，並寫 `CHANGELOG.md`  
+4. 重編 IPA 必須確認 `.app/Frameworks/CarANCShared.framework` 存在，且 **刪除舊 IPA 再打包**（勿 `zip` 覆蓋殘留舊 framework）
 
 ## 結構
 

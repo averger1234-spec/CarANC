@@ -50,7 +50,7 @@ git push origin main
 |------|------|------|
 | **Android 版號** | **`1.2.13` / code `15`** · 主畫面 `v1.2.13` | ✅ |
 | **1.2.13 路測** | 85Hz 終端 LPF；HIGH_LAT 清 FDAF/bank/engine；forced 極性 boom；40–80↓且 180–350 不大增 | ✅ |
-| **iOS 版號** | **`1.2.13` (build 23)** · 狀態頁 **`v1.2.13 (23)`** · 真LF+mute+極性A/B+艙錄+通話音量修復 | ✅ |
+| **iOS 版號** | **`1.2.13` (build 23)** · 狀態頁 **`v1.2.13 (23)`** · 真LF+mute+極性+艙錄+通話音量；**修開機閃退（Embed）** | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
 | **CarPlay** | 對齊 AA（見 `iosApp/CARPLAY.md`） | ✅ 程式；圖示需 Apple entitlement |
