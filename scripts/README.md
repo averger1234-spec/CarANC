@@ -77,7 +77,7 @@ winget install --id iOSGods.Sideloadly -e --accept-package-agreements --accept-s
 
 **怎麼用**：
 
-1. `git pull` 拿到最新 `dist\*.ipa`
+1. `git pull` 拿到最新 `dist\*.ipa`（現行 **iOS 1.2.17 (28)**，狀態頁 `v1.2.17 (28)`）
 2. iPhone USB 接電腦 → 信任此電腦
 3. 雙擊 `scripts\install-ios-sideloadly.bat`（會開 Sideloadly 並複製 IPA 路徑）
 4. 選裝置、貼 IPA、登入 Apple ID → Start

@@ -52,6 +52,7 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 | 本機喇叭 duplex | ✅ AVAudioEngine + 50Hz tone | ✅ |
 | 預編 IPA | ✅ `dist/…ipa` **1.2.17 (28)** | — |
 | 開機不閃退 | ✅ Embed `CarANCShared`（build 23+；勿用 22） | — |
+| 開始降噪不閃退 | ✅ build 28：有 tap 才 `removeTap` | — |
 | 結束存 Log | ✅ `Documents/anc_logs/*.log` + 自動分享檔案（含 cabin wav） | ✅ files/anc_logs |
 
 ### 路測對版（必看）

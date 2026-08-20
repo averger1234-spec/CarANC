@@ -6,7 +6,7 @@
 
 ---
 
-## 另一台電腦現在請這樣拉（2026-08-19 · 現行）
+## 另一台電腦現在請這樣拉（2026-08-20 · 現行）
 
 > 你有多台電腦：以 **GitHub `main` 為唯一真相**。換機先 pull，改完再 push。
 
@@ -24,9 +24,9 @@ cd <你的路徑>\CarANC
 git pull origin main
 git log -5 --oneline
 # 近期應能看到例如：
-# ios: 1.2.0 CarPlay + version UI
-# ca86d6a / 8962cb4  iOS KMP / CarPlay
-# e94fddc feat(anc): v1.1.0 speed-binned gains
+# fix: v1.2.17 dual-end P0/P1 alignment
+# ios: ship 1.2.16 (27) path check and fix ANC start crash
+# fix(anc): v1.2.16 hold MEDIA focus and aa_path_check PASS/FAIL
 ```
 
 ### 2. 依用途選讀文件（多機必讀索引）

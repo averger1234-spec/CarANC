@@ -7,7 +7,7 @@ CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），�
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
 **版號**：Android **`version.properties` → 1.2.17 / code 19** · iOS **1.2.17 (28)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 
-**跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
+**跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-20 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
 
 ### 多機一分鐘流程

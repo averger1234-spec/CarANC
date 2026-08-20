@@ -41,7 +41,7 @@
 |----|------|
 | **openScale** | 拿掉 `coerceAtLeast(0.5)`，短測 0.25/0.30 不再被抬回 0.5 |
 | **path_check** | PASS 需 **live focus**（DELAYED 不算）+ **car sink / carAudio**；送出 peak 只是必要條件 |
-| **AA focus LOSS** | 5s 路由刷新時 **重要 MEDIA focus** |
+| **AA focus LOSS** | 5s 路由刷新時 **重請 MEDIA focus** |
 | **AA handshake** | CarConnection 最長等 2s 再 settle（不再死等 500ms） |
 | **艙錄** | Android 改寫 **ANC 同路 PCM WAV**（不再第二路 MediaRecorder 搶 MIC） |
 | **UI snapshot** | iOS 診斷在 NSLock 內拷貝，不跨執行緒讀 KMP 欄位 |
@@ -60,6 +60,7 @@ CarPlay **車機圖示**仍需 Apple `carplay-driving-task` entitlement（空 en
 ### iOS（build 28）
 
 - 重編 `CarANCShared`（openScale 修正、`applyBandSnapshotFromBlock`）
+- NSLock 在 **Swift `KotlinAncBridge`**（不是 Kotlin processor 本體）
 - 狀態頁 **`v1.2.17 (28)`** · `dist/CarANC-ios-kmp-debug.ipa`
 
 ---

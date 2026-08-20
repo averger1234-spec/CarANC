@@ -8,7 +8,7 @@
 
 | 驗證目標 | Log 欄位（Android 同名） | 怎麼判 |
 |----------|--------------------------|--------|
-| **裝對版本** | `appVersion`、`build` | 應為 **1.2.0** / **13**（與狀態頁一致） |
+| **裝對版本** | `appVersion`、`build` | 應為 **1.2.17** / **28**（與狀態頁一致） |
 | 有在播反噪 | `outputPathActive`、`antiNoiseDb` | antiNoiseDb 不應長期 -90；outputPathActive=true |
 | 低頻路噪 KPI | `lowBandRumbleReduction` | 主 KPI；看趨勢（`kpiSource=ios_spectrum_proxy` 時勿硬比 Android 絕對值） |
 | 速域增益 1.1.0 | `speedNvhBinKmh`、`speedNvhTotalAnti`、`speedNvhTableId` | 行駛時 bin 隨速跳；table 非 none |
@@ -122,7 +122,7 @@ DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路�
 | `plantElectricalDelaySamples` / `plantDelaySamples` | plant 電氣延遲樣本 |
 | `setImuAxes` | 三軸 userAcceleration → KMP low path |
 
-腳本（**現行 1.2.12**）：`prep → diag_tone_50 → target_road_off → target_road_ppos → target_road_pneg → tire → wind → finish`。  
+腳本（**現行 1.2.17**）：`prep → diag_tone_50 → target_road_off → target_road_ppos → target_road_pneg → tire → wind → finish`。  
 
 | 1.2.12 | iOS |
 |--------|-----|
