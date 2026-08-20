@@ -101,7 +101,8 @@ class CabinBoomPressure(
             val s = if (abs(delayed) > 1e-8f) sign(delayed) else 1f
             s * energyFloor
         } else {
-            delayed * (if (openBoom) scale.coerceAtLeast(0.5f) else 1f)
+            // Do not floor scale at 0.5 — that undoes 1.2.16 short-test 0.25/0.30.
+            delayed * (if (openBoom) scale else 1f)
         }
         val energy = abs(drive).coerceIn(if (openBoom) energyFloor else 0.02f, 0.90f)
         val gain = (0.90f + 0.70f * speedNorm) * (0.55f + 1.20f * energy)

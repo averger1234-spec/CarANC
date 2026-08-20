@@ -173,7 +173,22 @@ class AudioEngine(
                 val nativeLowAvail = NativeLowBandProcessor.isNativeAvailable()
                 Log.i("ANCService", "CYCLE3_EXTRA: NativeLowBandProcessor available=$nativeLowAvail (proto; cmake notes in shared/build.gradle.kts)")
                 sessionContext.perfMetrics.nativeLowUsed = nativeLowAvail  // future: set true when hot path switches to it
-                delay(AA_HANDSHAKE_MS)
+                var handshakeWaitedMs = 0L
+                if (!isAAConnected()) {
+                    while (!isAAConnected() && handshakeWaitedMs < AA_HANDSHAKE_WAIT_MS) {
+                        delay(AA_HANDSHAKE_POLL_MS)
+                        handshakeWaitedMs += AA_HANDSHAKE_POLL_MS
+                    }
+                }
+                delay(if (isAAConnected()) AA_HANDSHAKE_SETTLE_MS else 200L)
+                AncSessionLogger.log(
+                    phase = "aa_handshake",
+                    fields = mapOf(
+                        "waitedMs" to handshakeWaitedMs,
+                        "aaConnected" to isAAConnected(),
+                        "note" to "wait_CarConnection_then_settle_before_route"
+                    )
+                )
 
                 audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
                 val routeManager = AudioRouteManager(appContext)
@@ -212,6 +227,7 @@ class AudioEngine(
 
                 val sampleRateStr = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
                 val sampleRate = sampleRateStr?.toIntOrNull() ?: 44100
+                GuidedCabinRecorder.setEngineSampleRate(sampleRate)
                 val framesPerBuffer = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)
                     ?.toIntOrNull()
                     ?.coerceAtLeast(64) ?: 256
@@ -727,6 +743,9 @@ class AudioEngine(
 
                     val read = audioRecord?.read(input, 0, readSize) ?: 0
                     if (read > 0) {
+                        if (GuidedCabinRecorder.isRecording()) {
+                            GuidedCabinRecorder.append(input, read)
+                        }
                         blockCount++
                         val t0 = System.nanoTime()  // CYCLE3_EXTRA: always capture for fullLoopMs + ema (was conditional %50); still conditional for heavy logs
                         sessionContext.perfMetrics.lastBlockTimestampNs = t0
@@ -990,36 +1009,45 @@ class AudioEngine(
                         } else if (pathCheckAa && !pathCheckDone && pathCheckUntilMs > 0L && nowPath >= pathCheckUntilMs) {
                             pathCheckDone = true
                             val rm = audioRouteManager
-                            val holding = rm?.isHoldingRunningFocus() == true
+                            val holding = rm?.isRunningMediaPathLive() == true
                             val usage = rm?.currentTrackUsageLabel(true) ?: "?"
                             val routedName = rm?.getActiveOutputDeviceName(audioTrack) ?: "?"
                             val submixOk = routedName.contains("submix", ignoreCase = true)
-                            val sendOk = pathCheckPeakAbs >= 2000 // ~0.06 FS after 0.22 amp tone
+                            val sinkOk = submixOk ||
+                                routedName.contains("usb", ignoreCase = true) ||
+                                routedName.contains("bus", ignoreCase = true) ||
+                                routedName.contains("car", ignoreCase = true)
+                            val sendOk = pathCheckPeakAbs >= 2000 // send-buffer peak only — not HU speakers
                             val usageOk = usage.contains("MEDIA", ignoreCase = true)
-                            val pass = holding && usageOk && sendOk
+                            val pass = holding && usageOk && sendOk && sinkOk
                             val failReasons = buildList {
-                                if (!holding) add("no_media_focus")
+                                if (!holding) add("no_live_media_focus")
                                 if (!usageOk) add("trackUsage_not_MEDIA")
                                 if (!sendOk) add("send_tone_peak_too_low")
-                                if (!submixOk) add("routed_not_submix_warn")
+                                if (!sinkOk) add("no_car_sink")
+                                if (rm?.lastFocusRequestResult() == AudioManager.AUDIOFOCUS_REQUEST_DELAYED) {
+                                    add("focus_was_DELAYED")
+                                }
                             }
                             AncSessionLogger.log(
                                 phase = "aa_path_check",
                                 fields = mapOf(
                                     "result" to if (pass) "PASS" else "FAIL",
                                     "holdingMediaFocus" to holding,
+                                    "holdingRequested" to (rm?.isHoldingRunningFocus() == true),
                                     "focusRequestResult" to (rm?.lastFocusRequestResult() ?: -1),
                                     "lastFocusChange" to (rm?.lastFocusChange() ?: 0),
                                     "trackUsage" to usage,
                                     "routedOutput" to routedName,
                                     "submixOk" to submixOk,
+                                    "sinkOk" to sinkOk,
                                     "pathCheckPeakAbs" to pathCheckPeakAbs,
                                     "sendOk" to sendOk,
                                     "failReasons" to failReasons.joinToString(","),
                                     "note" to if (pass) {
-                                        "SEND_PATH_OK_listen_for_50Hz_to_confirm_HU_speakers"
+                                        "SEND_AND_SINK_OK_listen_for_50Hz_to_confirm_HU_speakers"
                                     } else {
-                                        "SEND_OR_FOCUS_FAIL_do_not_trust_cancel_KPI"
+                                        "FOCUS_SINK_OR_SEND_FAIL_do_not_trust_cancel_KPI"
                                     }
                                 )
                             )
@@ -2169,6 +2197,18 @@ class AudioEngine(
         val aa = isAAConnected()
         val refreshed = routeManager.ensureOutputRoute(audioRecord, track, aa)
         currentRoute = refreshed.route
+        if (aa && !routeManager.isHoldingRunningFocus()) {
+            val ok = routeManager.requestRunningMediaFocus(true)
+            AncSessionLogger.log(
+                phase = "aa_media_focus_rerequest",
+                fields = mapOf(
+                    "granted" to ok,
+                    "pathLive" to routeManager.isRunningMediaPathLive(),
+                    "requestResult" to routeManager.lastFocusRequestResult(),
+                    "lastFocusChange" to routeManager.lastFocusChange()
+                )
+            )
+        }
         if (!refreshed.carSinkRouted && aa) {
             AncSessionLogger.log(
                 phase = "route_refresh_warning",
@@ -2254,7 +2294,9 @@ class AudioEngine(
     }
 
     companion object {
-        private const val AA_HANDSHAKE_MS = 500L
+        private const val AA_HANDSHAKE_WAIT_MS = 2000L
+        private const val AA_HANDSHAKE_POLL_MS = 200L
+        private const val AA_HANDSHAKE_SETTLE_MS = 400L
         private const val ROUTE_SETTLE_MS = 200L
         private const val ROUTE_RETRY_COUNT = 3
         private const val ROUTE_CHECK_INTERVAL_MS = 5000L

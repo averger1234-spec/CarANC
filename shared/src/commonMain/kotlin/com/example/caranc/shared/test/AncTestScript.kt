@@ -404,11 +404,11 @@ object CarRoadTuningScript {
     /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.16-aligned. */
     const val SCRIPT_ID = "car_road_tuning_v1"
     /**
-     * === 1.2.16 AA MEDIA path + open 25–30% short-test + mid kill ===
+     * === 1.2.17 dual-end P0/P1: live path check + classifier/plant on iOS + cabin WAV ===
      * prep → diag_tone_50 → road_off → road_ppos → road_pneg → tire → wind → finish
      * 必收：等長三件套；50Hz 無音樂應可聽；openScale 短測；180–350 不大增
      */
-    const val SCRIPT_NAME = "三目標·1.2.16 MEDIA焦点+路径自检"
+    const val SCRIPT_NAME = "三目標·1.2.17 雙端對齊P0P1"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -453,13 +453,13 @@ object CarRoadTuningScript {
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
             id = "tuning_prep",
-            title = "準備：1.2.16 MEDIA焦点+路径自检",
+            title = "準備：1.2.17 雙端對齊P0P1",
             instructions = listOf(
-                "★ 版號 **v1.2.16**；AA **持有 USAGE_MEDIA focus**（整段 ANC）",
+                "★ 版號 **v1.2.17**；AA **持有 USAGE_MEDIA focus**（整段 ANC）",
                 "USB 有線 AA；placement=floor/seat；**音樂全關**",
                 "啟動 ANC 後約 1.5s 自動 50Hz 自檢 → log **aa_path_check PASS/FAIL**",
-                "★ PASS=有 focus+MEDIA+送出能量；你還須聽到低嗡才算喇叭通",
-                "★ FAIL=不要信消噪 KPI；先修路徑",
+                "★ PASS=live focus+MEDIA+car sink+送出；你還須聽到低嗡才算喇叭通",
+                "★ FAIL=不要信消噪 KPI；先修路徑（DELAYED/無 submix 不算 PASS）",
                 "★ 只收等長三件套；長 off/停速丟"
             ),
             durationSec = 20,
@@ -468,7 +468,7 @@ object CarRoadTuningScript {
             maxWallSec = 60,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "版號v1.2.16",
+                "版號v1.2.17",
                 "tier=PRO",
                 "USB AA",
                 "50Hz無音樂可聽?",
@@ -701,7 +701,7 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束：1.2.16 對照匯出",
+            title = "結束：1.2.17 對照匯出",
             instructions = listOf(
                 "停 ANC → 存 Log；scenario：50Hz無音樂、等長三件套",
                 "★ PASS：trackUsage=MEDIA；50Hz無音樂可聽；40–80 on≤off；180–350 <+1.5dB",

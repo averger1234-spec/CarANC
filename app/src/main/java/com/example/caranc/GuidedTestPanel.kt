@@ -141,7 +141,7 @@ fun GuidedTestPanel(
                                 phase = "cabin_record_pending",
                                 fields = mapOf(
                                     "stepId" to stepId,
-                                    "note" to "wait_valid_speed_then_start_m4a"
+                                    "note" to "wait_valid_speed_then_start_wav"
                                 )
                             )
                         } else {

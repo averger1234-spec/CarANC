@@ -259,6 +259,21 @@ class AudioRouteManager(context: Context) {
     /** True while ANC holds continuous MEDIA focus (AA path keep-alive). */
     fun isHoldingRunningFocus(): Boolean = hasAudioFocus
 
+    /**
+     * Path self-check: DELAYED is not a live speaker path, and LOSS is dead
+     * even if a previous request was GRANTED.
+     */
+    fun isRunningMediaPathLive(): Boolean {
+        if (!hasAudioFocus) return false
+        if (lastFocusChangeCode == AudioManager.AUDIOFOCUS_LOSS) return false
+        if (lastFocusRequestResultCode == AudioManager.AUDIOFOCUS_REQUEST_DELAYED) {
+            return lastFocusChangeCode == AudioManager.AUDIOFOCUS_GAIN ||
+                lastFocusChangeCode == AudioManager.AUDIOFOCUS_GAIN_TRANSIENT ||
+                lastFocusChangeCode == AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+        }
+        return lastFocusRequestResultCode == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+
     fun lastFocusChange(): Int = lastFocusChangeCode
 
     fun lastFocusRequestResult(): Int = lastFocusRequestResultCode

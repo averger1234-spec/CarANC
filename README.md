@@ -5,7 +5,7 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**版號**：Android **`version.properties` → 1.2.16 / code 18** · iOS **1.2.16 (27)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+**版號**：Android **`version.properties` → 1.2.17 / code 19** · iOS **1.2.17 (28)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 
 **跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
@@ -44,13 +44,13 @@ git push origin main
 
 ---
 
-## 最新進度（2026-08-20）— 1.2.16 MEDIA 焦点 + 路径自检
+## 最新進度（2026-08-20）— 1.2.17 雙端 P0/P1 對齊
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| **Android 版號** | **`1.2.16` / code `18`** · 主畫面 `v1.2.16` | ✅ |
-| **1.2.16 路測** | AA **持有 USAGE_MEDIA focus**；啟動後 `aa_path_check` PASS/FAIL；無音樂應聽 50Hz；open 短測 25–30% | ✅ |
-| **iOS 版號** | **`1.2.16` (build 27)** · 狀態頁 **`v1.2.16 (27)`** · 路徑自檢+修開始閃退；anc_logs；Embed | ✅ |
+| **Android 版號** | **`1.2.17` / code `19`** · 主畫面 `v1.2.17` | ✅ |
+| **1.2.17 路測** | live MEDIA path_check（DELAYED/無 sink 不算 PASS）；focus LOSS 重要；艙錄改 ANC 同路 WAV；openScale 0.25 不再被抬到 0.5 | ✅ |
+| **iOS 版號** | **`1.2.17` (build 28)** · 狀態頁 **`v1.2.17 (28)`** · 安全 teardown（removeTap）+ classifier/plant D + 路徑自檢需 carAudio | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
 | **CarPlay** | 對齊 AA（見 `iosApp/CARPLAY.md`） | ✅ 程式；圖示需 Apple entitlement |
@@ -68,8 +68,8 @@ git push origin main
 
 ```bash
 git pull origin main
-# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.16
-# iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.16 (27)
+# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.17
+# iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.17 (28)
 ```
 
 **注意**：plant residual KPI 在 iOS 仍多為代理／`n/a`。Android 路測仍以 USB AA + `lowBandRumbleReduction` 為準。無 GPS 時看 log `speedSource`（hold／imu_proxy 可餵速域，勿當精密 GPS KPI）。

@@ -58,6 +58,8 @@ final class AncAudioEngine: ObservableObject {
     private var pathCheckActive = false
     private var pathCheckPeak: Float = 0
     private var pathCheckTimer: Timer?
+    /// Never call `removeTap` unless we actually installed one (first-start crash).
+    private var tapInstalled = false
 
     init(model: AncAppModel) {
         self.model = model
@@ -344,6 +346,25 @@ final class AncAudioEngine: ObservableObject {
         activeTier = model.tier
         let proc = KotlinAncBridge(sampleRate: Int(sampleRate), bufferSize: bufFrames, tier: activeTier)
         proc.setEstimatedLatencyMs(measuredLatencyMs)
+        let ioMs = Float(session.ioBufferDuration * 1000.0)
+        let blockMs = Float(bufFrames) / Float(sampleRate) * 1000.0
+        if preferCarAudio {
+            proc.setMeasuredLatencyBreakdown(
+                recordMs: max(ioMs, 15),
+                trackMs: 110,
+                blockMs: blockMs,
+                acousticMs: 2,
+                frameworkMs: 40
+            )
+        } else {
+            proc.setMeasuredLatencyBreakdown(
+                recordMs: max(ioMs, 8),
+                trackMs: max(ioMs, 8),
+                blockMs: blockMs,
+                acousticMs: 2,
+                frameworkMs: 8
+            )
+        }
         let profileId = "ios_default"
         let routeLink = AppController.shared.routeMonitor.linkType
         let route = PlantPathStore.routeLabel(
@@ -352,10 +373,15 @@ final class AncAudioEngine: ObservableObject {
         )
         if let snap = PlantPathStore.loadBest(profileId: profileId, routeLabel: route) {
             proc.applyPersistedBoomPolarity(snap.boomPolarity)
+            var applied = snap.electricalDelaySamples
+            if snap.electricalDelaySamples > 64 {
+                applied = proc.refinePlantDelayFromProbe(snap.electricalDelaySamples)
+            }
             SessionLogger.shared.event("plant_path_loaded", [
                 "profileId": snap.profileId,
                 "routeLabel": snap.routeLabel,
                 "electricalDelaySamples": "\(snap.electricalDelaySamples)",
+                "appliedSamples": "\(applied)",
                 "boomPolarity": String(format: "%.0f", snap.boomPolarity)
             ])
         } else {
@@ -387,6 +413,7 @@ final class AncAudioEngine: ObservableObject {
         input.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, _ in
             self?.process(buffer: buffer)
         }
+        tapInstalled = true
 
         var outFormat = engine.mainMixerNode.outputFormat(forBus: 0)
         if outFormat.sampleRate <= 0 || outFormat.channelCount == 0 {
@@ -494,24 +521,35 @@ final class AncAudioEngine: ObservableObject {
         setDiagToneHz(0)
         pathCheckTimer = nil
         let peak = pathCheckPeak
+        AppController.shared.routeMonitor.refresh()
+        let session = AVAudioSession.sharedInstance()
+        let outputsNow = session.currentRoute.outputs
+        let hasCarAudio = outputsNow.contains { $0.portType == .carAudio }
+        let routeNow = outputsNow.map { "\($0.portType.rawValue):\($0.portName)" }.joined(separator: ",")
         let route = AppController.shared.routeMonitor.linkType
-        let carRouted = preferCar && route.isCarPlay
-        // 本機：送出 peak 夠大即 PASS；CarPlay：還需路由在 carAudio
         let sendOk = peak >= 0.02
-        let routeOk = !preferCar || carRouted
+        let routeOk = !preferCar || hasCarAudio
         let pass = sendOk && routeOk
         let result = pass ? "PASS" : "FAIL"
+        let failReasons: [String] = {
+            var r: [String] = []
+            if !sendOk { r.append("send_tone_peak_too_low") }
+            if preferCar && !hasCarAudio { r.append("not_on_carAudio") }
+            return r
+        }()
         SessionLogger.shared.event("carplay_path_check", [
             "result": result,
-            "aa_path_check": result, // 對齊 Android 欄位名，方便同一套分析
+            "aa_path_check": result,
             "sendPeak": String(format: "%.4f", peak),
             "preferCar": "\(preferCar)",
+            "hasCarAudio": "\(hasCarAudio)",
             "carPlayConnected": "\(model.carPlayConnected)",
             "aaLinkType": route.rawValue,
-            "routeOutputs": routeOutputs,
+            "routeOutputs": routeNow.isEmpty ? routeOutputs : routeNow,
+            "failReasons": failReasons.joined(separator: ","),
             "note": pass
-                ? "heard_or_send_ok_check_subjective_50Hz"
-                : "no_send_or_not_on_carplay_do_not_trust_ANC_KPI"
+                ? "SEND_AND_ROUTE_OK_listen_for_50Hz_to_confirm_speakers"
+                : "SEND_OR_CARAUDIO_FAIL_do_not_trust_ANC_KPI"
         ])
         model.statusDetail = pass
             ? "路徑自檢 PASS（應聽到短 50Hz）"
@@ -526,7 +564,10 @@ final class AncAudioEngine: ObservableObject {
         }
     }
 
+    @MainActor
     func stop() {
+        let wasStarted = isStarted
+        isStarted = false
         uiTimer?.invalidate()
         uiTimer = nil
         resumeRampTimer?.invalidate()
@@ -543,26 +584,25 @@ final class AncAudioEngine: ObservableObject {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         kmpProcessor?.release()
         kmpProcessor = nil
-        let wasStarted = isStarted
-        isStarted = false
-        Task { @MainActor in
-            if wasStarted {
-                SessionLogger.shared.endSession()
-            }
-            model.isRunning = false
-            model.phase = .stopped
-            model.statusDetail = ""
+        if wasStarted {
+            SessionLogger.shared.endSession()
         }
+        model.isRunning = false
+        model.phase = .stopped
+        model.statusDetail = ""
     }
 
     private func teardownGraph() {
-        engine.inputNode.removeTap(onBus: 0)
+        if engine.isRunning {
+            engine.stop()
+        }
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
         if let sourceNode {
             engine.detach(sourceNode)
             self.sourceNode = nil
-        }
-        if engine.isRunning {
-            engine.stop()
         }
         engine.reset()
     }
@@ -601,6 +641,7 @@ final class AncAudioEngine: ObservableObject {
     }
 
     private func process(buffer: AVAudioPCMBuffer) {
+        guard isStarted, kmpProcessor != nil else { return }
         guard let channelData = buffer.floatChannelData else { return }
         let frameCount = Int(buffer.frameLength)
         guard frameCount > 0 else { return }
@@ -695,18 +736,28 @@ final class AncAudioEngine: ObservableObject {
         speedProvider.tickWithAccel(imuProvider.linearAccelMagnitude)
         let speed = speedProvider.snapshot
         let accel = imuProvider.linearAccelMagnitude
-        let focus = kmpProcessor?.mappedNvhFocus ?? .idle
-        let maxHz = kmpProcessor?.maxCancelHz ?? 150
-        let mid = kmpProcessor?.midEnabled ?? false
-        let high = kmpProcessor?.highEnabled ?? false
-        let lowUpdates = kmpProcessor?.lowLmsUpdates ?? lastLowUpdates
-        let midUpdates = kmpProcessor?.midLmsUpdates ?? 0
+        let snap = kmpProcessor?.snapshot()
+        let focus: NvhFocus = {
+            switch (snap?.lastNvhFocusRaw ?? "").uppercased() {
+            case "ROAD_RUMBLE": return .roadRumble
+            case "TIRE_NOISE": return .tireNoise
+            case "WIND_SHEAR": return .windShear
+            case "IDLE": return .idle
+            case "": return .idle
+            default: return .mixedCabin
+            }
+        }()
+        let maxHz = snap?.maxCancelHz ?? 150
+        let mid = snap?.midEnabled ?? false
+        let high = snap?.highEnabled ?? false
+        let lowUpdates = snap?.lowLmsUpdates ?? lastLowUpdates
+        let midUpdates = snap?.midLmsUpdates ?? 0
         let lat = measuredLatencyMs
-        let strategy = kmpProcessor?.latencyStrategy ?? "NORMAL"
+        let strategy = snap?.latencyStrategy ?? "NORMAL"
         let blocks = blockCount
-        let coh = kmpProcessor?.imuMicCoherence ?? lastCoherence
-        let bank = kmpProcessor?.bankMatchQuality ?? lastBankMatch
-        let fixedOut = kmpProcessor?.fixedBankOut ?? lastFixedBankOut
+        let coh = snap?.imuMicCoherence ?? lastCoherence
+        let bank = snap?.bankMatchQuality ?? lastBankMatch
+        let fixedOut = snap?.fixedBankOut ?? lastFixedBankOut
 
         Task { @MainActor in
             model.rawDb = raw
@@ -728,23 +779,23 @@ final class AncAudioEngine: ObservableObject {
             model.midEnabled = mid
             model.highEnabled = high
             model.estimatedLatencyMs = lat
-            model.tireNotchEnergy = self.kmpProcessor?.tireNotchEnergy ?? 0
-            model.windNotchEnergy = self.kmpProcessor?.windNotchEnergy ?? 0
-            model.tireNotchF0Hz = self.kmpProcessor?.tireNotchF0Hz ?? 0
-            model.windNotchActiveCount = self.kmpProcessor?.windNotchActiveCount ?? 0
-            model.notchMixAnti = self.kmpProcessor?.notchMixAnti ?? 0
-            model.roadNotchEnergy = self.kmpProcessor?.roadNotchEnergy ?? 0
-            model.roadBoomWeightEnergy = self.kmpProcessor?.roadBoomWeightEnergy ?? 0
-            model.boomPressureOut = self.kmpProcessor?.boomPressureOut ?? 0
-            model.boomPlantCorr = self.kmpProcessor?.boomPlantCorr ?? 0
-            model.plantElectricalDelaySamples = self.kmpProcessor?.plantElectricalDelaySamples ?? 0
-            model.boomPolarity = self.kmpProcessor?.boomPolarity ?? PlantPathStore.defaultPolarity
-            model.openBoomActive = self.kmpProcessor?.openBoomActive ?? false
+            model.tireNotchEnergy = snap?.tireNotchEnergy ?? 0
+            model.windNotchEnergy = snap?.windNotchEnergy ?? 0
+            model.tireNotchF0Hz = snap?.tireNotchF0Hz ?? 0
+            model.windNotchActiveCount = snap?.windNotchActiveCount ?? 0
+            model.notchMixAnti = snap?.notchMixAnti ?? 0
+            model.roadNotchEnergy = snap?.roadNotchEnergy ?? 0
+            model.roadBoomWeightEnergy = snap?.roadBoomWeightEnergy ?? 0
+            model.boomPressureOut = snap?.boomPressureOut ?? 0
+            model.boomPlantCorr = snap?.boomPlantCorr ?? 0
+            model.plantElectricalDelaySamples = snap?.plantElectricalDelaySamples ?? 0
+            model.boomPolarity = snap?.boomPolarity ?? PlantPathStore.defaultPolarity
+            model.openBoomActive = snap?.openBoomActive ?? false
             model.muteAnti = self.muteAnti
             model.userAncGain = self.userAncGain
             model.forceBoomPolarity = self.forceBoomPolarity
-            model.effectiveLowMu = self.kmpProcessor?.effectiveLowMu ?? 0
-            model.effectiveMidMu = self.kmpProcessor?.effectiveMidMu ?? 0
+            model.effectiveLowMu = snap?.effectiveLowMu ?? 0
+            model.effectiveMidMu = snap?.effectiveMidMu ?? 0
 
             if speed.valid && speed.kmh >= 15 {
                 if model.phase == .running || model.phase == .driving {
@@ -767,11 +818,11 @@ final class AncAudioEngine: ObservableObject {
             self.uiTickCount += 1
             if self.uiTickCount % 10 == 0, model.isRunning {
                 let linearRms = pow(10 as Float, raw / 20)
-                let bin = self.kmpProcessor?.speedNvhBinKmh ?? 0
-                let lowG = self.kmpProcessor?.speedNvhLowGain ?? 1
-                let midG = self.kmpProcessor?.speedNvhMidGain ?? 0.25
-                let totalA = self.kmpProcessor?.speedNvhTotalAnti ?? 1
-                let tableId = self.kmpProcessor?.speedNvhTableId ?? "none"
+                let bin = snap?.speedNvhBinKmh ?? 0
+                let lowG = snap?.speedNvhLowGain ?? 1
+                let midG = snap?.speedNvhMidGain ?? 0.25
+                let totalA = snap?.speedNvhTotalAnti ?? 1
+                let tableId = snap?.speedNvhTableId ?? "none"
                 SessionLogger.shared.runningSnapshot(
                     model: model,
                     antiDb: anti,
@@ -866,17 +917,17 @@ final class AncAudioEngine: ObservableObject {
                     AndroidSnapshotKeys.speedNvhBinKmh: "\(bin)",
                     AndroidSnapshotKeys.speedNvhTableId: tableId,
                     AndroidSnapshotKeys.speedNvhTotalAnti: String(format: "%.2f", totalA),
-                    AndroidSnapshotKeys.tireNotchEnergy: String(format: "%.4f", self.kmpProcessor?.tireNotchEnergy ?? 0),
-                    AndroidSnapshotKeys.windNotchEnergy: String(format: "%.4f", self.kmpProcessor?.windNotchEnergy ?? 0),
-                    AndroidSnapshotKeys.tireNotchF0Hz: String(format: "%.1f", self.kmpProcessor?.tireNotchF0Hz ?? 0),
-                    AndroidSnapshotKeys.windNotchActiveCount: "\(self.kmpProcessor?.windNotchActiveCount ?? 0)",
-                    AndroidSnapshotKeys.notchMixAnti: String(format: "%.4f", self.kmpProcessor?.notchMixAnti ?? 0),
-                    AndroidSnapshotKeys.roadNotchEnergy: String(format: "%.4f", self.kmpProcessor?.roadNotchEnergy ?? 0),
-                    AndroidSnapshotKeys.roadBoomWeightEnergy: String(format: "%.4f", self.kmpProcessor?.roadBoomWeightEnergy ?? 0),
-                    AndroidSnapshotKeys.boomPressureOut: String(format: "%.4f", self.kmpProcessor?.boomPressureOut ?? 0),
-                    AndroidSnapshotKeys.boomPlantCorr: String(format: "%.3f", self.kmpProcessor?.boomPlantCorr ?? 0),
-                    AndroidSnapshotKeys.plantElectricalDelaySamples: "\(self.kmpProcessor?.plantElectricalDelaySamples ?? 0)",
-                    AndroidSnapshotKeys.effectiveLowMu: String(format: "%.4f", self.kmpProcessor?.effectiveLowMu ?? 0),
+                    AndroidSnapshotKeys.tireNotchEnergy: String(format: "%.4f", snap?.tireNotchEnergy ?? 0),
+                    AndroidSnapshotKeys.windNotchEnergy: String(format: "%.4f", snap?.windNotchEnergy ?? 0),
+                    AndroidSnapshotKeys.tireNotchF0Hz: String(format: "%.1f", snap?.tireNotchF0Hz ?? 0),
+                    AndroidSnapshotKeys.windNotchActiveCount: "\(snap?.windNotchActiveCount ?? 0)",
+                    AndroidSnapshotKeys.notchMixAnti: String(format: "%.4f", snap?.notchMixAnti ?? 0),
+                    AndroidSnapshotKeys.roadNotchEnergy: String(format: "%.4f", snap?.roadNotchEnergy ?? 0),
+                    AndroidSnapshotKeys.roadBoomWeightEnergy: String(format: "%.4f", snap?.roadBoomWeightEnergy ?? 0),
+                    AndroidSnapshotKeys.boomPressureOut: String(format: "%.4f", snap?.boomPressureOut ?? 0),
+                    AndroidSnapshotKeys.boomPlantCorr: String(format: "%.3f", snap?.boomPlantCorr ?? 0),
+                    AndroidSnapshotKeys.plantElectricalDelaySamples: "\(snap?.plantElectricalDelaySamples ?? 0)",
+                    AndroidSnapshotKeys.effectiveLowMu: String(format: "%.4f", snap?.effectiveLowMu ?? 0),
                     "dsp": "kmp_MultiBandANCProcessor"
                 ])
             }

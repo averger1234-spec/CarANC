@@ -1,7 +1,7 @@
 # iOS CarPlay（對齊 Android Auto）
 
 **本功能自 iOS 1.2.0 起**；現行全包 **iOS / Android 1.2.1**（含車速 hold／IMU 備用）。  
-狀態頁應顯示 **`v1.2.16 (27)`**。
+狀態頁應顯示 **`v1.2.17 (28)`**。
 
 ## 通話結束後車機音樂忽然很大（已修 · build 21）
 
@@ -66,11 +66,12 @@ CarPlay **畫面** 需要 entitlement：
 Xcode → I/O → External Displays → CarPlay（需有效 entitlement 才會進 template scene）。
 
 
-## 路徑自檢（1.2.16 / build 27）
+## 路徑自檢（1.2.17 / build 28）
 
 開降噪後約 1.5 秒會自動播 **50Hz** 並寫 log：
 
 - `carplay_path_check` / `aa_path_check` = **PASS** 或 **FAIL**
-- 欄位：`sendPeak`、`routeOutputs`、`aaLinkType`
-- **PASS** 且主觀聽到低嗡 → 車機／本機喇叭路徑通，才可信後續消噪 KPI
+- 欄位：`sendPeak`、`hasCarAudio`、`failReasons`、`routeOutputs`、`aaLinkType`
+- **PASS**（preferCar 時必須當時路由在 **carAudio**）且主觀聽到低嗡 → 才可信後續消噪 KPI
 - **FAIL** → 先查 CarPlay 連線／音訊路由，不要解讀消噪結果
+- 車機圖示仍需 Apple entitlement；無圖示時用手機 UI 啟停，音訊仍可走 carAudio

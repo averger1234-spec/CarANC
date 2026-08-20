@@ -6,11 +6,47 @@ import CarANCShared
 ///
 /// **Thread safety**: AVAudioEngine tap 與主執行緒 UI 會同時碰到 processor；
 /// 無鎖時 Kotlin/Native 常在「按開始降噪」後立即閃退。
+struct KotlinAncDiagSnapshot {
+    var lastNvhFocusRaw: String
+    var latencyStrategy: String
+    var lowLmsUpdates: Int64
+    var midLmsUpdates: Int64
+    var maxCancelHz: Float
+    var midEnabled: Bool
+    var highEnabled: Bool
+    var imuMicCoherence: Float
+    var bankMatchQuality: Float
+    var fixedBankOut: Float
+    var speedNvhBinKmh: Int
+    var speedNvhLowGain: Float
+    var speedNvhMidGain: Float
+    var speedNvhTotalAnti: Float
+    var speedNvhTableId: String
+    var tireNotchEnergy: Float
+    var windNotchEnergy: Float
+    var tireNotchF0Hz: Float
+    var windNotchActiveCount: Int
+    var notchMixAnti: Float
+    var roadNotchEnergy: Float
+    var roadBoomWeightEnergy: Float
+    var boomPressureOut: Float
+    var boomPlantCorr: Float
+    var plantElectricalDelaySamples: Int
+    var boomPolarity: Float
+    var openBoomActive: Bool
+    var effectiveLowMu: Float
+    var effectiveMidMu: Float
+    var antiOutputMuted: Bool
+}
+
 final class KotlinAncBridge {
     private let processor: MultiBandANCProcessor
     private let bufferSize: Int
+    private let sampleRate: Int
     private let lock = NSLock()
     private var lastTier: UserTier = .standard
+    private var lp250: Float = 0
+    private var lp800: Float = 0
 
     private(set) var lastNvhFocusRaw: String = "IDLE"
     private(set) var latencyStrategy: String = "NORMAL"
@@ -50,6 +86,7 @@ final class KotlinAncBridge {
 
     init(sampleRate: Int, bufferSize: Int, tier: UserTier) {
         self.bufferSize = bufferSize
+        self.sampleRate = max(sampleRate, 8000)
         let ctx = AncSessionContextIosKt.IosGlobalAncSessionContext
         let kTier = Self.mapTier(tier)
         self.processor = MultiBandANCProcessor(
@@ -74,6 +111,34 @@ final class KotlinAncBridge {
         defer { lock.unlock() }
         processor.setEstimatedLatencyMs(latencyMs: ms)
         refreshLimitsUnlocked()
+    }
+
+    func setMeasuredLatencyBreakdown(
+        recordMs: Float,
+        trackMs: Float,
+        blockMs: Float,
+        acousticMs: Float,
+        frameworkMs: Float
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        processor.setMeasuredLatencyBreakdown(
+            recordMs: recordMs,
+            trackMs: trackMs,
+            blockMs: blockMs,
+            acousticMs: acousticMs,
+            frameworkMs: frameworkMs
+        )
+        refreshLimitsUnlocked()
+    }
+
+    @discardableResult
+    func refinePlantDelayFromProbe(_ samples: Int) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        let applied = processor.refinePlantDelayFromProbe(probeDelaySamples: Int32(samples))
+        plantElectricalDelaySamples = Int(processor.getPlantElectricalDelaySamples())
+        return Int(applied)
     }
 
     func setVehicleSpeed(kmh: Float, valid: Bool) {
@@ -158,6 +223,12 @@ final class KotlinAncBridge {
             let v = Int16(clamping: Int(s * 32767))
             input.set(index: Int32(i), value: v)
         }
+        let (lowR, midR, highR) = bandRatios(mono)
+        processor.applyBandSnapshotFromBlock(
+            lowEnergyRatio: lowR,
+            midEnergyRatio: midR,
+            highEnergyRatio: highR
+        )
         let outShort = processor.process(input: input)
         var out = [Float](repeating: 0, count: n)
         let sz = Int(outShort.size)
@@ -194,6 +265,44 @@ final class KotlinAncBridge {
         return out
     }
 
+    /// Copy diagnostics under the same lock as process() — UI must not read fields racy.
+    func snapshot() -> KotlinAncDiagSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return KotlinAncDiagSnapshot(
+            lastNvhFocusRaw: lastNvhFocusRaw,
+            latencyStrategy: latencyStrategy,
+            lowLmsUpdates: lowLmsUpdates,
+            midLmsUpdates: midLmsUpdates,
+            maxCancelHz: maxCancelHz,
+            midEnabled: midEnabled,
+            highEnabled: highEnabled,
+            imuMicCoherence: imuMicCoherence,
+            bankMatchQuality: bankMatchQuality,
+            fixedBankOut: fixedBankOut,
+            speedNvhBinKmh: speedNvhBinKmh,
+            speedNvhLowGain: speedNvhLowGain,
+            speedNvhMidGain: speedNvhMidGain,
+            speedNvhTotalAnti: speedNvhTotalAnti,
+            speedNvhTableId: speedNvhTableId,
+            tireNotchEnergy: tireNotchEnergy,
+            windNotchEnergy: windNotchEnergy,
+            tireNotchF0Hz: tireNotchF0Hz,
+            windNotchActiveCount: windNotchActiveCount,
+            notchMixAnti: notchMixAnti,
+            roadNotchEnergy: roadNotchEnergy,
+            roadBoomWeightEnergy: roadBoomWeightEnergy,
+            boomPressureOut: boomPressureOut,
+            boomPlantCorr: boomPlantCorr,
+            plantElectricalDelaySamples: plantElectricalDelaySamples,
+            boomPolarity: boomPolarity,
+            openBoomActive: openBoomActive,
+            effectiveLowMu: effectiveLowMu,
+            effectiveMidMu: effectiveMidMu,
+            antiOutputMuted: antiOutputMuted
+        )
+    }
+
     func release() {
         lock.lock()
         defer { lock.unlock() }
@@ -215,6 +324,28 @@ final class KotlinAncBridge {
         maxCancelHz = lim.maxCancelFrequencyHz
         midEnabled = lim.midEnabled
         highEnabled = lim.highEnabled
+    }
+
+    /// 3-band energy (≈250 / 800 Hz split) for applyBandSnapshotFromBlock.
+    private func bandRatios(_ mono: [Float]) -> (Float, Float, Float) {
+        let sr = Float(sampleRate)
+        let c250 = min(0.50, max(0.01, 2 * Float.pi * 250 / sr))
+        let c800 = min(0.70, max(0.02, 2 * Float.pi * 800 / sr))
+        var low: Float = 0
+        var mid: Float = 0
+        var high: Float = 0
+        for x in mono {
+            lp250 += c250 * (x - lp250)
+            lp800 += c800 * (x - lp800)
+            let l = lp250
+            let m = lp800 - lp250
+            let h = x - lp800
+            low += l * l
+            mid += m * m
+            high += h * h
+        }
+        let t = max(low + mid + high, 1e-12)
+        return (low / t, mid / t, high / t)
     }
 
     private static func mapTier(_ tier: UserTier) -> CarANCShared.UserTier {

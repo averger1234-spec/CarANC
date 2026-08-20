@@ -19,25 +19,25 @@ struct GuidedTestStep: Identifiable {
 
 enum CarRoadTuningScript {
     static let scriptId = "car_road_tuning_v1"
-    /// 對齊 Android 1.2.16：MEDIA/路徑自檢 + open 短測 + 更緊 LF
-    static let scriptName = "三目標·1.2.16 MEDIA焦点+路径自检"
+    /// 對齊 Android 1.2.17：雙端 P0/P1 對齊
+    static let scriptName = "三目標·1.2.17 雙端對齊P0P1"
 
     static let steps: [GuidedTestStep] = [
         GuidedTestStep(
             id: "tuning_prep",
-            title: "準備：1.2.16 MEDIA焦点+路径自检",
+            title: "準備：1.2.17 雙端對齊P0P1",
             instructions: [
-                "★ 對齊 Android v1.2.16（路徑自檢 carplay_path_check / open 25–30% / 55Hz×4）",
+                "★ 對齊 Android v1.2.17（live path check / classifier+plant D / open 25–30%）",
                 "iOS 本機或 CarPlay；Android 有線 AA 完整診斷",
                 "★ placement=floor/seat；音樂關；PRO；預設極性 −1",
                 "★ 只收等長 ~20s 三件套 off/ppos/pneg（≥45 km/h）",
-                "★ 開 ANC 後應聽到短 50Hz；log carplay_path_check=PASS 才信消噪"
+                "★ 開 ANC 後應聽到短 50Hz；log carplay_path_check=PASS 且 carAudio 才信消噪"
             ],
             durationSec: 20,
             suggestedTier: .pro,
             requiresAncRunning: false,
             checklist: [
-                "對齊1.2.16",
+                "對齊1.2.17",
                 "tier=PRO",
                 "placement=floor/seat",
                 "音樂關",
@@ -110,7 +110,7 @@ enum CarRoadTuningScript {
             instructions: [
                 "同路段 45–60；forceBoomPolarity=+1",
                 "艙錄 ~20s；對照 off 的 40–80 與 180–350",
-                "★ 1.2.16：open 短測幅度降低；boomOut≫0；中頻不大增"
+                "★ 1.2.17：open 短測幅度降低；boomOut≫0；中頻不大增"
             ],
             durationSec: 20,
             suggestedTier: .pro,
@@ -229,7 +229,7 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "tuning_finish",
-            title: "結束：1.2.16 對照匯出",
+            title: "結束：1.2.17 對照匯出",
             instructions: [
                 "停 ANC → 匯出 Log",
                 "★ PASS：path_check=PASS；boomOut≫0；40–80 on≤off；180–350 <+1.5dB",
@@ -663,14 +663,14 @@ final class GuidedTestRunner: ObservableObject {
         === GUIDED SCRIPT ===
         script=\(CarRoadTuningScript.scriptId)
         name=\(CarRoadTuningScript.scriptName)
-        align=android_CarRoadTuningScript_v1.2.16
+        align=android_CarRoadTuningScript_v1.2.17
         autoAdvance=\(autoAdvance)
         stepIndex=\(stepIndex) finished=\(finished)
         logDir=\(SessionLogger.logsDirectory.path)
 
-        === HOW TO VERIFY (1.2.16 路径自检 + open短測) ===
+        === HOW TO VERIFY (1.2.17 雙端對齊 + live path check) ===
         PASS:
-          - carplay_path_check / aa_path_check = PASS（應聽到短 50Hz）
+          - carplay_path_check / aa_path_check = PASS 且 carAudio/submix（應聽到短 50Hz）
           - openBoom 時 boomOut ≫ 0.01；等長三件套 40–80 on≤off
           - 180–350 <+1.5 dB；winner 看 CabinMidAvg
         FAIL:

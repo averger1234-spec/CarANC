@@ -22,6 +22,48 @@
 
 
 
+## [1.2.17] — 2026-08-20 · Android code 19 · 雙端 P0/P1 對齊
+
+交叉改進（不是 Android 單向）：朋友 1.2.15 開 App 不閃、**開始降噪／腳本閃退**；1.2.16 (27) 修了 KMP 鎖但仍有 `removeTap` 首啟崩潰，且 iOS 沒套 classifier / plant D / ROAD 模式。
+
+### iOS P0（build 28）
+
+| 項 | 內容 |
+|----|------|
+| **removeTap** | 只在真的 `installTap` 後才 `removeTap`；先 `engine.stop` 再 detach |
+| **stop 順序** | 先 `isStarted=false` 再拆 graph / `processor.release`，避免 tap 撞已釋放 KMP |
+| **plant D** | `setMeasuredLatencyBreakdown` + store `refinePlantDelayFromProbe`（先前只 log 極性） |
+| **classifier** | 每 block `applyBandSnapshotFromBlock` → `ROAD_NOISE_GPS` + NVH 增益（對齊 Android vis 迴圈） |
+
+### 雙端 P1
+
+| 項 | 內容 |
+|----|------|
+| **openScale** | 拿掉 `coerceAtLeast(0.5)`，短測 0.25/0.30 不再被抬回 0.5 |
+| **path_check** | PASS 需 **live focus**（DELAYED 不算）+ **car sink / carAudio**；送出 peak 只是必要條件 |
+| **AA focus LOSS** | 5s 路由刷新時 **重要 MEDIA focus** |
+| **AA handshake** | CarConnection 最長等 2s 再 settle（不再死等 500ms） |
+| **艙錄** | Android 改寫 **ANC 同路 PCM WAV**（不再第二路 MediaRecorder 搶 MIC） |
+| **UI snapshot** | iOS 診斷在 NSLock 內拷貝，不跨執行緒讀 KMP 欄位 |
+
+CarPlay **車機圖示**仍需 Apple `carplay-driving-task` entitlement（空 entitlements 無法自填）；音訊仍可走 `carAudio`。路徑自檢 FAIL 就不要信消噪 KPI。
+
+腳本：`三目標·1.2.17 雙端對齊P0P1`
+
+### 路測必收
+
+1. 狀態頁 **`v1.2.17 (28)`** / Android **`v1.2.17`**
+2. 開 ANC **不閃退**；開頭短 50Hz；log `carplay_path_check`/`aa_path_check` + `failReasons`
+3. 行駛 `nvhFocus` 非長期 IDLE；`plantDelaySamples` 應 >64（有 store 或 HAL 估計）
+4. 艙錄 `cabin_*.wav`（雙端同一 mic 路徑）
+
+### iOS（build 28）
+
+- 重編 `CarANCShared`（openScale 修正、`applyBandSnapshotFromBlock`）
+- 狀態頁 **`v1.2.17 (28)`** · `dist/CarANC-ios-kmp-debug.ipa`
+
+---
+
 ## [1.2.16] — 2026-08-20 · Android code 18 · AA MEDIA 焦点 + 路径自检
 
 ### 問題（1.2.15 公平艙錄 + 主觀）

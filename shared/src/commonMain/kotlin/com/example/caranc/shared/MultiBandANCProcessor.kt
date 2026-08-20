@@ -6,6 +6,8 @@ import com.example.caranc.shared.model.CabinMimoProfile
 import com.example.caranc.shared.model.CabinResonanceDetector
 import com.example.caranc.shared.model.CabinTransferModel
 import com.example.caranc.shared.model.CabinZonePath
+import com.example.caranc.shared.model.CabinNvhFocus
+import com.example.caranc.shared.model.DominantNoiseBand
 import com.example.caranc.shared.model.NoiseBandClassification
 import com.example.caranc.shared.latency.BandDelayPlanner
 import com.example.caranc.shared.latency.EngineCombCanceller
@@ -646,6 +648,62 @@ class MultiBandANCProcessor(
         lastSpeedLowGain = sch.lowGain
         lastSpeedMidGain = sch.midGain
         lastSpeedTableId = sch.tableId
+    }
+
+    /**
+     * Dual-end: iOS has no vis-loop classifier. Use block 3-band energy + already-set
+     * speed/IMU/latency to drive ROAD_NOISE_GPS + NVH gains (same as Android applyClassifierResult).
+     * Does not override CALL/MUSIC floor modes if those were set by the Android engine.
+     */
+    @Keep
+    override fun applyBandSnapshotFromBlock(
+        lowEnergyRatio: Float,
+        midEnergyRatio: Float,
+        highEnergyRatio: Float
+    ) {
+        val floorLocked = processingMode == AncProcessingMode.FLOOR_NOISE_CALL ||
+            processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC ||
+            processingMode == AncProcessingMode.FLOOR_NOISE_MUSIC_ROAD ||
+            processingMode == AncProcessingMode.MUSIC_DOMINANT_RUMBLE
+        if (!floorLocked) {
+            processingMode = if (vehicleSpeedValid && vehicleSpeedKmh >= 15f) {
+                AncProcessingMode.ROAD_NOISE_GPS
+            } else {
+                AncProcessingMode.NORMAL
+            }
+        }
+        val total = (lowEnergyRatio + midEnergyRatio + highEnergyRatio).coerceAtLeast(1e-6f)
+        val lr = lowEnergyRatio / total
+        val mr = midEnergyRatio / total
+        val hr = highEnergyRatio / total
+        val nvh = CabinNvhFocus.classify(
+            speedKmh = if (vehicleSpeedValid) vehicleSpeedKmh else 0f,
+            speedValid = vehicleSpeedValid,
+            lowRatio = lr,
+            midRatio = mr,
+            highRatio = hr,
+            linearAccelMagnitude = rumbleAccelMag,
+            estimatedLatencyMs = estimatedLatencyMs
+        )
+        val dominant = when {
+            !vehicleSpeedValid || vehicleSpeedKmh < 8f -> DominantNoiseBand.IDLE_LOW
+            lr >= 0.45f -> DominantNoiseBand.ROAD_LOW
+            mr >= 0.40f -> DominantNoiseBand.ROAD_MID
+            else -> DominantNoiseBand.MIXED
+        }
+        applyClassifierResult(
+            NoiseBandClassification(
+                dominantBand = dominant,
+                lowEnergyRatio = lr,
+                midEnergyRatio = mr,
+                highEnergyRatio = hr,
+                confidence = nvh.confidence,
+                nvhFocus = nvh.focus,
+                nvhTargetHzLabel = nvh.targetHzLabel,
+                nvhSuppressHighAnti = nvh.suppressHighAnti,
+                nvhResult = nvh
+            )
+        )
     }
 
     override fun setForcedNvhFocus(focusName: String?) {

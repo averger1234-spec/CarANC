@@ -21,6 +21,15 @@ interface AncProcessorFacade : AudioProcessor {
     fun finishLearning()
     fun applyCabinModel(model: CabinTransferModel)
     fun applyClassifierResult(result: NoiseBandClassification)
+    /**
+     * Dual-end: apply ROAD vs NORMAL + NVH classifier from a 3-band energy snapshot.
+     * iOS must call this (no Android AudioEngine vis loop). Safe no-op default.
+     */
+    fun applyBandSnapshotFromBlock(
+        lowEnergyRatio: Float,
+        midEnergyRatio: Float,
+        highEnergyRatio: Float
+    ) {}
     fun setCallActive(active: Boolean)
     fun setSirenOverride(active: Boolean, gainScale: Float = 0.05f)
     fun setEngineRpm(rpm: Float, valid: Boolean)

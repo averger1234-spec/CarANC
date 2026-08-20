@@ -591,6 +591,40 @@ class MultiBandANCProcessorTest {
             yShort = boom4.process(delay, 70f, true, false, -1f, openBoom = true, openScale = 0.25f)
         }
         assertTrue(abs(yShort) < abs(yFull) * 0.7f, "short openScale should be quieter: short=$yShort full=$yFull")
+
+        // Non-zero delayed path: 0.25 must not be floored back to 0.5
+        val boom5 = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
+        val boom6 = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
+        repeat(delay + 64) {
+            boom5.push(0.25f)
+            boom6.push(0.25f)
+        }
+        var yFullDrive = 0f
+        var yShortDrive = 0f
+        repeat(256) {
+            boom5.push(0.25f)
+            boom6.push(0.25f)
+            yFullDrive = boom5.process(delay, 70f, true, false, -1f, openBoom = true, openScale = 1f)
+            yShortDrive = boom6.process(delay, 70f, true, false, -1f, openBoom = true, openScale = 0.25f)
+        }
+        assertTrue(
+            abs(yShortDrive) < abs(yFullDrive) * 0.55f,
+            "openScale 0.25 delayed path must stay well below full: short=$yShortDrive full=$yFullDrive"
+        )
+    }
+
+    @Test
+    fun applyBandSnapshotFromBlock_setsRoadModeWhenDriving() {
+        val proc = MultiBandANCProcessor(sampleRate, bufferSize, UserTier.PRO)
+        proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f)
+        proc.setVehicleSpeed(70f, true)
+        proc.setRumbleAccel(1.0f)
+        proc.applyBandSnapshotFromBlock(0.60f, 0.25f, 0.15f)
+        assertEquals(AncProcessingMode.ROAD_NOISE_GPS, proc.getProcessingMode())
+        assertTrue(proc.getNvhFocus().isNotBlank())
+        proc.setVehicleSpeed(0f, false)
+        proc.applyBandSnapshotFromBlock(0.33f, 0.33f, 0.34f)
+        assertEquals(AncProcessingMode.NORMAL, proc.getProcessingMode())
     }
 
     /** 1.2.12: mute zeros send + boom KPI even with ROAD focus / speed. */

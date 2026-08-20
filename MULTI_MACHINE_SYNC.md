@@ -14,8 +14,8 @@
 
 | 平台 | 版號 | App 怎麼對版 |
 |------|------|----------------|
-| Android | **1.2.16 / code 18** | 主畫面 `v1.2.16` |
-| iOS | **1.2.16 (build 27)** | 狀態頁 **`v1.2.16 (27)`**；路徑自檢+修開始閃退；anc_logs；Embed |
+| Android | **1.2.17 / code 19** | 主畫面 `v1.2.17` |
+| iOS | **1.2.17 (build 28)** | 狀態頁 **`v1.2.17 (28)`**；安全 teardown + classifier/plant D；路徑自檢需 carAudio |
 
 ### 1. 拉程式（每台、每次開工）
 
@@ -37,7 +37,7 @@ git log -5 --oneline
 | **這版改了什麼** | `CHANGELOG.md` + `version.properties` + iOS Info.plist |
 | 專案總覽 / iOS+Android 現況 | `README.md` →「最新進度」 |
 | Android 日常裝機 / 拉 log | `scripts/README.md` |
-| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md`（應寫 1.2.16 (27)） |
+| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md`（應寫 1.2.17 (28)） |
 | iOS 專案 / CarPlay / 路測 | `iosApp/README.md`、`iosApp/CARPLAY.md`、`iosApp/ROAD_TEST_VERIFY.md` |
 | Play 上架 / store vs internal | `DISTRIBUTION.md`、`PLAY_RELEASE_CHECKLIST.md` |
 | Play 資料安全怎麼填 | `DATA_SAFETY.md` |
