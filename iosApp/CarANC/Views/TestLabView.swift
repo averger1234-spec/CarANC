@@ -45,11 +45,21 @@ struct TestLabView: View {
 
             Section("匯出（路測驗證）") {
                 Button {
-                    sharePayload = SharePayload(text: buildLabLog())
+                    let text = buildLabLog()
+                    var items: [Any] = []
+                    if let url = SessionLogger.shared.saveExportFile(text: text, prefix: "anc_lab_export") {
+                        items.append(url)
+                    }
+                    if let session = SessionLogger.shared.currentLogFileURL ?? SessionLogger.latestSessionLogURL() {
+                        items.append(session)
+                    }
+                    items.append(contentsOf: SessionLogger.recentCabinWavURLs(limit: 6))
+                    if items.isEmpty { items = [text] }
+                    sharePayload = SharePayload(items: items)
                 } label: {
-                    Label("匯出完整 Session Log", systemImage: "square.and.arrow.up")
+                    Label("匯出 / 分享 Log 檔", systemImage: "square.and.arrow.up")
                 }
-                Text("App \(AppVersion.display)。含 running_snapshot：lowBandRumbleReduction / rawDb / antiDb / speed / IMU / latency / LMS / speedNvh*。路測後用分享傳到電腦分析。")
+                Text("App \(AppVersion.display)。會寫入 Documents/anc_logs（.log），並可一併分享 cabin_*.wav。對齊 Android 存檔再分享。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -62,7 +72,7 @@ struct TestLabView: View {
         }
         .navigationTitle("測試平台")
         .sheet(item: $sharePayload) { payload in
-            ActivityView(activityItems: [payload.text])
+            ActivityView(activityItems: payload.items)
         }
     }
 
@@ -75,6 +85,7 @@ struct TestLabView: View {
         scenario=\(scenarioNote)
         subjectiveRumble=\(Int(subjectiveRumble))/10
         platform=ios
+        logDir=\(SessionLogger.logsDirectory.path)
         """
         SessionLogger.shared.event("lab_export", [
             "carModel": carModel,

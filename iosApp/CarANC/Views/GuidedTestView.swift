@@ -24,13 +24,13 @@ struct GuidedTestView: View {
         }
         .navigationTitle("測試腳本")
         .onAppear { runner.bind(model: model, engine: engine) }
-        .onChange(of: runner.pendingAutoExportText) { newText in
-            guard let newText, !newText.isEmpty else { return }
-            sharePayload = SharePayload(text: newText)
-            runner.pendingAutoExportText = nil
+        .onChange(of: runner.pendingAutoExportItems) { urls in
+            guard !urls.isEmpty else { return }
+            sharePayload = SharePayload(items: urls.map { $0 as Any })
+            runner.pendingAutoExportItems = []
         }
         .sheet(item: $sharePayload) { payload in
-            ActivityView(activityItems: [payload.text])
+            ActivityView(activityItems: payload.items)
         }
     }
 
@@ -202,17 +202,22 @@ struct GuidedTestView: View {
             }
             if runner.finished || !runner.logLines.isEmpty {
                 Button {
-                    sharePayload = SharePayload(text: runner.exportText())
+                    sharePayload = SharePayload(items: runner.buildShareFileItems())
                 } label: {
-                    Label(runner.finished ? "再次匯出 / 分享 Log" : "匯出 / 分享 Log", systemImage: "square.and.arrow.up")
+                    Label(runner.finished ? "再次匯出 / 分享 Log 檔" : "匯出 / 分享 Log 檔", systemImage: "square.and.arrow.up")
                         .frame(maxWidth: .infinity)
                         .padding()
                 }
                 .buttonStyle(.bordered)
                 if runner.finished {
-                    Text("結束時已自動彈出分享；若關掉可按上方再次匯出。")
+                    Text("結束時已存到 App Documents/anc_logs（.log + cabin_*.wav），並自動彈出分享檔案。")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                    if !runner.lastSavedLogPath.isEmpty {
+                        Text(runner.lastSavedLogPath)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -251,7 +256,7 @@ struct GuidedTestView: View {
 
 struct SharePayload: Identifiable {
     let id = UUID()
-    let text: String
+    let items: [Any]
 }
 
 struct ActivityView: UIViewControllerRepresentable {

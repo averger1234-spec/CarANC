@@ -56,6 +56,13 @@
 - 保留 Embed framework（防開機閃退）
 - 狀態頁 **`v1.2.15 (25)`** · `dist/CarANC-ios-kmp-debug.ipa`
 
+### iOS（build 26 · 結束存 Log 檔 + 分享檔案）
+
+- 對齊 Android：session 即時寫入 `Documents/anc_logs/anc_session_*.log`
+- 腳本結束：另存 `anc_guided_export_*.log`，並自動分享 **Log 檔 + cabin_*.wav**（不是只丟文字）
+- 開啟 UIFileSharingEnabled（檔案 App 可見）
+- 狀態頁 **`v1.2.15 (26)`**
+
 ---
 
 ## [1.2.14] — 2026-08-19 · Android code 16 · open boom + 艙錄極性 −1

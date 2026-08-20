@@ -90,26 +90,55 @@ enum AndroidSnapshotKeys {
 }
 
 /// iOS session log — **複用 Android running_snapshot schema**，不是另起一套。
+/// 對齊 Android `AncSessionLogger`：寫入 `Documents/anc_logs/anc_session_*.log` 檔案。
 @MainActor
 final class SessionLogger: ObservableObject {
     static let shared = SessionLogger()
 
     @Published private(set) var lines: [String] = []
     @Published private(set) var sessionId: String = ""
+    /// 目前磁碟上的 session log（對齊 Android getLatestLogFile）
+    @Published private(set) var currentLogFileURL: URL?
     /// 目前引導腳本步驟（由 GuidedTestRunner 寫入）
     var guidedTestStepId: String = ""
     var guidedTestActive: Bool = false
 
     private var snapshotCounter = 0
     private let iso = ISO8601DateFormatter()
+    private let fileQueue = DispatchQueue(label: "caranc.session.log.file")
 
     private init() {}
+
+    /// 對齊 Android `filesDir/anc_logs`
+    static var logsDirectory: URL {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("anc_logs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
 
     func startSession(meta: [String: String] = [:]) {
         lines.removeAll()
         snapshotCounter = 0
         let id = "ios_\(Int(Date().timeIntervalSince1970))"
         sessionId = id
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.dateFormat = "yyyyMMdd_HHmmss"
+        let fileName = "anc_session_\(df.string(from: Date())).log"
+        let url = Self.logsDirectory.appendingPathComponent(fileName)
+        currentLogFileURL = url
+        let header = """
+        # CarANC Session Log
+        # format=text_lines
+        # platform=ios
+        # sessionId=\(id)
+        # ---
+
+        """
+        fileQueue.async {
+            try? header.write(to: url, atomically: true, encoding: .utf8)
+        }
         var fields = meta
         fields["sessionId"] = id
         fields[AndroidSnapshotKeys.platform] = "ios"
@@ -117,6 +146,8 @@ final class SessionLogger: ObservableObject {
         fields["appVersion"] = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         fields["build"] = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         fields["reuseNote"] = "android_running_snapshot_schema_v\(AndroidSnapshotKeys.schemaVersion)"
+        fields["logFileName"] = fileName
+        fields["logPath"] = url.path
         append(phase: "session_start", fields: fields)
     }
 
@@ -124,8 +155,67 @@ final class SessionLogger: ObservableObject {
         append(phase: "session_end", fields: [
             "sessionId": sessionId,
             "lineCount": "\(lines.count)",
-            AndroidSnapshotKeys.platform: "ios"
+            AndroidSnapshotKeys.platform: "ios",
+            "logPath": currentLogFileURL?.path ?? ""
         ])
+    }
+
+    /// 寫入完整匯出文字（導測 finish）；回傳檔案 URL（對齊 Android saveLatestLog）
+    @discardableResult
+    func saveExportFile(text: String, prefix: String = "anc_guided_export") -> URL? {
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.dateFormat = "yyyyMMdd_HHmmss"
+        let name = "\(prefix)_\(df.string(from: Date())).log"
+        let url = Self.logsDirectory.appendingPathComponent(name)
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            event("log_file_saved", [
+                "path": url.path,
+                "bytes": "\((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0)",
+                "note": "ios_parity_android_anc_logs"
+            ])
+            return url
+        } catch {
+            event("log_file_save_error", ["error": error.localizedDescription])
+            return nil
+        }
+    }
+
+    static func latestSessionLogURL() -> URL? {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: logsDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return files
+            .filter { $0.lastPathComponent.hasPrefix("anc_session_") || $0.lastPathComponent.hasPrefix("anc_guided_") }
+            .filter { $0.pathExtension == "log" }
+            .sorted { a, b in
+                let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return da > db
+            }
+            .first
+    }
+
+    /// 本次 session 期間寫下的 cabin wav（依檔名時間排序）
+    static func recentCabinWavURLs(limit: Int = 8) -> [URL] {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: logsDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return files
+            .filter { $0.lastPathComponent.hasPrefix("cabin_") && $0.pathExtension.lowercased() == "wav" }
+            .sorted { a, b in
+                let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return da > db
+            }
+            .prefix(limit)
+            .reversed()
+            .map { $0 }
     }
 
     func event(_ phase: String, _ fields: [String: String] = [:]) {
@@ -315,9 +405,24 @@ final class SessionLogger: ObservableObject {
     private func append(phase: String, fields: [String: String]) {
         let ts = iso.string(from: Date())
         let body = fields.keys.sorted().map { "\($0)=\(fields[$0] ?? "")" }.joined(separator: " ")
-        lines.append("[\(ts)] phase=\(phase) \(body)")
+        let line = "[\(ts)] phase=\(phase) \(body)"
+        lines.append(line)
         if lines.count > 4000 {
             lines.removeFirst(lines.count - 4000)
+        }
+        // 對齊 Android：即時 append 到 anc_logs/*.log
+        if let url = currentLogFileURL {
+            fileQueue.async {
+                if let data = (line + "\n").data(using: .utf8) {
+                    if let handle = try? FileHandle(forWritingTo: url) {
+                        defer { try? handle.close() }
+                        handle.seekToEndOfFile()
+                        handle.write(data)
+                    } else {
+                        try? (line + "\n").write(to: url, atomically: true, encoding: .utf8)
+                    }
+                }
+            }
         }
     }
 

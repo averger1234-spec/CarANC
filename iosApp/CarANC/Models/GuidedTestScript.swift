@@ -276,8 +276,10 @@ final class GuidedTestRunner: ObservableObject {
     @Published var autoAdvance = true
     @Published var pauseReason = ""
     @Published var collectingNow = false
-    /// 腳本完成後自動分享用（View 觀察後彈出系統分享）
-    @Published var pendingAutoExportText: String?
+    /// 腳本完成後自動分享用（View 觀察後彈出系統分享）— **檔案**（log + cabin wav），對齊 Android
+    @Published var pendingAutoExportItems: [URL] = []
+    /// 最後一次寫入的 guided export log 路徑（UI 提示）
+    @Published var lastSavedLogPath: String = ""
 
     private var timer: Timer?
     private weak var model: AncAppModel?
@@ -530,10 +532,34 @@ final class GuidedTestRunner: ObservableObject {
         if model?.isRunning == true {
             engine?.stop()
         }
+        // 對齊 Android：先存檔再分享檔案（不是只丟文字）
         let text = exportText()
-        statusLine = "腳本完成 — 自動開啟分享"
-        appendLog("auto_export_share")
-        pendingAutoExportText = text
+        var urls: [URL] = []
+        if let logURL = SessionLogger.shared.saveExportFile(text: text, prefix: "anc_guided_export") {
+            urls.append(logURL)
+            lastSavedLogPath = logURL.path
+            appendLog("log_saved path=\(logURL.path)")
+        }
+        if let sessionLog = SessionLogger.shared.currentLogFileURL,
+           FileManager.default.fileExists(atPath: sessionLog.path),
+           !urls.contains(sessionLog) {
+            urls.append(sessionLog)
+        }
+        let cabins = SessionLogger.recentCabinWavURLs(limit: 6)
+        urls.append(contentsOf: cabins)
+        for c in cabins {
+            appendLog("cabin_attach \(c.lastPathComponent)")
+        }
+        SessionLogger.shared.event("guided_export_files", [
+            "logCount": "\(urls.filter { $0.pathExtension == "log" }.count)",
+            "cabinCount": "\(cabins.count)",
+            "paths": urls.map(\.lastPathComponent).joined(separator: ",")
+        ])
+        statusLine = cabins.isEmpty
+            ? "腳本完成 — 已存 Log 檔，開啟分享"
+            : "腳本完成 — 已存 Log + \(cabins.count) 段艙錄，開啟分享"
+        appendLog("auto_export_share files=\(urls.count)")
+        pendingAutoExportItems = urls
     }
 
     private func applyPresets(for step: GuidedTestStep) {
@@ -615,6 +641,23 @@ final class GuidedTestRunner: ObservableObject {
         logLines.append("[\(ts)] \(line)")
     }
 
+    /// 手動／再次匯出：存檔後回傳要分享的檔案列表
+    func buildShareFileItems() -> [Any] {
+        let text = exportText()
+        var urls: [URL] = []
+        if let logURL = SessionLogger.shared.saveExportFile(text: text, prefix: "anc_guided_export") {
+            urls.append(logURL)
+            lastSavedLogPath = logURL.path
+        }
+        if let sessionLog = SessionLogger.shared.currentLogFileURL ?? SessionLogger.latestSessionLogURL(),
+           FileManager.default.fileExists(atPath: sessionLog.path),
+           !urls.contains(where: { $0.path == sessionLog.path }) {
+            urls.append(sessionLog)
+        }
+        urls.append(contentsOf: SessionLogger.recentCabinWavURLs(limit: 6))
+        return urls.isEmpty ? [text] : urls.map { $0 as Any }
+    }
+
     func exportText() -> String {
         var header = """
         === GUIDED SCRIPT ===
@@ -623,6 +666,7 @@ final class GuidedTestRunner: ObservableObject {
         align=android_CarRoadTuningScript_v1.2.15
         autoAdvance=\(autoAdvance)
         stepIndex=\(stepIndex) finished=\(finished)
+        logDir=\(SessionLogger.logsDirectory.path)
 
         === HOW TO VERIFY (1.2.15 boomOut + 中頻winner) ===
         PASS:

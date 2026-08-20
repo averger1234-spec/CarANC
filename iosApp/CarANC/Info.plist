@@ -59,10 +59,12 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.2.15</string>
 	<key>CFBundleVersion</key>
-	<string>25</string>
+	<string>26</string>
 	<key>CPSupportsDashboardNavigationScene</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>CarANC 使用 GPS 車速判斷路噪情境與有效行駛狀態（僅在使用 App 時）。</string>
@@ -93,6 +95,8 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
