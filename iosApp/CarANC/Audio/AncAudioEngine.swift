@@ -734,16 +734,18 @@ final class AncAudioEngine: ObservableObject {
                     "guidedStep": SessionLogger.shared.guidedTestStepId,
                     "note": "ios_spectrum_kpi_input_plus_anti_proxy"
                 ])
-                // 1.2.14：極性 A/B — cabin low-band 優先；plant residual 次之；丟棄 <45 km/h
+                // 1.2.15：cabin score = low + 0.8×mid；plant 次之；丟棄 <45 km/h
                 let plantRed = eMicBoom - ePlantBoom
                 let cabinLow = SpectrumAnalyzer.bandRangeEnergyDb(mic, sampleRate: sr, fLo: 40, fHi: 120)
+                let cabinMid = SpectrumAnalyzer.bandRangeEnergyDb(mic, sampleRate: sr, fLo: 180, fHi: 350)
                 self.lastPlantResidualReductionDb = plantRed
                 model.plantResidualReductionDb = plantRed
                 BoomPolarityAbTracker.shared.sample(
                     stepId: SessionLogger.shared.guidedTestStepId,
                     residualReductionDb: plantRed,
                     cabinLowBandDb: KotlinFloat(float: cabinLow),
-                    speedKmh: model.vehicleSpeedKmh
+                    speedKmh: model.vehicleSpeedKmh,
+                    cabinMidBandDb: KotlinFloat(float: cabinMid)
                 )
                 // Overlay real KMP diagnostics into next event
                 SessionLogger.shared.event("kmp_diag", [

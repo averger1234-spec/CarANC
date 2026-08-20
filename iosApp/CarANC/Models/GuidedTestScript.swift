@@ -19,25 +19,25 @@ struct GuidedTestStep: Identifiable {
 
 enum CarRoadTuningScript {
     static let scriptId = "car_road_tuning_v1"
-    /// 對齊 Android 1.2.14：openBoom + 艙錄極性預設 −1
-    static let scriptName = "三目標·1.2.14 openBoom+艙錄極性"
+    /// 對齊 Android 1.2.15：boomOut 修復 + 中頻 cabin winner + 更緊 LF
+    static let scriptName = "三目標·1.2.15 boomOut+中頻winner"
 
     static let steps: [GuidedTestStep] = [
         GuidedTestStep(
             id: "tuning_prep",
-            title: "準備：1.2.14 openBoom+艙錄極性",
+            title: "準備：1.2.15 boomOut+中頻winner",
             instructions: [
-                "★ 對齊 Android v1.2.14（openBoom / 預設極性−1 / cabin winner）",
+                "★ 對齊 Android v1.2.15（boomOut≠0 / mid cabin winner / 70Hz×4）",
                 "iOS 本機或 CarPlay；Android 有線 AA 完整診斷",
-                "★ placement=floor/seat；音樂關；PRO",
+                "★ placement=floor/seat；音樂關；PRO；預設極性 −1",
                 "★ 只收等長 ~20s 三件套 off/ppos/pneg（≥45 km/h）",
-                "★ 停速場作廢；on 應 boomPressureOut≫0、openBoom=true"
+                "★ 停速場作廢；on 應 boomOut≫0、openBoom=true；180–350 不大增"
             ],
             durationSec: 20,
             suggestedTier: .pro,
             requiresAncRunning: false,
             checklist: [
-                "對齊1.2.14",
+                "對齊1.2.15",
                 "tier=PRO",
                 "placement=floor/seat",
                 "音樂關",
@@ -110,12 +110,12 @@ enum CarRoadTuningScript {
             instructions: [
                 "同路段 45–60；forceBoomPolarity=+1",
                 "艙錄 ~20s；對照 off 的 40–80 與 180–350",
-                "★ 1.2.14：openBoom 應 true；boomPressureOut≫0；中頻不應大增"
+                "★ 1.2.15：openBoom=true 且 boomOut≫0；中頻參與 winner"
             ],
             durationSec: 20,
             suggestedTier: .pro,
             requiresAncRunning: true,
-            checklist: ["pol=+1", "forced=ROAD", "艙錄~20s", "boomOut有?", "中頻無大增?"],
+            checklist: ["pol=+1", "forced=ROAD", "艙錄~20s", "boomOut≫0?", "中頻無大增?"],
             minSpeedKmh: 45,
             wallClockOnly: false,
             maxWallSec: 120,
@@ -229,12 +229,12 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "tuning_finish",
-            title: "結束：1.2.14 對照匯出",
+            title: "結束：1.2.15 對照匯出",
             instructions: [
                 "停 ANC → 匯出 Log",
-                "★ PASS：等長三件套 40–80 on<off；180–350 <+1.5dB；boomOut≫0",
-                "★ mute≈−200；openBoom；boom_polarity_winner（cabin 優先，預設−1）",
-                "FAIL：停速場 / 不等長 / boomOut≈0 / on 更響"
+                "★ PASS：boomOut≫0；40–80 on<off；180–350 <+1.5dB",
+                "★ winner 看 CabinMidAvg；mute≈−200；openBoom",
+                "FAIL：boomOut≈0 / 中頻大增 / 停速或不等長"
             ],
             durationSec: 15,
             suggestedTier: nil,
@@ -488,7 +488,7 @@ final class GuidedTestRunner: ObservableObject {
         engine?.setForceBoomPolarity(0)
         engine?.setDiagToneHz(0)
         model?.forcedNvhFocus = "auto"
-        // 1.2.14：cabin 優先 winner（永不 null；不足樣本則 −1）
+        // 1.2.15：cabin score=low+0.8×mid；不足樣本則 −1
         let winner = BoomPolarityAbTracker.shared.winnerPolarity()
         let link = AppController.shared.routeMonitor.linkType
         let route = PlantPathStore.routeLabel(carPlay: link.isCarPlay, wireless: link.wirelessSuspected)
@@ -506,15 +506,19 @@ final class GuidedTestRunner: ObservableObject {
             "negAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.negAvg()?.floatValue ?? 0),
             "posCabinAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.posCabinAvg()?.floatValue ?? 0),
             "negCabinAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.negCabinAvg()?.floatValue ?? 0),
+            "posCabinLowAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.posCabinLowAvg()?.floatValue ?? 0),
+            "negCabinLowAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.negCabinLowAvg()?.floatValue ?? 0),
+            "posCabinMidAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.posCabinMidAvg()?.floatValue ?? 0),
+            "negCabinMidAvg": String(format: "%.2f", BoomPolarityAbTracker.shared.negCabinMidAvg()?.floatValue ?? 0),
             "posN": "\(BoomPolarityAbTracker.shared.posCount())",
             "negN": "\(BoomPolarityAbTracker.shared.negCount())",
             "discardedLowSpeed": "\(BoomPolarityAbTracker.shared.discardedLowSpeedCount())",
             "fairAb": "\(BoomPolarityAbTracker.shared.isFairAbComplete())",
             "profileId": "ios_default",
             "routeLabel": route,
-            "note": "1.2.14_cabin_winner_default_neg1"
+            "note": "1.2.15_cabin_low_plus_mid_winner"
         ])
-        appendLog("boom_polarity_winner=\(winner) fair=\(BoomPolarityAbTracker.shared.isFairAbComplete()) discardedLowSpeed=\(BoomPolarityAbTracker.shared.discardedLowSpeedCount())")
+        appendLog("boom_polarity_winner=\(winner) fair=\(BoomPolarityAbTracker.shared.isFairAbComplete()) midPos=\(BoomPolarityAbTracker.shared.posCabinMidAvg()?.floatValue ?? 0) midNeg=\(BoomPolarityAbTracker.shared.negCabinMidAvg()?.floatValue ?? 0)")
         BoomPolarityAbTracker.shared.reset()
         SessionLogger.shared.event("test_script_complete", [
             "scriptId": CarRoadTuningScript.scriptId,
@@ -616,18 +620,17 @@ final class GuidedTestRunner: ObservableObject {
         === GUIDED SCRIPT ===
         script=\(CarRoadTuningScript.scriptId)
         name=\(CarRoadTuningScript.scriptName)
-        align=android_CarRoadTuningScript_v1.2.14
+        align=android_CarRoadTuningScript_v1.2.15
         autoAdvance=\(autoAdvance)
         stepIndex=\(stepIndex) finished=\(finished)
 
-        === HOW TO VERIFY (1.2.14 openBoom + 艙錄極性−1) ===
+        === HOW TO VERIFY (1.2.15 boomOut + 中頻winner) ===
         PASS:
-          - road_off: muteAnti=true、antiNoiseDb≤−90、boomPressureOut=0
-          - ppos/pneg: 等長 ~20s ≥45 km/h；openBoom=true；boomOut≫0
-          - 40–80 on<off（≤−1.5 dB）；180–350 <+1.5 dB
-          - boom_polarity_winner（cabin 優先；預設−1）
+          - openBoom 時 boomOut med ≫ 0.01（不可再凍在 0）
+          - 等長 ~20s ≥45 km/h；40–80 on<off；180–350 <+1.5 dB
+          - winner 看 pos/negCabinMidAvg（low+0.8×mid）
         FAIL:
-          - 停速場 / 不等長 / boomOut≈0 / 中頻變吵 / mute 時 antiDb 仍高
+          - boomOut≈0 / 中頻大增 / 停速或不等長 / mute 時 antiDb 仍高
 
         === SCRIPT EVENT LINES ===
         """

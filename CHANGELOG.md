@@ -49,6 +49,13 @@
 
 腳本：`三目標·1.2.15 boomOut+中頻winner`
 
+### iOS（build 25 · 對齊 1.2.15）
+
+- 重編 `CarANCShared`（openBoom×freeze 修復、70Hz×4、LMS high-lat ×0.72）
+- cabin A/B：low + 0.8×mid（`pos/negCabinMidAvg`）；腳本對齊 1.2.15
+- 保留 Embed framework（防開機閃退）
+- 狀態頁 **`v1.2.15 (25)`** · `dist/CarANC-ios-kmp-debug.ipa`
+
 ---
 
 ## [1.2.14] — 2026-08-19 · Android code 16 · open boom + 艙錄極性 −1

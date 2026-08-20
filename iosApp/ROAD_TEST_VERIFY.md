@@ -1,6 +1,6 @@
 # iOS 實車驗證與 Log 指南
 
-**現行對版**：**iOS 狀態頁 `v1.2.14 (24)`** · Android **`v1.2.15` / code 17** · 腳本 1.2.15  
+**現行對版**：**iOS 狀態頁 `v1.2.15 (25)`** · Android **`v1.2.15` / code 17** · 腳本 1.2.15  
 **Log 欄位名與 Android `running_snapshot` 同一套**（見 `shared/.../AncRunningSnapshotSchema.kt`、`ANDROID_REUSE.md`）。  
 缺能力填 `n/a`，不改名。
 
@@ -110,7 +110,7 @@ DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路�
 | `tier` | Android 導測應 **PRO**（腳本強制） |
 | `forcedNvhFocus` | ROAD / TIRE / WIND |
 
-腳本顯示名：三目標·1.2.7悶音壓+PRO強制（**現行為 1.2.14**）。iOS **build 24** 已含 openBoom + 極性−1 + 真 LF + mute/艙錄。
+腳本顯示名：三目標·1.2.7悶音壓+PRO強制（**現行為 1.2.15**）。iOS **build 25** 已含 boomOut 修復 + 中頻 winner + openBoom + 真 LF。
 
 ## 1.2.8–1.2.9 診斷 + P2 plant
 
@@ -132,4 +132,5 @@ DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路�
 | corrGate / HIGH_LAT | ✅ 隨 KMP framework |
 | 1.2.13 真 LF 終端 | ✅ ~85Hz LPF；HIGH_LAT 清 FDAF/bank；中頻不應大增 |
 | 1.2.14 openBoom / 極性−1 | ✅ openBoom log；cabin winner；預設 −1；≥45 km/h |
+| 1.2.15 boomOut / mid winner | ✅ openBoom×freeze；cabinMidAvg；70Hz×4 |
 | 通話結束車機音量 | ✅ build 21+：`.default` session + interruption pause + 增益漸升（`audio_interruption*`） |
