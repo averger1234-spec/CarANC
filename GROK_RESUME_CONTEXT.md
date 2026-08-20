@@ -1,21 +1,22 @@
 # 最新多機同步索引（2026-08-20）
 
-**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.15**）。
+**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.16**）。
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.15 / code 17** · iOS **1.2.15 (26)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.16 / code 18** · iOS **1.2.15 (26)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
+**1.2.16 重點**：AA 運行中 **持有 USAGE_MEDIA AudioFocus** + 啟動 **`aa_path_check` PASS/FAIL**（50Hz 自檢）；open 短測 25–30%；55Hz mid 收緊。
 **1.2.15 重點**：openBoom×freeze 修復（boomOut≠0）；70Hz×4 終端；LMS high-lat 降 scale；cabin winner = low+0.8×mid。  
 **1.2.14 重點**：open boom + 預設極性−1 + cabin winner；停速場作廢。  
 **1.2.13 重點**：85Hz 真 LF 終端 LPF（修 speed 320Hz 假低通）；HIGH_LAT ROAD 清 FDAF/bank/engine；forced 極性 boom floor；notch 不盲播。  
 **1.2.12 重點**：真 mute KPI + 極性 A/B + 負 corr boom mix=0；只採信等長艙錄。  
-**iOS build 26**：結束存 Log 檔+分享 wav；**build 25**：對齊 1.2.15 boomOut+中頻winner；**build 24**：對齊 1.2.14 openBoom；**build 23**：修開機閃退（Xcode Embed `CarANCShared` + IPA 刪檔重建）；**build 22**：對齊 1.2.13 KMP 真 LF（IPA 有缺 embed 問題，勿用）；**build 21**：通話結束 CarPlay 音量暴衝修復。  
+**iOS build 26**：結束存 Log 檔+分享 wav；**build 25**：對齊 1.2.16 MEDIA路徑+中頻winner；**build 24**：對齊 1.2.14 openBoom；**build 23**：修開機閃退（Xcode Embed `CarANCShared` + IPA 刪檔重建）；**build 22**：對齊 1.2.13 KMP 真 LF（IPA 有缺 embed 問題，勿用）；**build 21**：通話結束 CarPlay 音量暴衝修復。  
 **1.2.11 重點**：相位對齊 — HIGH_LAT 120、關 Wiener、拒 12ms probe、IMU 不混 ref。  
 **1.2.10 重點**：真 mute baseline + 可感 boom + 公平艙錄 A/B。  
 **1.2.9 重點**：P2 PlantPathStore + boomPlantCorr；1.2.8 antiE/tone/艙錄/IMU。  

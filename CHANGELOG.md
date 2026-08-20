@@ -22,6 +22,36 @@
 
 
 
+## [1.2.16] — 2026-08-20 · Android code 18 · AA MEDIA 焦点 + 路径自检
+
+### 問題（1.2.15 公平艙錄 + 主觀）
+
+1. **無音樂像喇叭沒輸出；開音樂才有電子雜訊** — AA 用 SONIFICATION 且運行中不持有 Media focus，車機常不開 Media 流
+2. openBoom 滿幅 + corr≈0 → 艙錄 40–350 **全面 +3～+5 dB**
+3. 極性 A/B 一開始就滿 open，無法短測
+4. `carSinkRouted=false` 在 `remote_submix` 上誤報（標籤 bug）
+
+### 修復
+
+| 項 | 內容 |
+|----|------|
+| **AA track** | 預設 **USAGE_MEDIA**；log `trackUsage` |
+| **MEDIA focus** | 運行中 **AUDIOFOCUS_GAIN 持有**（校正後不再 abandon）；log `aa_media_focus` |
+| **路径自检** | Running 後 1.5s 自動 50Hz → log **`aa_path_check` PASS/FAIL**（focus+usage+sendPeak） |
+| **carSinkRouted** | `remote_submix` 算作 AA sink |
+| **openScale** | corr 未鎖 **25%**；腳本 forced 短測 **30%**；corr 鎖上後滿幅 |
+| **mid** | 終端 LPF **~55 Hz×4**；high-lat LMS ×**0.50**；notch 再砍 |
+
+### 路測必收（先路徑、後消噪）
+
+1. 音樂全關 → 開 ANC → 開頭應聽 50Hz；log `aa_path_check=PASS` + `holdingMediaFocus=true`
+2. 聽不到低嗡 = 喇叭路徑仍 FAIL，**不要信消噪 KPI**
+3. 等長 off/ppos/pneg；40–80 on≤off；180–350 <+1.5 dB
+
+腳本：`三目標·1.2.16 MEDIA焦点+路径自检`
+
+---
+
 ## [1.2.15] — 2026-08-20 · Android code 17 · boomOut 修復 + 中頻 cabin winner + 更緊 LF
 
 ### 問題（1.2.14 公平艙錄 074721）

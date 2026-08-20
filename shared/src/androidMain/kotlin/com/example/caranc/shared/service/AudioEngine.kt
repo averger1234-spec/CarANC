@@ -127,6 +127,11 @@ class AudioEngine(
     private var recordBufferBytes = 0
     private var trackBufferBytes = 0
     private var recordHalSamples = 0
+    /** 1.2.16: AA path self-check — brief 50 Hz after Running; PASS/FAIL once. */
+    private var pathCheckUntilMs = 0L
+    private var pathCheckPeakAbs = 0
+    private var pathCheckDone = false
+    private var pathCheckAa = false
     private var trackHalSamples = 0
 
     private var lastVisUpdate = 0L
@@ -190,6 +195,17 @@ class AudioEngine(
                 val route = routeManager.resolveRoute(aa)
                 currentRoute = route
                 val focusGranted = routeManager.prepareRunningAudioMix(aa)
+                AncSessionLogger.log(
+                    phase = "aa_media_focus",
+                    fields = mapOf(
+                        "aaConnected" to aa,
+                        "granted" to focusGranted,
+                        "holding" to routeManager.isHoldingRunningFocus(),
+                        "requestResult" to routeManager.lastFocusRequestResult(),
+                        "trackUsage" to routeManager.currentTrackUsageLabel(aa),
+                        "note" to "1.2.16_hold_USAGE_MEDIA_for_AA_speaker_path"
+                    )
+                )
 
                 val currentTier = sessionContext.tierManager.currentTier.value
                 sessionContext.stateManager.updateState(AncState.Calibrating())
@@ -367,9 +383,12 @@ class AudioEngine(
                             "wiredCarPathAvailable" to route.wiredCarPathAvailable,
                             "requireWiredAa" to routeManager.requireWiredAa,
                             "tier" to currentTier.name,
-                            "audioFocusMode" to "mix_no_permanent_gain",
+                            "audioFocusMode" to if (aa) "hold_USAGE_MEDIA_GAIN" else "local_no_hold",
                             "audioFocusGranted" to focusGranted,
+                            "holdingMediaFocus" to routeManager.isHoldingRunningFocus(),
                             "aaConnected" to aa,
+                            "trackUsage" to routeManager.currentTrackUsageLabel(aa),
+                            "aaPreferMediaTrack" to routeManager.aaPreferMediaTrack,
                             "acousticDelaySamples" to 0,
                             "inputDevice" to (activeInput ?: route.inputDeviceName ?: "unknown"),
                             "outputDevice" to (activeOutput ?: route.outputDeviceName ?: "unknown")
@@ -542,17 +561,44 @@ class AudioEngine(
                 lastProfileAgingCheckMs = processingStartedAtMs
                 profileEnergyEma = 0.0
 
+                // 1.2.16 path self-check: 1.5s of 50 Hz after Running (AA only); log PASS/FAIL once
+                pathCheckAa = aa
+                pathCheckDone = false
+                pathCheckPeakAbs = 0
+                if (aa) {
+                    // Ensure focus still held after learning/calib
+                    routeManager.requestRunningMediaFocus(true)
+                    pathCheckUntilMs = System.currentTimeMillis() + 1500L
+                    AncSessionLogger.log(
+                        phase = "aa_path_check_start",
+                        fields = mapOf(
+                            "hz" to 50f,
+                            "durationMs" to 1500,
+                            "holdingFocus" to routeManager.isHoldingRunningFocus(),
+                            "trackUsage" to routeManager.currentTrackUsageLabel(true),
+                            "note" to "listen_for_50Hz_bass_music_off_PASS_if_heard"
+                        )
+                    )
+                } else {
+                    pathCheckUntilMs = 0L
+                }
+
                 AncSessionLogger.log(
                     phase = "running_start",
                     fields = currentLatency?.let { latency ->
                         latencyLogFields(
                             base = mapOf(
                                 "acousticDelaySamples" to acousticDelaySamples,
-                                "readSize" to readSize
+                                "readSize" to readSize,
+                                "holdingMediaFocus" to routeManager.isHoldingRunningFocus(),
+                                "trackUsage" to routeManager.currentTrackUsageLabel(aa)
                             ),
                             latency = latency
                         )
-                    } ?: mapOf("readSize" to readSize)
+                    } ?: mapOf(
+                        "readSize" to readSize,
+                        "holdingMediaFocus" to routeManager.isHoldingRunningFocus()
+                    )
                 )
 
                 while (isActive) {
@@ -932,10 +978,61 @@ class AudioEngine(
                         scaleSamplesInto(processed, read, finalWriteGain, outputBufferReuse)
                         val output = outputBufferReuse
 
+                        // 1.2.16 path self-check tone (AA, first 1.5s of Running) — before guided mute/diag
+                        val nowPath = System.currentTimeMillis()
+                        val pathChecking = pathCheckAa && !pathCheckDone && pathCheckUntilMs > 0L && nowPath < pathCheckUntilMs
+                        if (pathChecking && !muteAnti) {
+                            injectDiagTone(output, read, 50f, sampleRate = audioRecord?.sampleRate ?: 44100)
+                            for (j in 0 until read) {
+                                val a = kotlin.math.abs(output[j].toInt())
+                                if (a > pathCheckPeakAbs) pathCheckPeakAbs = a
+                            }
+                        } else if (pathCheckAa && !pathCheckDone && pathCheckUntilMs > 0L && nowPath >= pathCheckUntilMs) {
+                            pathCheckDone = true
+                            val rm = audioRouteManager
+                            val holding = rm?.isHoldingRunningFocus() == true
+                            val usage = rm?.currentTrackUsageLabel(true) ?: "?"
+                            val routedName = rm?.getActiveOutputDeviceName(audioTrack) ?: "?"
+                            val submixOk = routedName.contains("submix", ignoreCase = true)
+                            val sendOk = pathCheckPeakAbs >= 2000 // ~0.06 FS after 0.22 amp tone
+                            val usageOk = usage.contains("MEDIA", ignoreCase = true)
+                            val pass = holding && usageOk && sendOk
+                            val failReasons = buildList {
+                                if (!holding) add("no_media_focus")
+                                if (!usageOk) add("trackUsage_not_MEDIA")
+                                if (!sendOk) add("send_tone_peak_too_low")
+                                if (!submixOk) add("routed_not_submix_warn")
+                            }
+                            AncSessionLogger.log(
+                                phase = "aa_path_check",
+                                fields = mapOf(
+                                    "result" to if (pass) "PASS" else "FAIL",
+                                    "holdingMediaFocus" to holding,
+                                    "focusRequestResult" to (rm?.lastFocusRequestResult() ?: -1),
+                                    "lastFocusChange" to (rm?.lastFocusChange() ?: 0),
+                                    "trackUsage" to usage,
+                                    "routedOutput" to routedName,
+                                    "submixOk" to submixOk,
+                                    "pathCheckPeakAbs" to pathCheckPeakAbs,
+                                    "sendOk" to sendOk,
+                                    "failReasons" to failReasons.joinToString(","),
+                                    "note" to if (pass) {
+                                        "SEND_PATH_OK_listen_for_50Hz_to_confirm_HU_speakers"
+                                    } else {
+                                        "SEND_OR_FOCUS_FAIL_do_not_trust_cancel_KPI"
+                                    }
+                                )
+                            )
+                            Log.i(
+                                "ANCService",
+                                "aa_path_check ${if (pass) "PASS" else "FAIL"} focus=$holding usage=$usage peak=$pathCheckPeakAbs routed=$routedName"
+                            )
+                        }
+
                         // 1.2.8: AA path diagnostic pure tone (50/60 Hz) — overrides anti to verify car low-freq
                         // Mute step must stay silent (no tone during road_off baseline)
                         val diagHz = if (muteAnti) 0f else AncTestPreferences.getDiagToneHz(appContext)
-                        if (diagHz >= 40f && diagHz <= 100f) {
+                        if (!pathChecking && diagHz >= 40f && diagHz <= 100f) {
                             injectDiagTone(output, read, diagHz, sampleRate = audioRecord?.sampleRate ?: 44100)
                             val nowT = System.currentTimeMillis()
                             if (nowT - lastDiagToneLogMs >= 2000L) {
@@ -944,6 +1041,8 @@ class AudioEngine(
                                     phase = "diag_tone_active",
                                     fields = mapOf(
                                         "hz" to diagHz,
+                                        "holdingMediaFocus" to (audioRouteManager?.isHoldingRunningFocus() == true),
+                                        "trackUsage" to (audioRouteManager?.currentTrackUsageLabel(isAAConnected()) ?: "?"),
                                         "note" to "pure_tone_via_AA_verify_car_bass_path"
                                     )
                                 )
@@ -1242,7 +1341,13 @@ class AudioEngine(
             audioTrack?.write(fillerSilence, 0, fillerSilence.size)
         }
         playbackJob.cancel()
-        routeManager.abandonAudioFocus()
+        // 1.2.16: do NOT abandon focus after calib on AA — must keep MEDIA focus for speaker path.
+        // Old bug: abandon here → whole road test ran with no lasting focus.
+        if (isAAConnected()) {
+            routeManager.requestRunningMediaFocus(true)
+        } else {
+            routeManager.abandonAudioFocus()
+        }
         Log.d("ANCService", "校正錄音完成: $totalRead samples")
 
         val avgEnergy = AudioSignalUtils.averageAbsoluteEnergy(recordedChirp, totalRead)
@@ -1654,6 +1759,9 @@ class AudioEngine(
                         "boomPolarity" to (ancProcessor?.getBoomPolarity() ?: -1f),
                         "forceBoomPolarity" to AncTestPreferences.getForceBoomPolarity(appContext),
                         "openBoom" to ((ancProcessor as? MultiBandANCProcessor)?.isOpenBoomActive() == true),
+                        "trackUsage" to (audioRouteManager?.currentTrackUsageLabel(isAAConnected()) ?: "?"),
+                        "holdingMediaFocus" to (audioRouteManager?.isHoldingRunningFocus() == true),
+                        "musicActive" to audioManager.isMusicActive,
                         "plantDelaySamples" to (ancProcessor?.getPlantElectricalDelaySamples() ?: 0),
                         "forcedNvhFocus" to (com.example.caranc.shared.GuidedNvhOverride.forcedFocusName ?: "auto"),
                         // Closed-loop self-check (program band energy — not external phone recorder)

@@ -401,14 +401,14 @@ object CarAncTestScript {
 }
 
 object CarRoadTuningScript {
-    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.15-aligned. */
+    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.16-aligned. */
     const val SCRIPT_ID = "car_road_tuning_v1"
     /**
-     * === 1.2.15 boomOut fix + mid-aware cabin winner + tighter LF ===
+     * === 1.2.16 AA MEDIA path + open 25–30% short-test + mid kill ===
      * prep → diag_tone_50 → road_off → road_ppos → road_pneg → tire → wind → finish
-     * 必收：openBoom 時 boomOut≫0；40–80↓；180–350 不大增；cabin mid 參與 winner
+     * 必收：等長三件套；50Hz 無音樂應可聽；openScale 短測；180–350 不大增
      */
-    const val SCRIPT_NAME = "三目標·1.2.15 boomOut+中頻winner"
+    const val SCRIPT_NAME = "三目標·1.2.16 MEDIA焦点+路径自检"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -453,14 +453,14 @@ object CarRoadTuningScript {
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
             id = "tuning_prep",
-            title = "準備：1.2.15 boomOut+中頻winner",
+            title = "準備：1.2.16 MEDIA焦点+路径自检",
             instructions = listOf(
-                "★ 版號 **v1.2.15**；腳本自動 PRO；預設極性 **−1**",
-                "USB 有線 AA；placement=floor/seat；音樂關",
-                "啟動 ANC；下一步 **50Hz tone**；路步自動艙錄",
-                "★ 只收 **等長 ~20s 三件套** off/ppos/pneg（≥45 km/h 巡航）",
-                "★ **停速/堵車場作廢**；不等長對作廢；on 應 boomPressureOut≫0",
-                "★ cabin 定極性 → boom_polarity_winner；openBoom=true"
+                "★ 版號 **v1.2.16**；AA **持有 USAGE_MEDIA focus**（整段 ANC）",
+                "USB 有線 AA；placement=floor/seat；**音樂全關**",
+                "啟動 ANC 後約 1.5s 自動 50Hz 自檢 → log **aa_path_check PASS/FAIL**",
+                "★ PASS=有 focus+MEDIA+送出能量；你還須聽到低嗡才算喇叭通",
+                "★ FAIL=不要信消噪 KPI；先修路徑",
+                "★ 只收等長三件套；長 off/停速丟"
             ),
             durationSec = 20,
             requiresAncRunning = false,
@@ -468,10 +468,10 @@ object CarRoadTuningScript {
             maxWallSec = 60,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "版號v1.2.15",
+                "版號v1.2.16",
                 "tier=PRO",
                 "USB AA",
-                "知plantD",
+                "50Hz無音樂可聽?",
                 "ANC可啟動"
             ),
             logPhases = listOf("audio_init", "aa_connected", "test_script_start"),
@@ -701,12 +701,12 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束：1.2.15 對照匯出",
+            title = "結束：1.2.16 對照匯出",
             instructions = listOf(
-                "停 ANC → 存 Log；scenario：50Hz、等長 off/ppos/pneg",
-                "★ PASS：boomOut≫0；40–80 on<off；180–350 <+1.5dB",
-                "★ winner 看 CabinMidAvg；mute≈−200；openBoom",
-                "★ FAIL：boomOut≈0 / 中頻大增 / 停速或不等長",
+                "停 ANC → 存 Log；scenario：50Hz無音樂、等長三件套",
+                "★ PASS：trackUsage=MEDIA；50Hz無音樂可聽；40–80 on≤off；180–350 <+1.5dB",
+                "★ 極性步短測 open≈30%；長 off/停速丟",
+                "★ FAIL：無音樂完全沒聲 / on 更響 / 採信不等長",
                 "tire 步可看 tireNotchEnergy"
             ),
             durationSec = 15,
@@ -715,12 +715,12 @@ object CarRoadTuningScript {
             maxWallSec = 50,
             checklist = listOf(
                 "已存Log",
-                "mute時antiDb極低",
+                "50Hz無音樂可聽",
+                "trackUsage=MEDIA",
                 "等長三件套",
-                "非停速場",
-                "boomOut有值",
-                "40-80on小於off",
-                "HIGH_LAT",
+                "非長off/停速",
+                "40-80on不大於off",
+                "180-350不大增",
                 "boom_polarity_winner",
                 "tier=PRO"
             ),

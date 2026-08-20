@@ -269,11 +269,10 @@ class MultiBandANCProcessor(
     private var roadLpInputState = 0f
     private var roadLpOutputState = 0f
     /**
-     * 1.2.13/1.2.15: true boom-band terminal LPF. 1.2.14 fair still had 180–350 +2.9 dB on ppos
-     * → tighten to ~70 Hz + 4th pole (was 85 Hz ×3).
+     * 1.2.16: terminal LPF ~55 Hz ×4 (1.2.15 70Hz still left 180–350 +4 dB on fair B).
      */
     private val boomTerminalLpCoeff =
-        (2.0 * PI * 70.0 / sampleRate).toFloat().coerceIn(0.003f, 0.07f)
+        (2.0 * PI * 55.0 / sampleRate).toFloat().coerceIn(0.0025f, 0.06f)
     private var boomTermLp1 = 0f
     private var boomTermLp2 = 0f
     private var boomTermLp3 = 0f
@@ -1267,54 +1266,59 @@ class MultiBandANCProcessor(
                 !antiOutputMuted && lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE
             var totalScale = lastSpeedTotalAnti.coerceIn(0.05f, 1.45f)
             if (boomFocusOut && vehicleSpeedKmh >= 18f) {
-                // 1.2.15: under AA high-lat do NOT boost LMS total (was ×1.28 → mid cabin +2.9 dB).
-                // Prefer boom LF path; keep adaptive quieter.
+                // 1.2.16: high-lat LMS even quieter (0.72→0.50) — fair B still +4 dB mid
                 totalScale = if (highLat) {
-                    (totalScale * 0.72f).coerceIn(0.05f, 1.05f)
+                    (totalScale * 0.50f).coerceIn(0.05f, 0.90f)
                 } else {
-                    (totalScale * 1.15f).coerceAtMost(1.35f)
+                    (totalScale * 1.10f).coerceAtMost(1.30f)
                 }
             }
             var speedScaled = gatedCombined * totalScale
 
             val activePolarity = boomPolarityForced ?: boomPolarity
             val polarityForced = boomPolarityForced != null
-            // 1.2.14: open boom when forced OR corr unlocked at cruise — guarantee audible 40–80
+            // 1.2.16: open only for forced A/B short-test OR unlocked corr — but amplitude capped
             val openBoom = boomFocusOut && vehicleSpeedValid && vehicleSpeedKmh >= 35f &&
                 (polarityForced || lastBoomPlantCorr < 0.05f)
             lastOpenBoom = openBoom && !antiOutputMuted
-            // ★ Cabin boom pressure: plant-aligned delayed inverted mic low (+ open floor)
+            // corr unlocked → 25%; script forced polarity short-test → 30%; locked → full via corrGate
+            val openScale = when {
+                !openBoom -> 1f
+                lastBoomPlantCorr >= 0.05f -> 1f
+                polarityForced -> 0.30f
+                else -> 0.25f
+            }
+            // ★ Cabin boom pressure (+ scaled open floor)
             val boomPress = boomPressure.process(
                 plantDelaySamples = boomDelaySamples(),
                 speedKmh = vehicleSpeedKmh,
                 boomPriority = boomFocusOut && vehicleSpeedValid,
                 freeze = freeze,
                 polarity = activePolarity,
-                openBoom = openBoom
+                openBoom = openBoom,
+                openScale = openScale
             )
-            // KPI = block RMS of boom path (must be ≫0 when openBoom — was stuck ~0 in 1.2.13)
             lastBoomPressureOut = if (antiOutputMuted) {
                 0f
             } else {
                 boomPressure.kpiLevel().coerceAtLeast(kotlin.math.abs(boomPress) * 0.5f)
             }
-            // 1.2.14: always allow mix when openBoom; scale up with corr when locked
             val corrGate = when {
                 lastBoomPlantCorr >= 0.15f -> 1.00f
                 lastBoomPlantCorr >= 0.05f -> 0.70f
-                openBoom && boomFocusOut -> 0.85f // controllable open push (was 0 / 0.55)
-                lastBoomPlantCorr >= 0.02f -> 0.35f
+                openBoom && boomFocusOut -> 0.85f * openScale // ~0.21–0.26 when unlocked
+                lastBoomPlantCorr >= 0.02f -> 0.30f
                 else -> 0f
             }
             val pressMixBase = when {
-                boomFocusOut && vehicleSpeedKmh >= 40f -> if (openBoom) 1.45f else 1.25f
-                boomFocusOut -> if (openBoom) 1.25f else 1.05f
+                boomFocusOut && vehicleSpeedKmh >= 40f -> if (openBoom) 1.20f else 1.10f
+                boomFocusOut -> if (openBoom) 1.05f else 1.00f
                 else -> 0f
             }
             val pressMix = pressMixBase * corrGate
-            speedScaled = (speedScaled + boomPress * pressMix).coerceIn(-1.40f, 1.40f)
+            speedScaled = (speedScaled + boomPress * pressMix).coerceIn(-1.20f, 1.20f)
 
-            // ★ Adaptive boom notches (complex LMS) layered on pressure path
+            // ★ Adaptive boom notches
             val lowBoomErr = virtualBands.low - speedScaled * 0.10f
             val notchAnti = if (antiOutputMuted) {
                 0f
@@ -1330,18 +1334,19 @@ class MultiBandANCProcessor(
                     boomPriority = notchBoomPriority
                 )
             }
-            // 1.2.13: lower high-lat notch mix; further duck when corr unlocked
+            // 1.2.16: further duck high-lat notch (was still leaking mid)
             val notchMix = when {
                 antiOutputMuted -> 0f
-                boomFocusOut && highLat -> 0.70f * (if (lastBoomPlantCorr < 0.02f && !polarityForced) 0.5f else 1f)
-                boomFocusOut -> 1.00f
-                highLat -> 0.40f
-                else -> 0.90f
+                boomFocusOut && highLat -> 0.35f * (if (lastBoomPlantCorr < 0.05f) 0.4f else 1f)
+                boomFocusOut -> 0.85f
+                highLat -> 0.25f
+                else -> 0.80f
             }
-            speedScaled = (speedScaled + notchAnti * notchMix).coerceIn(-1.40f, 1.40f)
+            speedScaled = (speedScaled + notchAnti * notchMix).coerceIn(-1.20f, 1.20f)
 
-            // Boom / high-lat ROAD: ~70 Hz terminal LPF (NOT speed 320 Hz road LPF)
+            // Boom / high-lat ROAD: ~55 Hz terminal LPF ×3 passes (steeper mid kill)
             if ((boomFocusOut || highLatRoadQuiet) && vehicleSpeedKmh >= 18f) {
+                speedScaled = boomTerminalLowPass(speedScaled)
                 speedScaled = boomTerminalLowPass(speedScaled)
                 speedScaled = boomTerminalLowPass(speedScaled)
             }

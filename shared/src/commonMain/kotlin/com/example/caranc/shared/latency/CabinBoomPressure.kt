@@ -29,11 +29,11 @@ class CabinBoomPressure(
     private var write = 0
     private var count = 0
 
-    // Low LPF (~85 Hz) — boom band, kill electronic mid/high
+    // Low LPF (~55 Hz) — boom band only; kill 180–350 electronic (1.2.16)
     private var lp1 = 0f
     private var lp2 = 0f
     private val lpCoeff: Float =
-        (2.0 * kotlin.math.PI * 85.0 / sampleRate).toFloat().coerceIn(0.006f, 0.10f)
+        (2.0 * kotlin.math.PI * 55.0 / sampleRate).toFloat().coerceIn(0.004f, 0.08f)
 
     var lastOutput = 0f
         private set
@@ -62,6 +62,7 @@ class CabinBoomPressure(
 
     /**
      * @param openBoom when true (forced polarity / unlocked corr), guarantee min LF pressure
+     * @param openScale 1.2.16: 0.25–0.30 for unlocked/short-test; 1.0 when corr locked
      * @param polarity +1 or −1
      */
     @Keep
@@ -71,7 +72,8 @@ class CabinBoomPressure(
         boomPriority: Boolean,
         freeze: Boolean,
         polarity: Float = 1f,
-        openBoom: Boolean = false
+        openBoom: Boolean = false,
+        openScale: Float = 1f
     ): Float {
         lastUsedOpenFloor = false
         if (!boomPriority || speedKmh < 16f || count < 8) {
@@ -87,22 +89,23 @@ class CabinBoomPressure(
         val delayed = ring[idx]
 
         val speedNorm = ((speedKmh - 12f) / 65f).coerceIn(0.20f, 1.35f)
+        val scale = openScale.coerceIn(0.15f, 1.0f)
         val energyFloor = when {
             speedKmh >= 50f -> 0.14f
             speedKmh >= 35f -> 0.10f
             else -> 0.06f
-        }
-        // 1.2.14: open boom drives at least energyFloor (sign from mic or +1)
+        } * scale
+        // 1.2.14/1.2.16: open boom min drive (scaled down when corr unlocked / short-test)
         val drive = if (openBoom && abs(delayed) < energyFloor) {
             lastUsedOpenFloor = true
             val s = if (abs(delayed) > 1e-8f) sign(delayed) else 1f
             s * energyFloor
         } else {
-            delayed
+            delayed * (if (openBoom) scale.coerceAtLeast(0.5f) else 1f)
         }
         val energy = abs(drive).coerceIn(if (openBoom) energyFloor else 0.02f, 0.90f)
-        val gain = (0.95f + 0.80f * speedNorm) * (0.60f + 1.40f * energy)
-            .coerceIn(0.65f, 1.85f)
+        val gain = (0.90f + 0.70f * speedNorm) * (0.55f + 1.20f * energy)
+            .coerceIn(0.55f, 1.55f)
         // 1.2.15: openBoom must NOT freeze gain at 0 (sonif freeze left lastGain=0 → boomOut≈0
         // while openBoom=true in 1.2.14 fair log).
         lastGain = when {

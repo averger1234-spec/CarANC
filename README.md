@@ -5,7 +5,7 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**版號**：Android **`version.properties` → 1.2.15 / code 17** · iOS **1.2.15 (26)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+**版號**：Android **`version.properties` → 1.2.16 / code 18** · iOS **1.2.15 (26)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 
 **跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-11 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
@@ -44,13 +44,13 @@ git push origin main
 
 ---
 
-## 最新進度（2026-08-20）— 1.2.15 boomOut 修復 + 中頻 winner
+## 最新進度（2026-08-20）— 1.2.16 MEDIA 焦点 + 路径自检
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| **Android 版號** | **`1.2.15` / code `17`** · 主畫面 `v1.2.15` | ✅ |
-| **1.2.15 路測** | openBoom×freeze 修復；70Hz×4 終端；LMS 降 scale；cabin mid 參與 winner | ✅ |
-| **iOS 版號** | **`1.2.15` (build 26)** · 狀態頁 **`v1.2.15 (26)`** · boomOut+中頻winner；**結束存 Log 檔+分享 wav**；Embed 防閃退 | ✅ |
+| **Android 版號** | **`1.2.16` / code `18`** · 主畫面 `v1.2.16` | ✅ |
+| **1.2.16 路測** | AA **持有 USAGE_MEDIA focus**；啟動後 `aa_path_check` PASS/FAIL；無音樂應聽 50Hz；open 短測 25–30% | ✅ |
+| **iOS 版號** | **`1.2.15` (build 26)** · 狀態頁 **`v1.2.15 (26)`** · 結束存 Log+分享；Embed 防閃退（DSP 待重編對齊 1.2.16） | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
 | **CarPlay** | 對齊 AA（見 `iosApp/CARPLAY.md`） | ✅ 程式；圖示需 Apple entitlement |
@@ -68,7 +68,7 @@ git push origin main
 
 ```bash
 git pull origin main
-# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.14
+# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.16
 # iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.15 (26)
 ```
 

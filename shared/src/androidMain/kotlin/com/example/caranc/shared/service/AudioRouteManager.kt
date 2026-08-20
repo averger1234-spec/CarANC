@@ -72,14 +72,19 @@ class AudioRouteManager(context: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var focusRequest: AudioFocusRequest? = null
     private var hasAudioFocus = false
+    private var lastFocusChangeCode = 0
+    private var lastFocusRequestResultCode = 0
     private var deviceCallback: AudioDeviceCallback? = null
     private var routeChangeListener: ((RouteApplyResult) -> Unit)? = null
 
-    // AA routing 保險機制：
-    // 如果使用 SONIFICATION 在 AA 環境下無法正確路由到 car sink / remote-submix，
-    // 則標記 fallback 為 true，後續 buildTrackAudioAttributes 會切回 MEDIA 以確保 routing。
-    // 這是「如果 SONIFICATION routing 變差就 fallback」的保險。
+    // AA routing：
+    // 1.2.16 default **MEDIA** on AA — many head-units mute ASSISTANCE_SONIFICATION when no
+    // music app is playing (user: 無音樂像沒喇叭輸出；開音樂才有電子雜訊).
+    // Legacy SONIFICATION path kept only if aaPreferMediaTrack=false and not failed.
     private var aaSonificationRoutingFailed = false
+    /** When true (default), AA AudioTrack uses USAGE_MEDIA so HU keeps the stream open. */
+    @Volatile
+    var aaPreferMediaTrack: Boolean = true
 
     /** 供外部（測試或 UI）呼叫，重置 AA SONIFICATION fallback 狀態，下次可重新嘗試 SONIFICATION */
     fun resetAaSonificationFallback() {
@@ -88,6 +93,12 @@ class AudioRouteManager(context: Context) {
     }
 
     fun isAaSonificationFallbackActive(): Boolean = aaSonificationRoutingFailed
+
+    /** Log / UI: which usage the ANC track will request. */
+    fun currentTrackUsageLabel(isAaConnected: Boolean): String {
+        val useMedia = !isAaConnected || aaPreferMediaTrack || aaSonificationRoutingFailed
+        return if (isAaConnected && useMedia) "USAGE_MEDIA" else "USAGE_ASSISTANCE_SONIFICATION"
+    }
 
     @Volatile
     var ancOutputGain: Float = 1f
@@ -214,19 +225,17 @@ class AudioRouteManager(context: Context) {
 
     fun buildTrackAudioAttributes(isAaConnected: Boolean): AudioAttributes {
         val builder = AudioAttributes.Builder()
-
-        val useSonification = !(isAaConnected && aaSonificationRoutingFailed)
-
-        if (useSonification) {
-            // 優先使用 SONIFICATION，避免 ANC 被系統當成主要媒體來源
-            // （搶 AudioFocus / 車機音量旋鈕控制 ANC 而不是音樂）
-            builder.setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            builder.setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-        } else {
-            // 保險 fallback：AA SONIFICATION routing 失敗時，切回 MEDIA 確保能走到 car sink
-            // 這是「如果 SONIFICATION routing 變差就 fallback」的機制
+        // 1.2.16: AA → MEDIA by default (keep car sink alive without a music app).
+        // Local phone speaker can stay SONIFICATION to avoid stealing media focus.
+        val useMediaOnAa = isAaConnected && (aaPreferMediaTrack || aaSonificationRoutingFailed)
+        if (useMediaOnAa) {
             builder.setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
             builder.setUsage(AudioAttributes.USAGE_MEDIA)
+            Log.i(TAG, "ANC track attrs=USAGE_MEDIA (AA keep-alive / HU mix)")
+        } else {
+            builder.setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            builder.setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+            Log.i(TAG, "ANC track attrs=USAGE_ASSISTANCE_SONIFICATION")
         }
         return builder.build()
     }
@@ -238,13 +247,91 @@ class AudioRouteManager(context: Context) {
             @Suppress("DEPRECATION")
             audioManager.isSpeakerphoneOn = false
         }
-        return true
+        // 1.2.16/1.2.17: AA session must HOLD media focus so HU opens Media stream to speakers.
+        // Previous bug: only transient SONIFICATION focus for calibration, then abandon → no lasting path.
+        return if (isAaConnected) {
+            requestRunningMediaFocus(isAaConnected = true)
+        } else {
+            true
+        }
     }
 
-    fun requestCalibrationAudioFocus(): Boolean {
-        if (hasAudioFocus) return true
+    /** True while ANC holds continuous MEDIA focus (AA path keep-alive). */
+    fun isHoldingRunningFocus(): Boolean = hasAudioFocus
+
+    fun lastFocusChange(): Int = lastFocusChangeCode
+
+    fun lastFocusRequestResult(): Int = lastFocusRequestResultCode
+
+    /**
+     * Hold USAGE_MEDIA AudioFocus for the whole ANC session (AA).
+     * Uses AUDIOFOCUS_GAIN so HU treats us as an active media source even with music app off.
+     */
+    fun requestRunningMediaFocus(isAaConnected: Boolean): Boolean {
+        if (!isAaConnected) return false
+        if (hasAudioFocus && focusRequest != null) return true
 
         val listener = AudioManager.OnAudioFocusChangeListener { change ->
+            lastFocusChangeCode = change
+            when (change) {
+                AudioManager.AUDIOFOCUS_LOSS -> {
+                    hasAudioFocus = false
+                    ancOutputGain = 0.05f
+                    Log.w(TAG, "AA running MEDIA focus LOSS — path likely dead until re-request")
+                }
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                    ancOutputGain = 0.15f
+                    Log.w(TAG, "AA running MEDIA focus LOSS_TRANSIENT")
+                }
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                    ancOutputGain = 0.45f
+                    Log.i(TAG, "AA running MEDIA focus ducked")
+                }
+                AudioManager.AUDIOFOCUS_GAIN,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK -> {
+                    hasAudioFocus = true
+                    ancOutputGain = 1f
+                    Log.i(TAG, "AA running MEDIA focus GAIN")
+                }
+            }
+        }
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val attrs = buildTrackAudioAttributes(isAaConnected = true)
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(attrs)
+                .setAcceptsDelayedFocusGain(true)
+                .setWillPauseWhenDucked(false)
+                .setOnAudioFocusChangeListener(listener, mainHandler)
+                .build()
+            focusRequest = request
+            val result = audioManager.requestAudioFocus(request)
+            lastFocusRequestResultCode = result
+            hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED ||
+                result == AudioManager.AUDIOFOCUS_REQUEST_DELAYED
+            Log.i(TAG, "requestRunningMediaFocus result=$result granted=$hasAudioFocus usage=MEDIA")
+            hasAudioFocus
+        } else {
+            @Suppress("DEPRECATION")
+            val result = audioManager.requestAudioFocus(
+                listener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN
+            )
+            lastFocusRequestResultCode = result
+            hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            hasAudioFocus
+        }
+    }
+
+    /** Calibration chirp: reuse running focus if held; else short transient. */
+    fun requestCalibrationAudioFocus(isAaConnected: Boolean = true): Boolean {
+        if (hasAudioFocus) return true
+        if (isAaConnected) return requestRunningMediaFocus(true)
+
+        val listener = AudioManager.OnAudioFocusChangeListener { change ->
+            lastFocusChangeCode = change
             when (change) {
                 AudioManager.AUDIOFOCUS_LOSS,
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> ancOutputGain = 0.15f
@@ -254,20 +341,16 @@ class AudioRouteManager(context: Context) {
                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK -> ancOutputGain = 1f
             }
         }
-
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val attrs = AudioAttributes.Builder()
-                // 與 ANC track 一致，使用 SONIFICATION 類型，避免 focus 跟音樂 media 衝突
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
+            val attrs = buildTrackAudioAttributes(isAaConnected = false)
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                 .setAudioAttributes(attrs)
                 .setAcceptsDelayedFocusGain(true)
-                .setOnAudioFocusChangeListener(listener)
+                .setOnAudioFocusChangeListener(listener, mainHandler)
                 .build()
             focusRequest = request
             val result = audioManager.requestAudioFocus(request)
+            lastFocusRequestResultCode = result
             hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
             hasAudioFocus
         } else {
@@ -277,13 +360,13 @@ class AudioRouteManager(context: Context) {
                 AudioManager.STREAM_MUSIC,
                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
             )
+            lastFocusRequestResultCode = result
             hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
             hasAudioFocus
         }
     }
 
     fun abandonAudioFocus() {
-        if (!hasAudioFocus) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         } else {
@@ -293,6 +376,7 @@ class AudioRouteManager(context: Context) {
         hasAudioFocus = false
         focusRequest = null
         ancOutputGain = 1f
+        Log.i(TAG, "abandonAudioFocus (running MEDIA focus released)")
     }
 
     fun describeOutputDevices(): List<String> {
@@ -378,9 +462,13 @@ class AudioRouteManager(context: Context) {
     ): RouteApplyResult {
         val routedOutput = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) audioTrack.routedDevice else null
         val routedInput = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) audioRecord?.routedDevice else null
-        val isAaConnected = route.routeLabel.startsWith("android_auto") ||
+        // 1.2.16: remote_submix / projection_submix ARE the phone USB AA path — was excluded → false carSinkRouted
+        val isAaConnected = route.aaLinkType != "local" ||
+            route.routeLabel.startsWith("android_auto") ||
             route.routeLabel.startsWith("usb_") ||
-            route.routeLabel == "bluetooth_a2dp"
+            route.routeLabel == "bluetooth_a2dp" ||
+            route.routeLabel == "remote_submix" ||
+            route.routeLabel.contains("submix", ignoreCase = true)
         return RouteApplyResult(
             route = route,
             outputPreferredApplied = outputApplied,
@@ -523,7 +611,8 @@ class AudioRouteManager(context: Context) {
             AudioDeviceInfo.TYPE_USB_HEADSET,
             AudioDeviceInfo.TYPE_HDMI,
             AudioDeviceInfo.TYPE_HDMI_ARC,
-            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> true
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_REMOTE_SUBMIX -> true // phone USB AA projection sink
             else -> false
         }
     }

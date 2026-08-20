@@ -574,6 +574,23 @@ class MultiBandANCProcessorTest {
         assertTrue(boom2.lastUsedOpenFloor, "open floor should engage on silence")
         assertTrue(boom2.kpiLevel() > 0.02f, "kpiLevel=${boom2.kpiLevel()}")
         assertEquals(delay, boom2.lastDelayUsed)
+
+        // 1.2.16: openScale 0.25 should be weaker than full open
+        val boom3 = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
+        repeat(delay + 64) { boom3.push(0f) }
+        var yFull = 0f
+        var yShort = 0f
+        repeat(256) {
+            boom3.push(0f)
+            yFull = boom3.process(delay, 70f, true, false, -1f, openBoom = true, openScale = 1f)
+        }
+        val boom4 = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
+        repeat(delay + 64) { boom4.push(0f) }
+        repeat(256) {
+            boom4.push(0f)
+            yShort = boom4.process(delay, 70f, true, false, -1f, openBoom = true, openScale = 0.25f)
+        }
+        assertTrue(abs(yShort) < abs(yFull) * 0.7f, "short openScale should be quieter: short=$yShort full=$yFull")
     }
 
     /** 1.2.12: mute zeros send + boom KPI even with ROAD focus / speed. */
