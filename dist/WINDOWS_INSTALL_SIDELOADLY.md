@@ -68,7 +68,7 @@ Windows：`git pull` 後再跑 `scripts\install-ios-sideloadly.bat`。
 
 ## 本包內容（KMP 共用 DSP）
 
-- App 版本：**1.2.15 (26)** — 狀態頁應顯示 **`v1.2.15 (26)`**
+- App 版本：**1.2.16 (27)** — 狀態頁應顯示 **`v1.2.16 (27)`**
 - 含：1.2.15 boomOut+中頻winner + **結束存 Log 檔/分享 cabin wav** + Embed 防閃退（必重裝；勿用 build 22）
 - 見 `CHANGELOG.md`、`iosApp/README.md`
 - DSP：KMP MultiBand + `SpeedScheduledNvhGains`

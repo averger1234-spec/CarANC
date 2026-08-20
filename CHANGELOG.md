@@ -50,6 +50,14 @@
 
 腳本：`三目標·1.2.16 MEDIA焦点+路径自检`
 
+### iOS（build 27 · 對齊 1.2.16 + 修開始降噪閃退 + CarPlay 路徑自檢）
+
+- **閃退**：KMP `MultiBandANCProcessor` 加 NSLock（音訊執行緒 vs 主執行緒競態）；麥克風權限先請求；start 失敗清狀態
+- **路徑自檢**：開 ANC 後 1.5s 50Hz → log `carplay_path_check` / `aa_path_check` PASS/FAIL + `routeOutputs`
+- 重編 KMP（open 25–30%、55Hz×4、LMS ×0.50）
+- 腳本對齊 1.2.16；保留 anc_logs 存檔分享
+- 狀態頁 **`v1.2.16 (27)`** · `dist/CarANC-ios-kmp-debug.ipa`
+
 ---
 
 ## [1.2.15] — 2026-08-20 · Android code 17 · boomOut 修復 + 中頻 cabin winner + 更緊 LF

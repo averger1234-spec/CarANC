@@ -4,7 +4,7 @@
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.16 / code 18** · iOS **1.2.15 (26)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.16 / code 18** · iOS **1.2.16 (27)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
@@ -16,7 +16,7 @@
 **1.2.14 重點**：open boom + 預設極性−1 + cabin winner；停速場作廢。  
 **1.2.13 重點**：85Hz 真 LF 終端 LPF（修 speed 320Hz 假低通）；HIGH_LAT ROAD 清 FDAF/bank/engine；forced 極性 boom floor；notch 不盲播。  
 **1.2.12 重點**：真 mute KPI + 極性 A/B + 負 corr boom mix=0；只採信等長艙錄。  
-**iOS build 26**：結束存 Log 檔+分享 wav；**build 25**：對齊 1.2.16 MEDIA路徑+中頻winner；**build 24**：對齊 1.2.14 openBoom；**build 23**：修開機閃退（Xcode Embed `CarANCShared` + IPA 刪檔重建）；**build 22**：對齊 1.2.13 KMP 真 LF（IPA 有缺 embed 問題，勿用）；**build 21**：通話結束 CarPlay 音量暴衝修復。  
+**iOS build 27**：對齊 1.2.16 + 修開始降噪閃退 + carplay_path_check；**build 26**：結束存 Log 檔+分享 wav；**build 25**：對齊 1.2.16 MEDIA路徑+中頻winner；**build 24**：對齊 1.2.14 openBoom；**build 23**：修開機閃退（Xcode Embed `CarANCShared` + IPA 刪檔重建）；**build 22**：對齊 1.2.13 KMP 真 LF（IPA 有缺 embed 問題，勿用）；**build 21**：通話結束 CarPlay 音量暴衝修復。  
 **1.2.11 重點**：相位對齊 — HIGH_LAT 120、關 Wiener、拒 12ms probe、IMU 不混 ref。  
 **1.2.10 重點**：真 mute baseline + 可感 boom + 公平艙錄 A/B。  
 **1.2.9 重點**：P2 PlantPathStore + boomPlantCorr；1.2.8 antiE/tone/艙錄/IMU。  

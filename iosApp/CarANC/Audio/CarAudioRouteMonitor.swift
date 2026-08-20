@@ -132,21 +132,33 @@ final class CarAudioRouteMonitor: ObservableObject {
         let session = AVAudioSession.sharedInstance()
         if preferCar {
             // 不強制 defaultToSpeaker，讓系統把輸出送到 CarPlay；與音樂 mix，不搶通話聲道
+            // 對齊 Android 1.2.16：盡量走「媒體」可聽路徑（勿 voiceChat）
             try session.setCategory(
                 .playAndRecord,
                 mode: .default,
-                options: [.allowBluetoothA2DP, .mixWithOthers, .allowAirPlay]
+                options: [.allowBluetoothA2DP, .mixWithOthers, .allowAirPlay, .allowBluetoothHFP]
             )
         } else {
             try session.setCategory(
                 .playAndRecord,
-                mode: .measurement,
+                mode: .default,
                 options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers]
             )
         }
         try session.setPreferredSampleRate(48_000)
         try session.setPreferredIOBufferDuration(preferCar ? 0.02 : 0.01)
         try session.setActive(true, options: [])
+        let outs = session.currentRoute.outputs.map { "\($0.portType.rawValue):\($0.portName)" }.joined(separator: "|")
+        let cat = session.category.rawValue
+        let mode = session.mode.rawValue
+        Task { @MainActor in
+            SessionLogger.shared.event("audio_session_configured", [
+                "preferCar": "\(preferCar)",
+                "category": cat,
+                "mode": mode,
+                "routeOutputs": outs.isEmpty ? "none" : outs
+            ])
+        }
     }
 
     /// 通話結束後重新套用「非語音」session，避免卡在 call audio 增益路徑。

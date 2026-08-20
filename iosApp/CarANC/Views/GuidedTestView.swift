@@ -75,7 +75,7 @@ struct GuidedTestView: View {
             Text("自動進階：有效行駛秒達標（或 maxWall）→ 下一步（同 Android autoAdvance=true）")
                 .font(.caption)
                 .foregroundStyle(.cyan)
-            Text("步驟概覽（1.2.15 boomOut + 中頻winner）：")
+            Text("步驟概覽（1.2.16 路径自检 + MEDIA）：")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             ForEach(Array(CarRoadTuningScript.steps.enumerated()), id: \.element.id) { idx, step in

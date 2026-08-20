@@ -3,9 +3,13 @@ import CarANCShared
 
 /// Bridges AVAudioEngine float blocks ↔ KMP `MultiBandANCProcessor.process(ShortArray)`.
 /// This is the **shared Android DSP path** on iOS (not the simplified Swift FxLMS).
+///
+/// **Thread safety**: AVAudioEngine tap 與主執行緒 UI 會同時碰到 processor；
+/// 無鎖時 Kotlin/Native 常在「按開始降噪」後立即閃退。
 final class KotlinAncBridge {
     private let processor: MultiBandANCProcessor
     private let bufferSize: Int
+    private let lock = NSLock()
     private var lastTier: UserTier = .standard
 
     private(set) var lastNvhFocusRaw: String = "IDLE"
@@ -58,37 +62,51 @@ final class KotlinAncBridge {
     }
 
     func updateTier(_ tier: UserTier) {
+        lock.lock()
+        defer { lock.unlock() }
         guard tier != lastTier else { return }
         lastTier = tier
         processor.updateTier(tier: Self.mapTier(tier))
     }
 
     func setEstimatedLatencyMs(_ ms: Float) {
+        lock.lock()
+        defer { lock.unlock() }
         processor.setEstimatedLatencyMs(latencyMs: ms)
-        refreshLimits()
+        refreshLimitsUnlocked()
     }
 
     func setVehicleSpeed(kmh: Float, valid: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
         processor.setVehicleSpeed(speedKmh: kmh, valid: valid)
     }
 
     func setRumbleAccel(_ mag: Float) {
+        lock.lock()
+        defer { lock.unlock() }
         processor.setRumbleAccel(mag: mag)
     }
 
     /// 1.2.8 P0：三軸 IMU（mu/coherence；1.2.11+ 不再混進 audio ref）
     func setImuAxes(ax: Float, ay: Float, az: Float) {
+        lock.lock()
+        defer { lock.unlock() }
         processor.setImuAxes(ax: ax, ay: ay, az: az)
     }
 
     /// 1.2.12：腳本 mute — processor 內歸零 boom/notch/bank
     func setAntiOutputMuted(_ muted: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
         antiOutputMuted = muted
         processor.setAntiOutputMuted(muted: muted)
     }
 
     /// 1.2.12：強制 boom 極性（+1 / −1）；nil 或 0 = auto
     func setBoomPolarityForced(_ polarity: Float?) {
+        lock.lock()
+        defer { lock.unlock() }
         if let polarity, abs(polarity) > 0.01 {
             let p: Float = polarity >= 0 ? 1 : -1
             processor.setBoomPolarityForced(polarity: KotlinFloat(float: p))
@@ -98,11 +116,15 @@ final class KotlinAncBridge {
     }
 
     func applyPersistedBoomPolarity(_ polarity: Float) {
+        lock.lock()
+        defer { lock.unlock() }
         processor.applyPersistedBoomPolarity(polarity: polarity)
     }
 
     /// 1.2.6：腳本強制 ROAD/TIRE/WIND
     func setForcedNvhFocus(_ name: String?) {
+        lock.lock()
+        defer { lock.unlock() }
         if let name, !name.isEmpty, name.uppercased() != "AUTO", name.uppercased() != "NONE" {
             GuidedNvhOverride.shared.set(name: name)
             processor.setForcedNvhFocus(focusName: name)
@@ -113,16 +135,22 @@ final class KotlinAncBridge {
     }
 
     func registerBlockEnergy(rms: Float) -> Bool {
-        processor.registerBlockEnergy(rms: rms)
+        lock.lock()
+        defer { lock.unlock() }
+        return processor.registerBlockEnergy(rms: rms)
     }
 
     func finishLearning() {
+        lock.lock()
+        defer { lock.unlock() }
         processor.finishLearning()
     }
 
     /// - Parameter mono: float -1…1
     /// - Returns: anti-noise float -1…1 (same length)
     func process(mono: [Float]) -> [Float] {
+        lock.lock()
+        defer { lock.unlock() }
         let n = mono.count
         let input = KotlinShortArray(size: Int32(n))
         for i in 0..<n {
@@ -136,7 +164,7 @@ final class KotlinAncBridge {
         for i in 0..<min(n, sz) {
             out[i] = Float(outShort.get(index: Int32(i))) / 32768.0
         }
-        // diagnostics
+        // diagnostics（同鎖內更新，供主執行緒讀 snapshot）
         lowLmsUpdates = processor.getLowLmsUpdateCount()
         latencyStrategy = processor.getLatencyStrategy()
         lastNvhFocusRaw = processor.getNvhFocus()
@@ -162,11 +190,13 @@ final class KotlinAncBridge {
         openBoomActive = processor.isOpenBoomActive()
         effectiveLowMu = processor.getLastEffectiveLowMu()
         effectiveMidMu = processor.getLastEffectiveMidMu()
-        refreshLimits()
+        refreshLimitsUnlocked()
         return out
     }
 
     func release() {
+        lock.lock()
+        defer { lock.unlock() }
         processor.release()
     }
 
@@ -180,7 +210,7 @@ final class KotlinAncBridge {
         }
     }
 
-    private func refreshLimits() {
+    private func refreshLimitsUnlocked() {
         let lim = processor.getLatencyBandLimits()
         maxCancelHz = lim.maxCancelFrequencyHz
         midEnabled = lim.midEnabled

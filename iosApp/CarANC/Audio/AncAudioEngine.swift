@@ -54,6 +54,10 @@ final class AncAudioEngine: ObservableObject {
     private var interruptionObserver: NSObjectProtocol?
     private var secondarySilenceObserver: NSObjectProtocol?
     private var resumeRampTimer: Timer?
+    /// 1.2.16：對齊 Android `aa_path_check`（啟動後短播 50Hz 測路徑）
+    private var pathCheckActive = false
+    private var pathCheckPeak: Float = 0
+    private var pathCheckTimer: Timer?
 
     init(model: AncAppModel) {
         self.model = model
@@ -295,8 +299,30 @@ final class AncAudioEngine: ObservableObject {
             model.showSafetyConsent = true
             throw EngineError.needsConsent
         }
+        // 麥克風權限：未授權時 AVAudioEngine 常直接崩（非 Swift throw）
+        let micOk = await Self.requestMicPermission()
+        guard micOk else {
+            model.lastError = "需要麥克風權限才能降噪"
+            throw EngineError.needsMicPermission
+        }
         self.preferCarAudio = preferCarAudio
 
+        do {
+            try await startUnlocked(preferCarAudio: preferCarAudio)
+        } catch {
+            // 失敗時清乾淨，避免半開狀態下次再崩
+            stop()
+            model.lastError = error.localizedDescription
+            SessionLogger.shared.event("audio_start_error", [
+                "error": error.localizedDescription,
+                "preferCar": "\(preferCarAudio)"
+            ])
+            throw error
+        }
+    }
+
+    @MainActor
+    private func startUnlocked(preferCarAudio: Bool) async throws {
         // 路由：本機 speaker vs CarPlay 車機（對齊 AA resolveRoute）
         try CarAudioRouteMonitor.configureSessionForCarIfNeeded(preferCar: preferCarAudio)
         AppController.shared.routeMonitor.refresh()
@@ -318,7 +344,6 @@ final class AncAudioEngine: ObservableObject {
         activeTier = model.tier
         let proc = KotlinAncBridge(sampleRate: Int(sampleRate), bufferSize: bufFrames, tier: activeTier)
         proc.setEstimatedLatencyMs(measuredLatencyMs)
-        // 1.2.9/1.2.12：載入持久化 plant D + boom 極性
         let profileId = "ios_default"
         let routeLink = AppController.shared.routeMonitor.linkType
         let route = PlantPathStore.routeLabel(
@@ -334,7 +359,6 @@ final class AncAudioEngine: ObservableObject {
                 "boomPolarity": String(format: "%.0f", snap.boomPolarity)
             ])
         } else {
-            // 1.2.14：無 store 亦套預設 −1
             proc.applyPersistedBoomPolarity(PlantPathStore.defaultPolarity)
             SessionLogger.shared.event("plant_path_default_polarity", [
                 "boomPolarity": String(format: "%.0f", PlantPathStore.defaultPolarity),
@@ -350,8 +374,12 @@ final class AncAudioEngine: ObservableObject {
         outputGain = 1
         resumeRampTimer?.invalidate()
         resumeRampTimer = nil
+        pathCheckTimer?.invalidate()
+        pathCheckTimer = nil
+        pathCheckActive = false
+        pathCheckPeak = 0
 
-        outputRing = [Float](repeating: 0, count: Int(sampleRate))
+        outputRing = [Float](repeating: 0, count: max(Int(sampleRate), 48000))
         outputWrite = 0
         outputRead = 0
 
@@ -360,7 +388,10 @@ final class AncAudioEngine: ObservableObject {
             self?.process(buffer: buffer)
         }
 
-        let outFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+        var outFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+        if outFormat.sampleRate <= 0 || outFormat.channelCount == 0 {
+            outFormat = format
+        }
         let source = AVAudioSourceNode { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
             self?.fillOutput(
                 abl: UnsafeMutableAudioBufferListPointer(audioBufferList),
@@ -391,6 +422,7 @@ final class AncAudioEngine: ObservableObject {
 
         let link = model.aaLinkType
         let backend = preferCarAudio ? "AVAudioEngine_carplay+KMP" : "AVAudioEngine_local+KMP"
+        let outputs = session.currentRoute.outputs.map { "\($0.portType.rawValue):\($0.portName)" }.joined(separator: ",")
         SessionLogger.shared.startSession(meta: [
             "tier": model.tier.rawValue,
             "sampleRate": String(format: "%.0f", sampleRate),
@@ -398,7 +430,8 @@ final class AncAudioEngine: ObservableObject {
             "latencyEstMs": String(format: "%.1f", measuredLatencyMs),
             "dsp": "kmp_MultiBandANCProcessor",
             "aaLinkType": link,
-            "preferCarAudio": "\(preferCarAudio)"
+            "preferCarAudio": "\(preferCarAudio)",
+            "routeOutputs": outputs
         ])
         SessionLogger.shared.event("audio_init", [
             "audioBackend": backend,
@@ -406,9 +439,13 @@ final class AncAudioEngine: ObservableObject {
             "channelsIn": "\(format.channelCount)",
             "dsp": "shared.MultiBandANCProcessor",
             "aaLinkType": link,
-            "carPlayConnected": "\(model.carPlayConnected)"
+            "carPlayConnected": "\(model.carPlayConnected)",
+            "routeOutputs": outputs
         ])
         SessionLogger.shared.event("calibration", ["msg": "learning_window_start"])
+
+        // 1.2.16：對齊 Android aa_path_check — 開 ANC 後短播 50Hz，看喇叭／CarPlay 是否真有輸出
+        schedulePathCheck(preferCar: preferCarAudio, routeOutputs: outputs)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
             guard let self, self.isStarted else { return }
@@ -427,22 +464,91 @@ final class AncAudioEngine: ObservableObject {
         uiTimer = timer
     }
 
+    /// 對齊 Android `aa_path_check`：1.5s 50Hz；依 anti 峰值 + 路由判 PASS/FAIL
+    @MainActor
+    private func schedulePathCheck(preferCar: Bool, routeOutputs: String) {
+        pathCheckPeak = 0
+        pathCheckActive = true
+        setDiagToneHz(50)
+        SessionLogger.shared.event("path_check_start", [
+            "hz": "50",
+            "durationSec": "1.5",
+            "preferCar": "\(preferCar)",
+            "routeOutputs": routeOutputs,
+            "note": "ios_carplay_or_local_path_self_test"
+        ])
+        pathCheckTimer?.invalidate()
+        let t = Timer(timeInterval: 1.5, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.finishPathCheck(preferCar: preferCar, routeOutputs: routeOutputs)
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        pathCheckTimer = t
+    }
+
+    @MainActor
+    private func finishPathCheck(preferCar: Bool, routeOutputs: String) {
+        pathCheckActive = false
+        setDiagToneHz(0)
+        pathCheckTimer = nil
+        let peak = pathCheckPeak
+        let route = AppController.shared.routeMonitor.linkType
+        let carRouted = preferCar && route.isCarPlay
+        // 本機：送出 peak 夠大即 PASS；CarPlay：還需路由在 carAudio
+        let sendOk = peak >= 0.02
+        let routeOk = !preferCar || carRouted
+        let pass = sendOk && routeOk
+        let result = pass ? "PASS" : "FAIL"
+        SessionLogger.shared.event("carplay_path_check", [
+            "result": result,
+            "aa_path_check": result, // 對齊 Android 欄位名，方便同一套分析
+            "sendPeak": String(format: "%.4f", peak),
+            "preferCar": "\(preferCar)",
+            "carPlayConnected": "\(model.carPlayConnected)",
+            "aaLinkType": route.rawValue,
+            "routeOutputs": routeOutputs,
+            "note": pass
+                ? "heard_or_send_ok_check_subjective_50Hz"
+                : "no_send_or_not_on_carplay_do_not_trust_ANC_KPI"
+        ])
+        model.statusDetail = pass
+            ? "路徑自檢 PASS（應聽到短 50Hz）"
+            : "路徑自檢 FAIL — 喇叭/CarPlay 可能無輸出"
+    }
+
+    private static func requestMicPermission() async -> Bool {
+        await withCheckedContinuation { cont in
+            AVAudioSession.sharedInstance().requestRecordPermission { ok in
+                cont.resume(returning: ok)
+            }
+        }
+    }
+
     func stop() {
         uiTimer?.invalidate()
         uiTimer = nil
         resumeRampTimer?.invalidate()
         resumeRampTimer = nil
+        pathCheckTimer?.invalidate()
+        pathCheckTimer = nil
+        pathCheckActive = false
         interrupted = false
         outputGain = 1
+        diagToneHz = 0
         teardownGraph()
         speedProvider.stop()
         imuProvider.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         kmpProcessor?.release()
         kmpProcessor = nil
+        let wasStarted = isStarted
         isStarted = false
         Task { @MainActor in
-            SessionLogger.shared.endSession()
+            if wasStarted {
+                SessionLogger.shared.endSession()
+            }
             model.isRunning = false
             model.phase = .stopped
             model.statusDetail = ""
@@ -549,6 +655,11 @@ final class AncAudioEngine: ObservableObject {
             }
         }
         pushAnti(anti)
+        if pathCheckActive {
+            var peak: Float = 0
+            for s in anti { peak = max(peak, abs(s)) }
+            if peak > pathCheckPeak { pathCheckPeak = peak }
+        }
         if GuidedCabinRecorder.shared.isRecording {
             GuidedCabinRecorder.shared.append(mono: mono)
         }
@@ -774,12 +885,14 @@ final class AncAudioEngine: ObservableObject {
 
     enum EngineError: LocalizedError {
         case needsConsent
+        case needsMicPermission
         case invalidFormat
 
         var errorDescription: String? {
             switch self {
             case .needsConsent: return "請先同意安全聲明"
-            case .invalidFormat: return "無法取得麥克風格式"
+            case .needsMicPermission: return "需要麥克風權限才能降噪"
+            case .invalidFormat: return "無法取得麥克風格式（請確認未佔用／已連 CarPlay 再試）"
             }
         }
     }
