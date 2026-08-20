@@ -50,7 +50,7 @@ git push origin main
 |------|------|------|
 | **Android 版號** | **`1.2.15` / code `17`** · 主畫面 `v1.2.15` | ✅ |
 | **1.2.15 路測** | openBoom×freeze 修復；70Hz×4 終端；LMS 降 scale；cabin mid 參與 winner | ✅ |
-| **iOS 版號** | **`1.2.15` (build 26)** · 狀態頁 **`v1.2.15 (26)`** · boomOut修復+中頻winner；**Embed 防閃退** | ✅ |
+| **iOS 版號** | **`1.2.15` (build 26)** · 狀態頁 **`v1.2.15 (26)`** · boomOut+中頻winner；**結束存 Log 檔+分享 wav**；Embed 防閃退 | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
 | **CarPlay** | 對齊 AA（見 `iosApp/CARPLAY.md`） | ✅ 程式；圖示需 Apple entitlement |

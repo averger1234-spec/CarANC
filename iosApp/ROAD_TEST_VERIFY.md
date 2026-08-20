@@ -129,6 +129,7 @@ DSP / SpeedScheduled 使用 `vehicleSpeedValid`（含 hold／imu）。嚴格路�
 | muteAnti 真靜音 | ✅ 喇叭歸零 + KMP `setAntiOutputMuted`；antiNoiseDb 量 post-mute |
 | 極性 A/B | ✅ forceBoomPolarity ±1；`boom_polarity_winner` → UserDefaults PlantPathStore |
 | 艙錄 | ✅ 達速後 `cabin_*.wav`（Documents/anc_logs；用途同 Android m4a） |
+| 結束存 Log | ✅ build 26：即時 `anc_session_*.log` + finish `anc_guided_export_*.log`；分享 **檔案**（含 wav） |
 | corrGate / HIGH_LAT | ✅ 隨 KMP framework |
 | 1.2.13 真 LF 終端 | ✅ ~85Hz LPF；HIGH_LAT 清 FDAF/bank；中頻不應大增 |
 | 1.2.14 openBoom / 極性−1 | ✅ openBoom log；cabin winner；預設 −1；≥45 km/h |
