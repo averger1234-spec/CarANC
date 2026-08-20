@@ -51,14 +51,16 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 | 通話中斷保護 | ✅ pause + session restore + 增益漸升 | ✅ MODE_IN_CALL bypass |
 | 本機喇叭 duplex | ✅ AVAudioEngine + 50Hz tone | ✅ |
 | 預編 IPA | ✅ `dist/…ipa` **1.2.15 (26)** | — |
-| 開機不閃退 | ✅ Embed `CarANCShared`（build 23；勿用 22） | — |
+| 開機不閃退 | ✅ Embed `CarANCShared`（build 23+；勿用 22） | — |
+| 結束存 Log | ✅ `Documents/anc_logs/*.log` + 自動分享檔案（含 cabin wav） | ✅ files/anc_logs |
 
 ### 路測對版（必看）
 
-1. 打開 App → **狀態** 頁右上角 / 副標：**`v1.2.15 (26)`**（**勿裝 build 22（缺 Embed）**，會閃退）  
-2. Session log 開頭：`appVersion=1.2.13` `build=26`  
-3. 改功能後：`CFBundleVersion` +1，功能包再升 marketing，並寫 `CHANGELOG.md`  
-4. 重編 IPA 必須確認 `.app/Frameworks/CarANCShared.framework` 存在，且 **刪除舊 IPA 再打包**（勿 `zip` 覆蓋殘留舊 framework）
+1. 打開 App → **狀態** 頁右上角 / 副標：**`v1.2.15 (26)`**（**勿裝 build 22**）  
+2. Session log 開頭：`appVersion=1.2.15` `build=26`  
+3. 腳本結束：寫入 **`Documents/anc_logs/`**（`anc_session_*.log`、`anc_guided_export_*.log`、`cabin_*.wav`），並彈出**分享檔案**（對齊 Android）  
+4. 可用「檔案」App 查看（UIFileSharingEnabled）  
+5. 重編 IPA 必須確認 Embed `CarANCShared`，且 **刪除舊 IPA 再打包**
 
 ## 結構
 
