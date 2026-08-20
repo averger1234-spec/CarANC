@@ -148,6 +148,8 @@ class AudioEngine(
     private val antiDelayLine = AntiNoiseDelayLine(16384)
     private val visPlantResidual = ShortArray(PROCESSING_READ_SIZE)
     private var lastRawLowBandDb = -90f
+    /** Mic 180–350 Hz band energy for polarity A/B cabin score (1.2.15). */
+    private var lastRawMidBandDb = -90f
     private var lastResidualLowBandDb = -90f
     private var lastPlantResidualLowBandDb = -90f
     private var lastPlantResidualReductionDb = 0f
@@ -1488,6 +1490,9 @@ class AudioEngine(
             val ePlantBoom = sa.bandRangeEnergyDb(plant, sr, 40f, 120f)
             val eMicTire = sa.bandRangeEnergyDb(mic, sr, 180f, 350f)
             val ePlantTire = sa.bandRangeEnergyDb(plant, sr, 180f, 350f)
+            // 1.2.15: keep mid band for polarity cabin score (low alone was tied → plant wrongly picked +1)
+            lastRawMidBandDb = eMicTire
+            lastRawLowBandDb = sa.bandRangeEnergyDb(mic, sr, 40f, 80f)
             val eMicWind = sa.bandRangeEnergyDb(mic, sr, 500f, 2000f)
             val ePlantWind = sa.bandRangeEnergyDb(plant, sr, 500f, 2000f)
             val gs = com.example.caranc.shared.test.GuidedTestController.state.value
@@ -1599,13 +1604,14 @@ class AudioEngine(
             val latency = latencySnapshot
             val manualRpm = AncTestPreferences.getManualTestRpm(appContext)
             val guidedStepId = GuidedTestController.state.value.currentStep?.id ?: ""
-            // 1.2.14: polarity A/B — cabin low-band proxy primary; discard low speed
+            // 1.2.15: polarity A/B — cabin low+mid score; discard low speed
             if (!AncTestPreferences.isMuteAntiOutput(appContext)) {
                 BoomPolarityAbTracker.sample(
                     stepId = guidedStepId,
                     residualReductionDb = lastPlantResidualReductionDb,
                     cabinLowBandDb = lastRawLowBandDb,
-                    speedKmh = speed.speedKmh
+                    speedKmh = speed.speedKmh,
+                    cabinMidBandDb = lastRawMidBandDb
                 )
             }
             AncSessionLogger.log(

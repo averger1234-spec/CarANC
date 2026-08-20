@@ -212,11 +212,15 @@ fun GuidedTestPanel(
                             "negAvg" to (tracker.negAvg() ?: 0f),
                             "posCabinAvg" to (tracker.posCabinAvg() ?: 0f),
                             "negCabinAvg" to (tracker.negCabinAvg() ?: 0f),
+                            "posCabinLowAvg" to (tracker.posCabinLowAvg() ?: 0f),
+                            "negCabinLowAvg" to (tracker.negCabinLowAvg() ?: 0f),
+                            "posCabinMidAvg" to (tracker.posCabinMidAvg() ?: 0f),
+                            "negCabinMidAvg" to (tracker.negCabinMidAvg() ?: 0f),
                             "posN" to tracker.posCount(),
                             "negN" to tracker.negCount(),
                             "discardedLowSpeed" to tracker.discardedLowSpeedCount(),
                             "profileId" to profileId,
-                            "note" to "1.2.14_cabin_proxy_then_plant_else_default_neg1"
+                            "note" to "1.2.15_cabin_low_plus_mid_score_then_plant_else_neg1"
                         )
                     )
                 }

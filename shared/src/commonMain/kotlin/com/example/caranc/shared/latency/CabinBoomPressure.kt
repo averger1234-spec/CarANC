@@ -103,7 +103,13 @@ class CabinBoomPressure(
         val energy = abs(drive).coerceIn(if (openBoom) energyFloor else 0.02f, 0.90f)
         val gain = (0.95f + 0.80f * speedNorm) * (0.60f + 1.40f * energy)
             .coerceIn(0.65f, 1.85f)
-        lastGain = if (freeze) lastGain * 0.99f else gain
+        // 1.2.15: openBoom must NOT freeze gain at 0 (sonif freeze left lastGain=0 → boomOut≈0
+        // while openBoom=true in 1.2.14 fair log).
+        lastGain = when {
+            openBoom -> gain
+            freeze -> lastGain * 0.99f
+            else -> gain
+        }
 
         var y = -drive * lastGain
         val pol = if (polarity >= 0f) 1f else -1f
@@ -111,6 +117,11 @@ class CabinBoomPressure(
         // Dual 1-pole ~85 Hz → 40–80 dominant, kill mid hiss
         lp1 += lpCoeff * (y - lp1)
         lp2 += lpCoeff * (lp1 - lp2)
+        // openBoom: nudge LPF state so first blocks aren't silent after long freeze
+        if (openBoom && abs(lp2) < abs(y) * 0.35f) {
+            lp1 = 0.55f * lp1 + 0.45f * y
+            lp2 = 0.55f * lp2 + 0.45f * lp1
+        }
         y = lp2.coerceIn(-0.95f, 0.95f)
         lastOutput = y
         accumulate(y)

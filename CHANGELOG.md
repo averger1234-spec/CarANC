@@ -22,6 +22,35 @@
 
 
 
+## [1.2.15] — 2026-08-20 · Android code 17 · boomOut 修復 + 中頻 cabin winner + 更緊 LF
+
+### 問題（1.2.14 公平艙錄 074721）
+
+首次有降噪：60–90 Hz **−3～−4 dB**，但：
+
+1. **openBoom=true 而 boomPressureOut≈0**：sonif `freeze` 把 `lastGain` 卡在 0  
+2. **ppos 180–350 +2.9 dB**：LMS totalScale×1.28 + 85Hz 終端仍不夠陡  
+3. **winner 選 +1（plant）**：mic 低頻兩邊都 −50 → cabin 低頻打平，中頻沒投票
+
+### 修復
+
+| 項 | 內容 |
+|----|------|
+| **openBoom×freeze** | openBoom 時強制套用 gain（不凍在 0）；LPF 冷啟動 nudge |
+| **終端 LPF** | ~70 Hz ×4 極（原 85×3） |
+| **LMS scale** | high-lat boom：totalScale ×0.72（不再 ×1.28） |
+| **cabin winner** | score = lowDb + 0.8×midDb（180–350）；更安靜勝 |
+
+### 路測必收
+
+- openBoom 時 **boomOut med ≫ 0.01**
+- 等長三件套：40–80 on<off；**180–350 <+1.5 dB**
+- winner 看 `pos/negCabinMidAvg`
+
+腳本：`三目標·1.2.15 boomOut+中頻winner`
+
+---
+
 ## [1.2.14] — 2026-08-19 · Android code 16 · open boom + 艙錄極性 −1
 
 ### 問題（1.2.13 公平艙錄）

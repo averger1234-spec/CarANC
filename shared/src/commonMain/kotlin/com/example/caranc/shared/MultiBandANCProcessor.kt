@@ -269,14 +269,15 @@ class MultiBandANCProcessor(
     private var roadLpInputState = 0f
     private var roadLpOutputState = 0f
     /**
-     * 1.2.13: true boom-band terminal LPF (~90 Hz). Speed-based roadLpCutoff reaches 320–400 Hz
-     * at cruise and was letting 180–350 Hz anti into the cabin (+6 dB in fair A/B).
+     * 1.2.13/1.2.15: true boom-band terminal LPF. 1.2.14 fair still had 180–350 +2.9 dB on ppos
+     * → tighten to ~70 Hz + 4th pole (was 85 Hz ×3).
      */
     private val boomTerminalLpCoeff =
-        (2.0 * PI * 85.0 / sampleRate).toFloat().coerceIn(0.004f, 0.08f)
+        (2.0 * PI * 70.0 / sampleRate).toFloat().coerceIn(0.003f, 0.07f)
     private var boomTermLp1 = 0f
     private var boomTermLp2 = 0f
     private var boomTermLp3 = 0f
+    private var boomTermLp4 = 0f
 
     @Keep
     override fun applyCabinModel(model: CabinTransferModel) {
@@ -1266,7 +1267,13 @@ class MultiBandANCProcessor(
                 !antiOutputMuted && lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE
             var totalScale = lastSpeedTotalAnti.coerceIn(0.05f, 1.45f)
             if (boomFocusOut && vehicleSpeedKmh >= 18f) {
-                totalScale = (totalScale * if (highLat) 1.28f else 1.20f).coerceAtMost(1.45f)
+                // 1.2.15: under AA high-lat do NOT boost LMS total (was ×1.28 → mid cabin +2.9 dB).
+                // Prefer boom LF path; keep adaptive quieter.
+                totalScale = if (highLat) {
+                    (totalScale * 0.72f).coerceIn(0.05f, 1.05f)
+                } else {
+                    (totalScale * 1.15f).coerceAtMost(1.35f)
+                }
             }
             var speedScaled = gatedCombined * totalScale
 
@@ -1333,7 +1340,7 @@ class MultiBandANCProcessor(
             }
             speedScaled = (speedScaled + notchAnti * notchMix).coerceIn(-1.40f, 1.40f)
 
-            // Boom / high-lat ROAD: true ~90 Hz terminal LPF (NOT speed 320 Hz road LPF)
+            // Boom / high-lat ROAD: ~70 Hz terminal LPF (NOT speed 320 Hz road LPF)
             if ((boomFocusOut || highLatRoadQuiet) && vehicleSpeedKmh >= 18f) {
                 speedScaled = boomTerminalLowPass(speedScaled)
                 speedScaled = boomTerminalLowPass(speedScaled)
@@ -1507,12 +1514,13 @@ class MultiBandANCProcessor(
         return roadLpOutputState
     }
 
-    /** 1.2.13: ~85 Hz triple 1-pole — strips 180–350 Hz anti that speed-based road LPF passes. */
+    /** 1.2.15: ~70 Hz ×4 1-pole — kill 180–350 Hz cabin boost seen on 1.2.14 ppos. */
     private fun boomTerminalLowPass(x: Float): Float {
         boomTermLp1 += boomTerminalLpCoeff * (x - boomTermLp1)
         boomTermLp2 += boomTerminalLpCoeff * (boomTermLp1 - boomTermLp2)
         boomTermLp3 += boomTerminalLpCoeff * (boomTermLp2 - boomTermLp3)
-        return boomTermLp3
+        boomTermLp4 += boomTerminalLpCoeff * (boomTermLp3 - boomTermLp4)
+        return boomTermLp4
     }
 
     private fun tierLength(tier: UserTier) = when (tier) {

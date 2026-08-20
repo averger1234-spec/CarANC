@@ -619,7 +619,7 @@ class MultiBandANCProcessorTest {
         assertEquals(1f, proc.getBoomPolarity())
     }
 
-    /** 1.2.14: cabin proxy beats plant; low speed discarded; default −1. */
+    /** 1.2.14/1.2.15: cabin score beats plant; mid band votes; low speed discarded. */
     @Test
     fun boomPolarityAbTracker_cabinPreferred_andDiscardLowSpeed() {
         BoomPolarityAbTracker.reset()
@@ -632,6 +632,20 @@ class MultiBandANCProcessorTest {
         }
         assertEquals(-1f, BoomPolarityAbTracker.winnerPolarity(), "quieter cabin (−28) wins")
 
+        // 1.2.15: low tied, mid louder on +1 → −1 wins (matches 1.2.14 fair cabin FFT)
+        BoomPolarityAbTracker.reset()
+        repeat(5) {
+            BoomPolarityAbTracker.sample(
+                "target_road_ppos", 3f, cabinLowBandDb = -50f, speedKmh = 70f, cabinMidBandDb = -10f
+            )
+        }
+        repeat(5) {
+            BoomPolarityAbTracker.sample(
+                "target_road_pneg", -5f, cabinLowBandDb = -50f, speedKmh = 70f, cabinMidBandDb = -18f
+            )
+        }
+        assertEquals(-1f, BoomPolarityAbTracker.winnerPolarity(), "quieter mid on −1 wins when low tied")
+
         BoomPolarityAbTracker.reset()
         repeat(5) {
             BoomPolarityAbTracker.sample("target_road_ppos", 1f, cabinLowBandDb = -25f, speedKmh = 5f)
@@ -642,6 +656,21 @@ class MultiBandANCProcessorTest {
         assertTrue(BoomPolarityAbTracker.discardedLowSpeedCount() >= 10)
         assertEquals(-1f, BoomPolarityAbTracker.winnerPolarity(), "incomplete → default −1")
         BoomPolarityAbTracker.reset()
+    }
+
+    /** 1.2.15: freeze must not zero openBoom gain (1.2.14 road boomOut≈0 root cause). */
+    @Test
+    fun openBoom_ignoresFreezeForGain() {
+        val boom = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
+        val delay = 2000
+        repeat(delay + 64) { boom.push(0f) }
+        var y = 0f
+        repeat(128) {
+            boom.push(0f)
+            y = boom.process(delay, 70f, true, freeze = true, polarity = -1f, openBoom = true)
+        }
+        assertTrue(abs(y) > 0.04f, "openBoom+freeze must still drive LF, got $y")
+        assertTrue(boom.lastGain > 0.5f, "gain must leave 0 under openBoom+freeze, got ${boom.lastGain}")
     }
 
     /** 1.2.14: forced polarity at cruise → open boom → boomPressureOut ≫ 0. */
