@@ -1,17 +1,18 @@
-# 最新多機同步索引（2026-08-20）
+# 最新多機同步索引（2026-08-21）
 
-**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.17**）。
+**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.18**）。
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.17 / code 19** · iOS **1.2.17 (28)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.18 / code 20** · iOS **1.2.17 (28)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
-**1.2.17 重點**：雙端 P0/P1 — iOS 安全 teardown（首啟 `removeTap`）+ classifier/`ROAD_NOISE_GPS` + 套用 plant D；Android live path_check / focus 重請 / 艙錄 WAV 同路；openScale 0.25 不再被抬到 0.5。
+**1.2.18 重點**：AA 混音 — ANC 走 NAV overlay（非 MUSIC）+ 靜音 MEDIA keep-alive；50Hz 艙錄；send 70Hz LPF；不獨佔 MEDIA focus。  
+**1.2.17 重點**：雙端 P0/P1 — iOS 安全 teardown + classifier/plant D；Android live path_check / 艙錄 WAV 同路。
 **1.2.16 重點**：AA 運行中 **持有 USAGE_MEDIA AudioFocus** + 啟動 **`aa_path_check` PASS/FAIL**（50Hz 自檢）；open 短測 25–30%；55Hz mid 收緊。
 **1.2.15 重點**：openBoom×freeze 修復（boomOut≠0）；70Hz×4 終端；LMS high-lat 降 scale；cabin winner = low+0.8×mid。  
 **1.2.14 重點**：open boom + 預設極性−1 + cabin winner；停速場作廢。  

@@ -401,14 +401,14 @@ object CarAncTestScript {
 }
 
 object CarRoadTuningScript {
-    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.16-aligned. */
+    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.18-aligned. */
     const val SCRIPT_ID = "car_road_tuning_v1"
     /**
-     * === 1.2.17 dual-end P0/P1: live path check + classifier/plant on iOS + cabin WAV ===
-     * prep → diag_tone_50 → road_off → road_ppos → road_pneg → tire → wind → finish
-     * 必收：等長三件套；50Hz 無音樂應可聽；openScale 短測；180–350 不大增
+     * === 1.2.18 NAV overlay mix + 50Hz cabin + send LPF ===
+     * prep → diag_tone_50 (艙錄) → road_off → ppos → pneg → tire → wind → finish
+     * 必收：50Hz 低嗡不是沙；cabin_diag 有 50Hz 峰；開 ANC 中高頻不大增
      */
-    const val SCRIPT_NAME = "三目標·1.2.17 雙端對齊P0P1"
+    const val SCRIPT_NAME = "三目標·1.2.18 overlay混音+50Hz艙錄"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -453,9 +453,9 @@ object CarRoadTuningScript {
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
             id = "tuning_prep",
-            title = "準備：1.2.17 雙端對齊P0P1",
+            title = "準備：1.2.18 overlay混音+50Hz艙錄",
             instructions = listOf(
-                "★ 版號 **v1.2.17**；AA **持有 USAGE_MEDIA focus**（整段 ANC）",
+                "★ 版號 **v1.2.18**；anti 走 **NAV overlay**，不是音樂混音",
                 "USB 有線 AA；placement=floor/seat；**音樂全關**",
                 "啟動 ANC 後約 1.5s 自動 50Hz 自檢 → log **aa_path_check PASS/FAIL**",
                 "★ PASS=live focus+MEDIA+car sink+送出；你還須聽到低嗡才算喇叭通",
@@ -468,7 +468,7 @@ object CarRoadTuningScript {
             maxWallSec = 60,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "版號v1.2.17",
+                "版號v1.2.18",
                 "tier=PRO",
                 "USB AA",
                 "50Hz無音樂可聽?",
@@ -489,10 +489,10 @@ object CarRoadTuningScript {
             id = "diag_tone_50",
             title = "⓪ AA 低頻診斷 50Hz tone（30s）",
             instructions = listOf(
-                "停車或怠速；**開 ANC**（tone 經 AA 出喇叭）",
-                "應聽到 **低沉 50Hz 嗡**；若完全沒低音 → 車機/AA/喇叭低頻不通，後面算法也聽不出",
-                "log：diag_tone_active + antiE40_80 應高",
-                "主觀：有/無聽到 50Hz（寫 userNote）"
+                "停車或怠速；**開 ANC**（50Hz 走 **NAV overlay**，不是音樂混音）",
+                "應聽到 **低沉 50Hz 嗡**；若是沙沙聲 = 混音仍錯",
+                "★ 此步自動艙錄 cabin_diag_tone_50_*.wav（不須車速）",
+                "log：diag_tone_active note 含 1.2.18 overlay；主觀有/無 50Hz"
             ),
             durationSec = 30,
             requiresAncRunning = true,
@@ -501,17 +501,20 @@ object CarRoadTuningScript {
             suggestedTier = UserTier.PRO,
             checklist = listOf(
                 "ANC開",
-                "聽到50Hz?",
-                "log有diag_tone",
+                "聽到50Hz低嗡?",
+                "不是沙沙?",
+                "艙錄50Hz",
                 "tier=PRO"
             ),
-            logPhases = listOf("diag_tone_active", "spectrum_kpi", "running_snapshot"),
+            logPhases = listOf("diag_tone_active", "cabin_record_start", "spectrum_kpi", "running_snapshot"),
             debugPresets = mapOf(
                 "tier" to "PRO",
                 "userAncGain" to 1.0f,
                 "muteAnti" to false,
                 "diagToneHz" to 50f,
-                "forceNormalMode" to true
+                "forceNormalMode" to true,
+                "cabinRecord" to true,
+                "cabinRecordOnValidSpeed" to false
             )
         ),
         TestScriptStep(
@@ -701,7 +704,7 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束：1.2.17 對照匯出",
+            title = "結束：1.2.18 對照匯出",
             instructions = listOf(
                 "停 ANC → 存 Log；scenario：50Hz無音樂、等長三件套",
                 "★ PASS：trackUsage=MEDIA；50Hz無音樂可聽；40–80 on≤off；180–350 <+1.5dB",

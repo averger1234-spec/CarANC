@@ -22,6 +22,36 @@
 
 
 
+## [1.2.18] — 2026-08-21 · Android code 20 · AA overlay 混音 + 50Hz 艙錄
+
+### 問題（1.2.17 路測）
+
+用戶聽不到 50Hz 低嗡，只聽到**雜訊**。艙錄（路悶 A/B）已證明：路徑 PASS 時開 ANC **中高頻 +1～2 dB**（沙）。
+
+根因：ANC `AudioTrack` 用 **USAGE_MEDIA + AUDIOFOCUS_GAIN**，車機當**音樂**混音（EQ/高通切掉 50Hz），並與 AA **搶 focus**（`holdingMediaFocus` 跳變 → path_check FAIL）。
+
+### 修復
+
+| 項 | 內容 |
+|----|------|
+| **Overlay** | ANC PCM → `USAGE_ASSISTANCE_NAVIGATION_GUIDANCE`（不是 MUSIC） |
+| **Keep-alive** | 靜音 `USAGE_MEDIA` track 維持車機管線 |
+| **Focus** | `GAIN_TRANSIENT_MAY_DUCK`（不獨佔）；DELAYED 不算 live |
+| **50Hz 艙錄** | `diag_tone_50` 自動 `cabin_diag_tone_50_*.wav`（不須車速） |
+| **Send LPF** | 非 tone 再加 70Hz 雙極；diag 時不 duck sonif |
+| **50Hz 振幅** | 0.22 → 0.38（overlay 較小聲） |
+
+### 路測必收
+
+1. 開頭應聽 **低沉 50Hz**，不是沙  
+2. 艙錄 `cabin_diag_tone_50_*` 峰應在 ~50Hz  
+3. 路悶 on vs off：**中高頻不大增**  
+4. log `trackUsage` 含 `NAVIGATION_GUIDANCE`
+
+腳本：`三目標·1.2.18 overlay混音+50Hz艙錄`
+
+---
+
 ## [1.2.17] — 2026-08-20 · Android code 19 · 雙端 P0/P1 對齊
 
 交叉改進（不是 Android 單向）：朋友 1.2.15 開 App 不閃、**開始降噪／腳本閃退**；1.2.16 (27) 修了 KMP 鎖但仍有 `removeTap` 首啟崩潰，且 iOS 沒套 classifier / plant D / ROAD 模式。

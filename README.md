@@ -5,7 +5,7 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**版號**：Android **`version.properties` → 1.2.17 / code 19** · iOS **1.2.17 (28)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+**版號**：Android **`version.properties` → 1.2.18 / code 20** · iOS **1.2.17 (28)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 
 **跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-20 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
@@ -44,12 +44,12 @@ git push origin main
 
 ---
 
-## 最新進度（2026-08-20）— 1.2.17 雙端 P0/P1 對齊
+## 最新進度（2026-08-21）— 1.2.18 overlay 混音 + 50Hz 艙錄
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| **Android 版號** | **`1.2.17` / code `19`** · 主畫面 `v1.2.17` | ✅ |
-| **1.2.17 路測** | live MEDIA path_check（DELAYED/無 sink 不算 PASS）；focus LOSS 重要；艙錄改 ANC 同路 WAV；openScale 0.25 不再被抬到 0.5 | ✅ |
+| **Android 版號** | **`1.2.18` / code `20`** · 主畫面 `v1.2.18` | ✅ |
+| **1.2.18 路測** | ANC 走 NAV overlay（非 MUSIC）；靜音 MEDIA keep-alive；50Hz 艙錄；send LPF；開頭應聽低嗡不是沙 | ✅ |
 | **iOS 版號** | **`1.2.17` (build 28)** · 狀態頁 **`v1.2.17 (28)`** · 安全 teardown（removeTap）+ classifier/plant D + 路徑自檢需 carAudio | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |

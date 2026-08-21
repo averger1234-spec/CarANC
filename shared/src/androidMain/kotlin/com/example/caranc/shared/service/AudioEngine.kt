@@ -72,6 +72,11 @@ class AudioEngine(
     private var processingJob: Job? = null
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
+    /** 1.2.18: silent USAGE_MEDIA so HU keeps pipe; ANC PCM is on overlay track. */
+    private var mediaKeepAliveTrack: AudioTrack? = null
+    private var keepAliveSilence = ShortArray(PROCESSING_READ_SIZE)
+    private var sendLp1 = 0f
+    private var sendLp2 = 0f
     private var ancProcessor: AncProcessorFacade? = null
     private var cabinProfileId: String = CabinTransferModel.DEFAULT_PROFILE_ID
     private lateinit var audioManager: AudioManager
@@ -327,8 +332,24 @@ class AudioEngine(
                         audioTrackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                     }
                     audioTrack = audioTrackBuilder.build()
-                    audioBackendLabel = "AUDIOTRACK_AA_SUBMIX"
-                    Log.i("ANCService", "AUDIO_BACKEND=$audioBackendLabel (AA path — no exclusive AAudio)")
+                    // Silent MEDIA keep-alive (music bus open) — ANC is NAV overlay, not MUSIC
+                    val keepAliveBuilder = AudioTrack.Builder()
+                        .setAudioAttributes(routeManager.buildKeepAliveAudioAttributes())
+                        .setAudioFormat(
+                            AudioFormat.Builder()
+                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                                .setSampleRate(sampleRate)
+                                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                                .build()
+                        )
+                        .setBufferSizeInBytes(trackBufferBytes)
+                        .setTransferMode(AudioTrack.MODE_STREAM)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        keepAliveBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                    }
+                    mediaKeepAliveTrack = keepAliveBuilder.build()
+                    audioBackendLabel = "AUDIOTRACK_AA_NAV_OVERLAY+MEDIA_KEEPALIVE"
+                    Log.i("ANCService", "AUDIO_BACKEND=$audioBackendLabel")
                 }
                 lastAudioBackendLabel = audioBackendLabel
 
@@ -337,6 +358,12 @@ class AudioEngine(
                     audioTrack = audioTrack!!,
                     route = route
                 )
+                mediaKeepAliveTrack?.let { ka ->
+                    try {
+                        routeManager.ensureOutputRoute(null, ka, aa)
+                    } catch (_: Exception) {
+                    }
+                }
 
                 cabinProfileId = CabinProfileStore.resolveProfileId(appContext)
                 mimoTrialEnabled = AncTestPreferences.isMimoTrialEnabled(appContext) &&
@@ -415,10 +442,18 @@ class AudioEngine(
 
                 audioRecord?.startRecording()
                 audioTrack?.play()
+                try {
+                    mediaKeepAliveTrack?.play()
+                } catch (_: Exception) {
+                }
 
                 val primingSize = sampleRate / 4
                 val silence = ShortArray(primingSize)
                 audioTrack?.write(silence, 0, silence.size)
+                try {
+                    mediaKeepAliveTrack?.write(silence, 0, silence.size)
+                } catch (_: Exception) {
+                }
 
                 val trash = ShortArray(primingSize)
                 if (audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
@@ -556,6 +591,8 @@ class AudioEngine(
                         try {
                             audioTrack?.play()
                             audioTrack?.write(learnSilence, 0, learnSilence.size)
+                            mediaKeepAliveTrack?.play()
+                            mediaKeepAliveTrack?.write(learnSilence, 0, learnSilence.size)
                         } catch (e: Exception) {
                             Log.w("ANCService", "learning silence write error (non-fatal, continuing): ${e.message}")
                         }
@@ -820,7 +857,9 @@ class AudioEngine(
                         //       並觸發 freeze 避免 LMS 學習 transient 產生 artifact。
                         //       這不會長期關閉降噪，只在事件期間（~100-200ms）保護重要聲音與主音訊穩定。
                         val sonifDet = sonificationDetector
-                        if (sonifDet != null) {
+                        val diagHzNow = AncTestPreferences.getDiagToneHz(appContext)
+                        // 1.2.18: our own overlay/keepalive is not a "notification" — skip ducking during 50Hz diag
+                        if (sonifDet != null && diagHzNow < 40f) {
                             var sonifHit = false
 
                             // 優先從 playbackRef 偵測（最能提前知道 "通知正在播放"）
@@ -868,6 +907,8 @@ class AudioEngine(
                                 ancProcessor?.setSonificationOverride(false, 1f)
                                 lastSonifLogged = false
                             }
+                        } else {
+                            ancProcessor?.setSonificationOverride(false, 1f)
                         }
 
                         val blockRms = computeBlockRms(preprocessed, read)
@@ -1018,13 +1059,15 @@ class AudioEngine(
                                 routedName.contains("bus", ignoreCase = true) ||
                                 routedName.contains("car", ignoreCase = true)
                             val sendOk = pathCheckPeakAbs >= 2000 // send-buffer peak only — not HU speakers
-                            val usageOk = usage.contains("MEDIA", ignoreCase = true)
-                            val pass = holding && usageOk && sendOk && sinkOk
+                            val usageOk = usage.contains("NAVIGATION", ignoreCase = true) ||
+                                usage.contains("MEDIA", ignoreCase = true)
+                            // 1.2.18: overlay send+sink is the speaker path; exclusive MEDIA focus is not required
+                            val pass = sendOk && sinkOk && usageOk
                             val failReasons = buildList {
-                                if (!holding) add("no_live_media_focus")
-                                if (!usageOk) add("trackUsage_not_MEDIA")
                                 if (!sendOk) add("send_tone_peak_too_low")
-                                if (!sinkOk) add("no_car_sink")
+                                if (!sinkOk) add("not_car_or_submix_sink")
+                                if (!usageOk) add("trackUsage_not_overlay")
+                                if (!holding) add("keepalive_focus_not_live")
                                 if (rm?.lastFocusRequestResult() == AudioManager.AUDIOFOCUS_REQUEST_DELAYED) {
                                     add("focus_was_DELAYED")
                                 }
@@ -1057,8 +1100,7 @@ class AudioEngine(
                             )
                         }
 
-                        // 1.2.8: AA path diagnostic pure tone (50/60 Hz) — overrides anti to verify car low-freq
-                        // Mute step must stay silent (no tone during road_off baseline)
+                        // 1.2.8/1.2.18: 50Hz overlay (replaces anti). Else extra send LPF vs cabin hiss.
                         val diagHz = if (muteAnti) 0f else AncTestPreferences.getDiagToneHz(appContext)
                         if (!pathChecking && diagHz >= 40f && diagHz <= 100f) {
                             injectDiagTone(output, read, diagHz, sampleRate = audioRecord?.sampleRate ?: 44100)
@@ -1070,11 +1112,14 @@ class AudioEngine(
                                     fields = mapOf(
                                         "hz" to diagHz,
                                         "holdingMediaFocus" to (audioRouteManager?.isHoldingRunningFocus() == true),
+                                        "pathLive" to (audioRouteManager?.isRunningMediaPathLive() == true),
                                         "trackUsage" to (audioRouteManager?.currentTrackUsageLabel(isAAConnected()) ?: "?"),
-                                        "note" to "pure_tone_via_AA_verify_car_bass_path"
+                                        "note" to "1.2.18_50Hz_NAV_overlay_not_MUSIC_mix"
                                     )
                                 )
                             }
+                        } else if (!pathChecking && !muteAnti) {
+                            lowPassSendInPlace(output, read, sampleRate = audioRecord?.sampleRate ?: 44100)
                         }
 
                         // Accumulate anti PCM for send-path band energy KPI (post-mute write buffer)
@@ -1101,6 +1146,14 @@ class AudioEngine(
                             output.copyInto(lastAntiNoise, 0, 0, read)
                         }
                         audioTrack?.write(output, 0, read)
+                        val ka = mediaKeepAliveTrack
+                        if (ka != null) {
+                            if (keepAliveSilence.size < read) keepAliveSilence = ShortArray(read)
+                            try {
+                                ka.write(keepAliveSilence, 0, read)
+                            } catch (_: Exception) {
+                            }
+                        }
 
                         // 1.2.12: KPI / plant residual must use **post-mute write** buffer (was pre-mute processed → fake antiNoiseDb≈−8 on mute)
                         updateVisualization(preprocessed, output, read)
@@ -2117,16 +2170,27 @@ class AudioEngine(
         output[2] = toS(output[2] / 32767f + a * 0.7f)
     }
 
-    /** 1.2.8 pure sine for AA bass path verification (hearable). */
+    /** 1.2.8/1.2.18 pure sine for AA bass path (overlay mix, slightly louder). */
     private fun injectDiagTone(output: ShortArray, size: Int, hz: Float, sampleRate: Int) {
         if (size <= 0 || sampleRate <= 0) return
         val twoPi = 2.0 * Math.PI
-        val amp = 0.22 // hearable on car speakers if path passes LF
+        val amp = 0.38 // overlay bus is quieter than MUSIC; still clip-safe
         for (i in 0 until size) {
             val s = kotlin.math.sin(diagTonePhase) * amp
             diagTonePhase += twoPi * hz / sampleRate
             if (diagTonePhase > twoPi) diagTonePhase -= twoPi
             output[i] = (s * 32767.0).coerceIn(-32768.0, 32767.0).toInt().toShort()
+        }
+    }
+
+    /** Extra 70 Hz dual pole on send (not diag tone) — cabin hiss was mid-high leak. */
+    private fun lowPassSendInPlace(output: ShortArray, size: Int, sampleRate: Int) {
+        val coeff = (2.0 * Math.PI * 70.0 / sampleRate).toFloat().coerceIn(0.003f, 0.08f)
+        for (i in 0 until size) {
+            val x = output[i] / 32768f
+            sendLp1 += coeff * (x - sendLp1)
+            sendLp2 += coeff * (sendLp1 - sendLp2)
+            output[i] = (sendLp2 * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
         }
     }
 
@@ -2281,6 +2345,17 @@ class AudioEngine(
                     release()
                 }
                 audioTrack = null
+                mediaKeepAliveTrack?.apply {
+                    try {
+                        if (state == AudioTrack.STATE_INITIALIZED) {
+                            pause()
+                            flush()
+                        }
+                    } catch (_: Exception) {
+                    }
+                    release()
+                }
+                mediaKeepAliveTrack = null
             } catch (e: Exception) {
                 Log.e("ANCService", "releaseAudio error: ${e.message}")
             }

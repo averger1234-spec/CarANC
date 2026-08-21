@@ -77,27 +77,29 @@ class AudioRouteManager(context: Context) {
     private var deviceCallback: AudioDeviceCallback? = null
     private var routeChangeListener: ((RouteApplyResult) -> Unit)? = null
 
-    // AA routing：
-    // 1.2.16 default **MEDIA** on AA — many head-units mute ASSISTANCE_SONIFICATION when no
-    // music app is playing (user: 無音樂像沒喇叭輸出；開音樂才有電子雜訊).
-    // Legacy SONIFICATION path kept only if aaPreferMediaTrack=false and not failed.
+    // 1.2.18 mix split (cabin hiss + no 50Hz bass):
+    // USAGE_MEDIA + AUDIOFOCUS_GAIN made HU treat ANC as *music* (EQ/HPF kills 50Hz,
+    // leftover mid-high = 雜訊) and fight AA for media focus (holdingMediaFocus flap).
+    // ANC PCM → NAVIGATION overlay; silent MEDIA keep-alive keeps HU pipe open.
     private var aaSonificationRoutingFailed = false
-    /** When true (default), AA AudioTrack uses USAGE_MEDIA so HU keeps the stream open. */
+    /** Legacy flag: ignored for overlay identity (ANC is never MUSIC in 1.2.18). */
     @Volatile
-    var aaPreferMediaTrack: Boolean = true
+    var aaPreferMediaTrack: Boolean = false
 
-    /** 供外部（測試或 UI）呼叫，重置 AA SONIFICATION fallback 狀態，下次可重新嘗試 SONIFICATION */
     fun resetAaSonificationFallback() {
         aaSonificationRoutingFailed = false
-        Log.i(TAG, "AA SONIFICATION fallback 已重置，下次 build 將重新嘗試 SONIFICATION。")
+        Log.i(TAG, "AA overlay fallback reset")
     }
 
     fun isAaSonificationFallbackActive(): Boolean = aaSonificationRoutingFailed
 
-    /** Log / UI: which usage the ANC track will request. */
+    /** Log: overlay usage (+ keepalive). */
     fun currentTrackUsageLabel(isAaConnected: Boolean): String {
-        val useMedia = !isAaConnected || aaPreferMediaTrack || aaSonificationRoutingFailed
-        return if (isAaConnected && useMedia) "USAGE_MEDIA" else "USAGE_ASSISTANCE_SONIFICATION"
+        return if (isAaConnected) {
+            "USAGE_ASSISTANCE_NAVIGATION_GUIDANCE+MEDIA_KEEPALIVE"
+        } else {
+            "USAGE_ASSISTANCE_SONIFICATION"
+        }
     }
 
     @Volatile
@@ -225,19 +227,25 @@ class AudioRouteManager(context: Context) {
 
     fun buildTrackAudioAttributes(isAaConnected: Boolean): AudioAttributes {
         val builder = AudioAttributes.Builder()
-        // 1.2.16: AA → MEDIA by default (keep car sink alive without a music app).
-        // Local phone speaker can stay SONIFICATION to avoid stealing media focus.
-        val useMediaOnAa = isAaConnected && (aaPreferMediaTrack || aaSonificationRoutingFailed)
-        if (useMediaOnAa) {
-            builder.setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-            builder.setUsage(AudioAttributes.USAGE_MEDIA)
-            Log.i(TAG, "ANC track attrs=USAGE_MEDIA (AA keep-alive / HU mix)")
+        if (isAaConnected) {
+            // Overlay mix — not the music bus (1.2.18)
+            builder.setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            builder.setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+            Log.i(TAG, "ANC overlay attrs=USAGE_ASSISTANCE_NAVIGATION_GUIDANCE")
         } else {
             builder.setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             builder.setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
             Log.i(TAG, "ANC track attrs=USAGE_ASSISTANCE_SONIFICATION")
         }
         return builder.build()
+    }
+
+    /** Silent MEDIA keep-alive so HU does not mute overlay when no music app. */
+    fun buildKeepAliveAudioAttributes(): AudioAttributes {
+        return AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .build()
     }
 
     fun prepareRunningAudioMix(isAaConnected: Boolean): Boolean {
@@ -314,18 +322,20 @@ class AudioRouteManager(context: Context) {
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val attrs = buildTrackAudioAttributes(isAaConnected = true)
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(attrs)
-                .setAcceptsDelayedFocusGain(true)
+            // 1.2.18: MAY_DUCK — do not steal exclusive media (AA was flapping LOSS/GAIN).
+            val keepAliveAttrs = buildKeepAliveAudioAttributes()
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setAudioAttributes(keepAliveAttrs)
+                .setAcceptsDelayedFocusGain(false)
                 .setWillPauseWhenDucked(false)
                 .setOnAudioFocusChangeListener(listener, mainHandler)
                 .build()
             focusRequest = request
             val result = audioManager.requestAudioFocus(request)
             lastFocusRequestResultCode = result
-            hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED ||
-                result == AudioManager.AUDIOFOCUS_REQUEST_DELAYED
-            Log.i(TAG, "requestRunningMediaFocus result=$result granted=$hasAudioFocus usage=MEDIA")
+            // DELAYED is NOT a live speaker path
+            hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            Log.i(TAG, "requestRunningMediaFocus result=$result granted=$hasAudioFocus usage=MEDIA_KEEPALIVE_DUCK")
             hasAudioFocus
         } else {
             @Suppress("DEPRECATION")
