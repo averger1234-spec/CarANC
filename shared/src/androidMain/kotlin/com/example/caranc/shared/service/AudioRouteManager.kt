@@ -522,6 +522,11 @@ class AudioRouteManager(context: Context) {
         return audioTrack.routedDevice?.let { describeDevice(it) }
     }
 
+    fun getActiveOutputDeviceType(audioTrack: AudioTrack?): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || audioTrack == null) return -1
+        return audioTrack.routedDevice?.type ?: -1
+    }
+
     private fun applyRoute(
         audioRecord: AudioRecord,
         audioTrack: AudioTrack,

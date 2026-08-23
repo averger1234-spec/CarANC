@@ -22,6 +22,24 @@
 
 
 
+## [1.2.25] — 2026-08-23 · Android code 27 · AA 連上就自動測路徑
+
+USB AA 連上時自動跑路徑檢測，不再只信 `aa_path_check` 的「送出 peak」。
+
+| 項 | 內容 |
+|----|------|
+| **何時測** | 開降噪時已連 AA；或 **先開降噪再插 AA**（rising edge） |
+| **送出** | 400ms 麥 baseline → 1.8s 50Hz（僅在非手機喇叭時播） |
+| **進沒進 AA** | `routedOutput` / type：`remote_submix` vs `SPEAKER`；backend 是否還停在 `AAUDIO_LIKE_LOCAL` |
+| **車機有沒有出** | 麥 50Hz 相對 baseline 有沒有起來（`cabinHeard`） |
+| **verdict** | `PHONE_SPEAKER` / `SUBMIX_SEND_OK_MIC_HEARD_50HZ` / `SUBMIX_SEND_OK_MIC_NO_50HZ` / … |
+
+若先開降噪再插 AA，聲音常還在手機喇叭：通知「請停止再開始」。這不是 bug 隱瞞，是 Track 建在 local，必須重建。
+
+Log：`aa_became_connected` + `aa_path_check`（含 `verdict`、`cabinHeard`、`micDelta50Db`）。
+
+---
+
 ## [1.2.24] — 2026-08-23 · Android code 26 · 停止降噪真的會停
 
 1.2.23 實車：App 開著，按「停止降噪」沒反應（或停一下又自己開）。Log：`onStartCommand` 連打兩次（約 80ms）→ 兩條 AudioEngine；`onDestroy` 只停到最新那條；腳本 `LaunchedEffect(ancRunning)` 一看到停就再 `startForegroundService`。服務已死時 UI 還卡在 Running，再按停止是 no-op。

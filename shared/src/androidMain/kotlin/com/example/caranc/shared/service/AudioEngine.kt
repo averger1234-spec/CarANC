@@ -136,11 +136,17 @@ class AudioEngine(
     private var recordBufferBytes = 0
     private var trackBufferBytes = 0
     private var recordHalSamples = 0
-    /** 1.2.16: AA path self-check — brief 50 Hz after Running; PASS/FAIL once. */
+    /** 1.2.16/1.2.25: AA path probe — 50 Hz send + mic return when AA connects. */
     private var pathCheckUntilMs = 0L
+    private var pathCheckStartMs = 0L
+    private var pathCheckBaselineEndMs = 0L
     private var pathCheckPeakAbs = 0
     private var pathCheckDone = false
     private var pathCheckAa = false
+    private var lastAaConnected = false
+    private val mic50Base = ToneGoertzel(50f)
+    private val mic50Live = ToneGoertzel(50f)
+    private val mic200Live = ToneGoertzel(200f)
     private var trackHalSamples = 0
 
     private var lastVisUpdate = 0L
@@ -624,24 +630,13 @@ class AudioEngine(
                 lastProfileAgingCheckMs = processingStartedAtMs
                 profileEnergyEma = 0.0
 
-                // 1.2.16 path self-check: 1.5s of 50 Hz after Running (AA only); log PASS/FAIL once
-                pathCheckAa = aa || a2dpBassOut
-                pathCheckDone = false
+                lastAaConnected = aa
+                pathCheckAa = false
+                pathCheckDone = true
                 pathCheckPeakAbs = 0
-                if (aa) {
-                    // Ensure focus still held after learning/calib
+                if (aa || a2dpBassOut) {
                     routeManager.requestRunningMediaFocus(true)
-                    pathCheckUntilMs = System.currentTimeMillis() + 1500L
-                    AncSessionLogger.log(
-                        phase = "aa_path_check_start",
-                        fields = mapOf(
-                            "hz" to 50f,
-                            "durationMs" to 1500,
-                            "holdingFocus" to routeManager.isHoldingRunningFocus(),
-                            "trackUsage" to routeManager.currentTrackUsageLabel(true),
-                            "note" to "listen_for_50Hz_bass_music_off_PASS_if_heard"
-                        )
-                    )
+                    armAaPathProbe(routeManager, reason = "engine_start")
                 } else {
                     pathCheckUntilMs = 0L
                 }
@@ -666,6 +661,11 @@ class AudioEngine(
 
                 while (isActive && !stopRequested) {
                     maybeRefreshAudioRoute(routeManager)
+                    val aaNow = isAAConnected()
+                    if (aaNow && !lastAaConnected) {
+                        handleAaBecameConnected(routeManager)
+                    }
+                    lastAaConnected = aaNow
 
                     val activeTier = sessionContext.tierManager.currentTier.value
                     if (activeTier != lastActiveTier) {
@@ -791,6 +791,16 @@ class AudioEngine(
                     val read = audioRecord?.read(input, 0, readSize) ?: 0
                     if (stopRequested || !isActive) break
                     if (read > 0) {
+                        val srMic = audioRecord?.sampleRate ?: 48000
+                        val nowMic = System.currentTimeMillis()
+                        val inPath = pathCheckAa && !pathCheckDone && pathCheckStartMs > 0L &&
+                            nowMic < pathCheckUntilMs
+                        if (inPath && nowMic >= pathCheckBaselineEndMs) {
+                            mic50Live.add(input, read, srMic)
+                            mic200Live.add(input, read, srMic)
+                        } else if (inPath) {
+                            mic50Base.add(input, read, srMic)
+                        }
                         if (GuidedCabinRecorder.isRecording()) {
                             GuidedCabinRecorder.append(input, read)
                         }
@@ -1053,71 +1063,28 @@ class AudioEngine(
                         scaleSamplesInto(processed, read, finalWriteGain, outputBufferReuse)
                         val output = outputBufferReuse
 
-                        // 1.2.16 path self-check tone (AA, first 1.5s of Running) — before guided mute/diag
+                        // 1.2.25 path probe: 400ms mic baseline, then 50Hz send; mic return = cabin heard
                         val nowPath = System.currentTimeMillis()
-                        val pathChecking = pathCheckAa && !pathCheckDone && pathCheckUntilMs > 0L && nowPath < pathCheckUntilMs
-                        val wantBassFocus = pathChecking ||
+                        val pathWindow = pathCheckAa && !pathCheckDone && pathCheckStartMs > 0L
+                        val pathChecking = pathWindow && nowPath < pathCheckUntilMs
+                        val pathToning = pathChecking && nowPath >= pathCheckBaselineEndMs
+                        val wantBassFocus = pathToning ||
                             (!muteAnti && AncTestPreferences.getDiagToneHz(appContext) >= 40f)
                         try {
                             audioRouteManager?.setBassToneExclusive(wantBassFocus)
                         } catch (_: Exception) {
                         }
-                        if (pathChecking && !muteAnti) {
+                        val routedNow = audioRouteManager?.getActiveOutputDeviceName(audioTrack) ?: ""
+                        val routedTypeNow = audioRouteManager?.getActiveOutputDeviceType(audioTrack) ?: -1
+                        val speakerNow = isPhoneSpeakerRoute(routedNow, routedTypeNow)
+                        if (pathToning && !muteAnti && !speakerNow) {
                             injectDiagTone(output, read, 50f, sampleRate = audioRecord?.sampleRate ?: 44100)
                             for (j in 0 until read) {
                                 val a = kotlin.math.abs(output[j].toInt())
                                 if (a > pathCheckPeakAbs) pathCheckPeakAbs = a
                             }
-                        } else if (pathCheckAa && !pathCheckDone && pathCheckUntilMs > 0L && nowPath >= pathCheckUntilMs) {
-                            pathCheckDone = true
-                            val rm = audioRouteManager
-                            val holding = rm?.isRunningMediaPathLive() == true
-                            val usage = rm?.currentTrackUsageLabel(true) ?: "?"
-                            val routedName = rm?.getActiveOutputDeviceName(audioTrack) ?: "?"
-                            val submixOk = routedName.contains("submix", ignoreCase = true)
-                            val a2dpOk = routedName.contains("a2dp", ignoreCase = true) ||
-                                routedName.contains("bluetooth", ignoreCase = true)
-                            val sinkOk = submixOk || a2dpOk ||
-                                routedName.contains("usb", ignoreCase = true) ||
-                                routedName.contains("bus", ignoreCase = true) ||
-                                routedName.contains("car", ignoreCase = true)
-                            val sendOk = pathCheckPeakAbs >= 2000 // send-buffer peak only — not HU speakers
-                            val usageOk = usage.contains("MEDIA", ignoreCase = true)
-                            // 1.2.21: exclusive MUSIC focus is not required (that paused user music).
-                            val pass = sendOk && sinkOk && usageOk
-                            val failReasons = buildList {
-                                if (!sendOk) add("send_tone_peak_too_low")
-                                if (!sinkOk) add("not_car_or_submix_sink")
-                                if (!usageOk) add("trackUsage_not_MEDIA")
-                            }
-                            AncSessionLogger.log(
-                                phase = "aa_path_check",
-                                fields = mapOf(
-                                    "result" to if (pass) "PASS" else "FAIL",
-                                    "holdingMediaFocus" to holding,
-                                    "holdingRequested" to (rm?.isHoldingRunningFocus() == true),
-                                    "focusRequestResult" to (rm?.lastFocusRequestResult() ?: -1),
-                                    "lastFocusChange" to (rm?.lastFocusChange() ?: 0),
-                                    "trackUsage" to usage,
-                                    "routedOutput" to routedName,
-                                    "submixOk" to submixOk,
-                                    "a2dpOk" to a2dpOk,
-                                    "a2dpBassOut" to a2dpBassOut,
-                                    "sinkOk" to sinkOk,
-                                    "pathCheckPeakAbs" to pathCheckPeakAbs,
-                                    "sendOk" to sendOk,
-                                    "failReasons" to failReasons.joinToString(","),
-                                    "note" to if (pass) {
-                                        "SEND_AND_SINK_OK_listen_for_50Hz_to_confirm_HU_speakers"
-                                    } else {
-                                        "FOCUS_SINK_OR_SEND_FAIL_do_not_trust_cancel_KPI"
-                                    }
-                                )
-                            )
-                            Log.i(
-                                "ANCService",
-                                "aa_path_check ${if (pass) "PASS" else "FAIL"} focus=$holding usage=$usage peak=$pathCheckPeakAbs routed=$routedName"
-                            )
+                        } else if (pathWindow && nowPath >= pathCheckUntilMs) {
+                            finishAaPathProbe(audioRouteManager, reason = "timer")
                         }
 
                         // Path-tone replaces anti. Else extra send LPF vs cabin hiss.
@@ -2295,6 +2262,197 @@ class AudioEngine(
         return latest
     }
 
+    private fun isPhoneSpeakerRoute(name: String?, type: Int): Boolean {
+        if (type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ||
+            type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+        ) return true
+        val n = name.orEmpty()
+        if (n.contains("submix", ignoreCase = true)) return false
+        return n.contains("SPEAKER", ignoreCase = true) ||
+            n.contains("earpiece", ignoreCase = true)
+    }
+
+    private fun armAaPathProbe(routeManager: AudioRouteManager, reason: String) {
+        val sr = audioRecord?.sampleRate ?: 48000
+        val now = System.currentTimeMillis()
+        pathCheckAa = true
+        pathCheckDone = false
+        pathCheckPeakAbs = 0
+        pathCheckStartMs = now
+        pathCheckBaselineEndMs = now + PATH_CHECK_BASELINE_MS
+        pathCheckUntilMs = now + PATH_CHECK_BASELINE_MS + PATH_CHECK_TONE_MS
+        mic50Base.reset()
+        mic50Live.reset()
+        mic200Live.reset()
+        onUpdateNotification("AA 路徑檢測：請暫停音樂，聽 50Hz")
+        AncSessionLogger.log(
+            phase = "aa_path_check_start",
+            fields = mapOf(
+                "reason" to reason,
+                "hz" to 50f,
+                "baselineMs" to PATH_CHECK_BASELINE_MS,
+                "toneMs" to PATH_CHECK_TONE_MS,
+                "audioBackend" to lastAudioBackendLabel,
+                "holdingFocus" to routeManager.isHoldingRunningFocus(),
+                "trackUsage" to routeManager.currentTrackUsageLabel(true),
+                "routedOutput" to (routeManager.getActiveOutputDeviceName(audioTrack) ?: "?"),
+                "routedOutputType" to routeManager.getActiveOutputDeviceType(audioTrack),
+                "aaLinkType" to (currentRoute?.aaLinkType ?: "?"),
+                "sampleRate" to sr,
+                "note" to "pause_music; mic_50Hz_rise_means_HU_speakers"
+            )
+        )
+        Log.i("ANCService", "aa_path_probe armed reason=$reason backend=$lastAudioBackendLabel")
+    }
+
+    private fun handleAaBecameConnected(routeManager: AudioRouteManager) {
+        val routed = routeManager.getActiveOutputDeviceName(audioTrack) ?: "?"
+        val routedType = routeManager.getActiveOutputDeviceType(audioTrack)
+        val speaker = isPhoneSpeakerRoute(routed, routedType)
+        val localBackend = lastAudioBackendLabel.contains("LOCAL", ignoreCase = true) ||
+            lastAudioBackendLabel.contains("AAUDIO", ignoreCase = true)
+        AncSessionLogger.log(
+            phase = "aa_became_connected",
+            fields = mapOf(
+                "audioBackend" to lastAudioBackendLabel,
+                "routedOutput" to routed,
+                "routedOutputType" to routedType,
+                "speakerRouted" to speaker,
+                "localBackend" to localBackend,
+                "aaLinkType" to routeManager.resolveRoute(true).aaLinkType,
+                "availableOutputs" to (currentRoute?.availableOutputs ?: emptyList()),
+                "holdingFocus" to routeManager.isHoldingRunningFocus(),
+                "trackUsage" to routeManager.currentTrackUsageLabel(true)
+            )
+        )
+        Log.w(
+            "ANCService",
+            "AA connected while running backend=$lastAudioBackendLabel routed=$routed speaker=$speaker"
+        )
+        if (speaker || localBackend) {
+            onUpdateNotification("AA 已連上：請停止再開始，聲音才會進車機")
+            pathCheckAa = true
+            pathCheckDone = false
+            pathCheckStartMs = System.currentTimeMillis()
+            pathCheckUntilMs = pathCheckStartMs
+            pathCheckBaselineEndMs = pathCheckStartMs
+            finishAaPathProbe(routeManager, reason = "aa_connect_still_phone_speaker")
+            return
+        }
+        routeManager.requestRunningMediaFocus(true)
+        armAaPathProbe(routeManager, reason = "aa_became_connected")
+    }
+
+    private fun finishAaPathProbe(rm: AudioRouteManager?, reason: String) {
+        if (pathCheckDone) return
+        pathCheckDone = true
+        val holding = rm?.isRunningMediaPathLive() == true
+        val usage = rm?.currentTrackUsageLabel(true) ?: "?"
+        val routedName = rm?.getActiveOutputDeviceName(audioTrack) ?: "?"
+        val routedType = rm?.getActiveOutputDeviceType(audioTrack) ?: -1
+        val speakerRouted = isPhoneSpeakerRoute(routedName, routedType)
+        val submixOk = routedName.contains("submix", ignoreCase = true) ||
+            routedType == AudioDeviceInfo.TYPE_REMOTE_SUBMIX
+        val a2dpOk = routedName.contains("a2dp", ignoreCase = true) ||
+            routedName.contains("bluetooth", ignoreCase = true) ||
+            routedType == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+        val sinkOk = !speakerRouted && (submixOk || a2dpOk ||
+            routedName.contains("usb", ignoreCase = true) ||
+            routedName.contains("bus", ignoreCase = true) ||
+            routedName.contains("car", ignoreCase = true))
+        val sendOk = pathCheckPeakAbs >= 2000
+        val usageOk = usage.contains("MEDIA", ignoreCase = true)
+        val localBackend = lastAudioBackendLabel.contains("LOCAL", ignoreCase = true) ||
+            lastAudioBackendLabel.contains("AAUDIO", ignoreCase = true)
+        val mic50IdleDb = mic50Base.magnitudeDb()
+        val mic50Db = mic50Live.magnitudeDb()
+        val mic200Db = mic200Live.magnitudeDb()
+        val micDelta50 = mic50Db - mic50IdleDb
+        val micVs200 = mic50Db - mic200Db
+        val cabinHeard = !speakerRouted && !localBackend && sinkOk && sendOk &&
+            micDelta50 >= 6f && micVs200 >= 3f
+        val sendPass = sendOk && sinkOk && usageOk && !speakerRouted && !localBackend
+        val verdict = when {
+            speakerRouted || localBackend -> "PHONE_SPEAKER"
+            !usageOk -> "USAGE_NOT_MEDIA"
+            !sinkOk -> "NOT_SUBMIX_OR_CAR_SINK"
+            !sendOk -> "SUBMIX_NO_SEND"
+            cabinHeard -> "SUBMIX_SEND_OK_MIC_HEARD_50HZ"
+            else -> "SUBMIX_SEND_OK_MIC_NO_50HZ"
+        }
+        val failReasons = buildList {
+            if (speakerRouted) add("routed_phone_speaker")
+            if (localBackend) add("backend_still_local")
+            if (!sendOk) add("send_tone_peak_too_low")
+            if (!sinkOk) add("not_car_or_submix_sink")
+            if (!usageOk) add("trackUsage_not_MEDIA")
+            if (sendPass && !cabinHeard) add("mic_no_50Hz_rise")
+        }
+        val musicVol = try {
+            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat().coerceAtLeast(1f)
+            audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) / max
+        } catch (_: Exception) {
+            -1f
+        }
+        AncSessionLogger.log(
+            phase = "aa_path_check",
+            fields = mapOf(
+                "result" to if (sendPass) "PASS" else "FAIL",
+                "verdict" to verdict,
+                "cabinHeard" to cabinHeard,
+                "cabinResult" to when {
+                    speakerRouted || localBackend -> "INVALID_PHONE_SPEAKER"
+                    cabinHeard -> "HEARD"
+                    else -> "NO_50HZ_AT_MIC"
+                },
+                "reason" to reason,
+                "holdingMediaFocus" to holding,
+                "holdingRequested" to (rm?.isHoldingRunningFocus() == true),
+                "focusRequestResult" to (rm?.lastFocusRequestResult() ?: -1),
+                "lastFocusChange" to (rm?.lastFocusChange() ?: 0),
+                "trackUsage" to usage,
+                "routedOutput" to routedName,
+                "routedOutputType" to routedType,
+                "audioBackend" to lastAudioBackendLabel,
+                "aaLinkType" to (currentRoute?.aaLinkType ?: "?"),
+                "speakerRouted" to speakerRouted,
+                "localBackend" to localBackend,
+                "submixOk" to submixOk,
+                "a2dpOk" to a2dpOk,
+                "a2dpBassOut" to a2dpBassOut,
+                "sinkOk" to sinkOk,
+                "pathCheckPeakAbs" to pathCheckPeakAbs,
+                "sendOk" to sendOk,
+                "mic50IdleDb" to mic50IdleDb,
+                "mic50Db" to mic50Db,
+                "mic200Db" to mic200Db,
+                "micDelta50Db" to micDelta50,
+                "mic50Minus200Db" to micVs200,
+                "musicActive" to try { audioManager.isMusicActive } catch (_: Exception) { false },
+                "streamMusicNorm" to musicVol,
+                "failReasons" to failReasons.joinToString(","),
+                "note" to when (verdict) {
+                    "SUBMIX_SEND_OK_MIC_HEARD_50HZ" -> "MIC_HEARD_50HZ_likely_HU_speakers"
+                    "SUBMIX_SEND_OK_MIC_NO_50HZ" -> "SEND_OK_but_mic_no_50Hz_HU_HPF_or_volume_or_AEC"
+                    "PHONE_SPEAKER" -> "STOP_AND_RESTART_ANC_after_AA_connected"
+                    else -> "PATH_FAIL_do_not_trust_cancel_KPI"
+                }
+            )
+        )
+        Log.i(
+            "ANCService",
+            "aa_path_check $verdict sendPass=$sendPass cabinHeard=$cabinHeard " +
+                "peak=$pathCheckPeakAbs routed=$routedName d50=$micDelta50"
+        )
+        if (cabinHeard) {
+            onUpdateNotification("AA 路徑：麥有收到 50Hz（車機有出）")
+        } else if (sendPass) {
+            onUpdateNotification("AA 已進混音，麥沒聽到 50Hz（可能被車機切低音）")
+        } else if (speakerRouted || localBackend) {
+            onUpdateNotification("AA 已連上：請停止再開始，聲音才會進車機")
+        }
+    }
+
     private suspend fun maybeRefreshAudioRoute(routeManager: AudioRouteManager) {
         val now = System.currentTimeMillis()
         if (now - lastRouteCheckMs < ROUTE_CHECK_INTERVAL_MS) return
@@ -2408,6 +2566,8 @@ class AudioEngine(
         private const val ROUTE_SETTLE_MS = 200L
         private const val ROUTE_RETRY_COUNT = 3
         private const val ROUTE_CHECK_INTERVAL_MS = 5000L
+        private const val PATH_CHECK_BASELINE_MS = 400L
+        private const val PATH_CHECK_TONE_MS = 1800L
         private const val MAX_RECORD_BUFFER_BYTES = 8192
         private const val MAX_TRACK_BUFFER_BYTES = 16384
         private const val MAX_ANC_OUTPUT_GAIN = 0.92f  // P2: safety cap in output path (headroom + speaker protection)
@@ -2415,5 +2575,46 @@ class AudioEngine(
         private const val LOW_LATENCY_BUFFER_SAMPLES = 512
         private const val LOW_LATENCY_BUFFER_DIVISOR = 4
         private const val LEARNING_DURATION_MS = 1000L
+    }
+}
+
+/** Streaming Goertzel for one frequency; call reset() before a new window. */
+private class ToneGoertzel(private val targetHz: Float) {
+    private var coeff = 0f
+    private var q1 = 0f
+    private var q2 = 0f
+    private var n = 0
+    private var sr = 0
+
+    fun reset() {
+        q1 = 0f
+        q2 = 0f
+        n = 0
+        sr = 0
+        coeff = 0f
+    }
+
+    fun add(samples: ShortArray, size: Int, sampleRate: Int) {
+        if (size <= 0 || sampleRate <= 0) return
+        if (sr != sampleRate) {
+            sr = sampleRate
+            coeff = (2.0 * kotlin.math.cos(2.0 * Math.PI * targetHz / sampleRate)).toFloat()
+            q1 = 0f
+            q2 = 0f
+            n = 0
+        }
+        for (i in 0 until size) {
+            val x = samples[i] / 32768f
+            val q0 = coeff * q1 - q2 + x
+            q2 = q1
+            q1 = q0
+        }
+        n += size
+    }
+
+    fun magnitudeDb(): Float {
+        if (n < 256 || sr <= 0) return -120f
+        val mag = sqrt((q1 * q1 + q2 * q2 - coeff * q1 * q2).coerceAtLeast(0f)) / (n / 2f)
+        return (20f * kotlin.math.log10(mag.coerceAtLeast(1e-8f))).coerceIn(-120f, 0f)
     }
 }
