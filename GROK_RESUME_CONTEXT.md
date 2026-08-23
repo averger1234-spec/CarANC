@@ -1,16 +1,17 @@
 # 最新多機同步索引（2026-08-23）
 
-**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.22**）。
+**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.23**）。
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.22 / code 24** · iOS **1.2.17 (28)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.23 / code 25** · iOS **1.2.17 (28)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
+**1.2.23 重點**：修 1.2.22 MediaSession NPE（開 ANC/腳本閃退）。  
 **1.2.22 重點**：AA 當真正音樂源（MediaSession + 關 LOW_LATENCY）；50Hz 那幾秒才短暫 GAIN。  
 **1.2.21 重點**：AA 連上仍走 submix；不獨佔音樂焦點；腳本結束可再開一般降噪。  
 **1.2.20 重點**：ANC 優先 **車機 A2DP**（怠速 50Hz 艙錄 LINE）；USB AA submix 不做低音。  

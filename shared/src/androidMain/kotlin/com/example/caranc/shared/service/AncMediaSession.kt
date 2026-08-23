@@ -10,12 +10,14 @@ import android.util.Log
 
 /**
  * Makes CarANC a real "now playing" music source for Android Auto.
- * Raw AudioTrack USAGE_MEDIA without a session is often mixed as overlay/speech (HP, 沙).
+ * Do not call setPlaying() from the session property initializer — session is still null.
  */
 class AncMediaSession(context: Context) {
 
-    val session: MediaSessionCompat = MediaSessionCompat(context, "CarANC").apply {
-        setFlags(
+    val session: MediaSessionCompat = MediaSessionCompat(context, "CarANC")
+
+    init {
+        session.setFlags(
             MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
                 MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
         )
@@ -25,11 +27,10 @@ class AncMediaSession(context: Context) {
             context, 0, launch,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        setSessionActivity(pi)
-        setCallback(object : MediaSessionCompat.Callback() {})
-        setPlaybackToLocal(android.media.AudioManager.STREAM_MUSIC)
-        isActive = true
-        setMetadata(
+        session.setSessionActivity(pi)
+        session.setCallback(object : MediaSessionCompat.Callback() {})
+        session.setPlaybackToLocal(android.media.AudioManager.STREAM_MUSIC)
+        session.setMetadata(
             MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, "CarANC")
                 .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Active noise cancellation")
@@ -37,6 +38,7 @@ class AncMediaSession(context: Context) {
                 .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, -1L)
                 .build()
         )
+        session.isActive = true
         setPlaying(true)
     }
 

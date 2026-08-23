@@ -22,6 +22,12 @@
 
 
 
+## [1.2.23] — 2026-08-23 · Android code 25 · 修復開 ANC 閃退
+
+1.2.22 `AncMediaSession` 在 `session` 屬性尚未賦值時呼叫 `setPlaying()` → NPE，**開始降噪 / 腳本直接閃退**。改為 init 完成後再設 PLAYING；MediaSession 失敗不擋服務啟動。
+
+---
+
 ## [1.2.22] — 2026-08-23 · Android code 24 · AA 當真正的音樂源（50Hz）
 
 ### 問題

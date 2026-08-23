@@ -60,7 +60,12 @@ class ANCService : LifecycleService() {
     override fun onCreate() {
         super.onCreate()
         AncSessionLogger.init(this)
-        mediaSession = AncMediaSession(this)
+        try {
+            mediaSession = AncMediaSession(this)
+        } catch (e: Exception) {
+            Log.e("ANCService", "MediaSession init failed (ANC still starts): ${e.message}")
+            mediaSession = null
+        }
         setupCarConnection()
     }
 
