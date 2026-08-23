@@ -40,6 +40,7 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodel.ktx)
             implementation(libs.androidx.car.app)
             implementation(libs.play.services.location)
+            implementation(libs.androidx.media)
         }
 
         // Start test sourceSet setup for core DSP unit tests (P1).

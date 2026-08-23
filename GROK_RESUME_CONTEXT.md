@@ -1,16 +1,20 @@
-# 最新多機同步索引（2026-08-21）
+# 最新多機同步索引（2026-08-23）
 
-**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.18**）。
+**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.22**）。
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.18 / code 20** · iOS **1.2.17 (28)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.22 / code 24** · iOS **1.2.17 (28)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
+**1.2.22 重點**：AA 當真正音樂源（MediaSession + 關 LOW_LATENCY）；50Hz 那幾秒才短暫 GAIN。  
+**1.2.21 重點**：AA 連上仍走 submix；不獨佔音樂焦點；腳本結束可再開一般降噪。  
+**1.2.20 重點**：ANC 優先 **車機 A2DP**（怠速 50Hz 艙錄 LINE）；USB AA submix 不做低音。  
+**1.2.19 重點**：NAV overlay 無法載 50Hz（車機語音高通）；ANC 改走 **USAGE_MEDIA 立體聲**；手機 MUSIC 音量拉滿；50/80/120/200 路徑掃描。  
 **1.2.18 重點**：AA 混音 — ANC 走 NAV overlay（非 MUSIC）+ 靜音 MEDIA keep-alive；50Hz 艙錄；send 70Hz LPF；不獨佔 MEDIA focus。  
 **1.2.17 重點**：雙端 P0/P1 — iOS 安全 teardown + classifier/plant D；Android live path_check / 艙錄 WAV 同路。
 **1.2.16 重點**：AA 運行中 **持有 USAGE_MEDIA AudioFocus** + 啟動 **`aa_path_check` PASS/FAIL**（50Hz 自檢）；open 短測 25–30%；55Hz mid 收緊。

@@ -678,7 +678,7 @@ final class AncAudioEngine: ObservableObject {
             let twoPi = 2.0 * Double.pi
             for i in 0..<anti.count {
                 let s = sin(diagTonePhase)
-                anti[i] = max(-1, min(1, anti[i] + Float(s) * 0.35))
+                anti[i] = max(-1, min(1, Float(s) * 0.72))
                 diagTonePhase += twoPi * Double(toneHz) / sampleRate
                 if diagTonePhase > twoPi { diagTonePhase -= twoPi }
             }

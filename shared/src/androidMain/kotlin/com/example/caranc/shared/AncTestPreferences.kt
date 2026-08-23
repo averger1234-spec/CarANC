@@ -159,7 +159,7 @@ object AncTestPreferences {
         prefs(context).getFloat("diag_tone_hz", 0f)
 
     fun setDiagToneHz(context: Context, hz: Float) {
-        prefs(context).edit().putFloat("diag_tone_hz", hz.coerceIn(0f, 120f)).apply()
+        prefs(context).edit().putFloat("diag_tone_hz", hz.coerceIn(0f, 250f)).apply()
     }
 
     fun isCabinAutoRecordEnabled(context: Context): Boolean =

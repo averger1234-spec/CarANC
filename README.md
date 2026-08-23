@@ -5,9 +5,9 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**版號**：Android **`version.properties` → 1.2.18 / code 20** · iOS **1.2.17 (28)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+**版號**：Android **`version.properties` → 1.2.22 / code 24** · iOS **1.2.17 (28)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 
-**跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-20 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
+**跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-23 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
 
 ### 多機一分鐘流程
@@ -44,12 +44,12 @@ git push origin main
 
 ---
 
-## 最新進度（2026-08-21）— 1.2.18 overlay 混音 + 50Hz 艙錄
+## 最新進度（2026-08-23）— 1.2.22 AA 當音樂源
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| **Android 版號** | **`1.2.18` / code `20`** · 主畫面 `v1.2.18` | ✅ |
-| **1.2.18 路測** | ANC 走 NAV overlay（非 MUSIC）；靜音 MEDIA keep-alive；50Hz 艙錄；send LPF；開頭應聽低嗡不是沙 | ✅ |
+| **Android 版號** | **`1.2.22` / code `24`** · 主畫面 `v1.2.22` | ✅ |
+| **1.2.22** | MediaSession + AA 關掉 LOW_LATENCY，讓車機走音樂 DAC 出 50Hz | ✅ |
 | **iOS 版號** | **`1.2.17` (build 28)** · 狀態頁 **`v1.2.17 (28)`** · 安全 teardown（removeTap）+ classifier/plant D + 路徑自檢需 carAudio | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |

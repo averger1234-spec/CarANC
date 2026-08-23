@@ -164,11 +164,15 @@ fun GuidedTestPanel(
                     AncTestPreferences.setDiagToneHz(context, 0f)
                 }
             }
-            if (phase == "test_script_complete" || phase == "guided_test_abort") {
+            if (phase == "test_script_complete" || phase == "guided_test_abort" ||
+                phase == "test_script_abort"
+            ) {
                 com.example.caranc.shared.GuidedNvhOverride.clear()
                 AncTestPreferences.setDiagToneHz(context, 0f)
                 AncTestPreferences.setMuteAntiOutput(context, false)
+                AncTestPreferences.setUserAncGain(context, 1f)
                 AncTestPreferences.setForceBoomPolarity(context, 0f)
+                AncTestPreferences.setForceNormalMode(context, false)
                 AncTestPreferences.setPendingCabinStepId(context, null)
                 com.example.caranc.shared.service.GuidedCabinRecorder.stop(context, "script_end")
                 // 1.2.14: latch cabin-preferred polarity winner (fallback −1)
@@ -279,7 +283,8 @@ fun GuidedTestPanel(
         }
     }
 
-    // On script complete: AUTO-SAVE first (while service still up), then stop ANC.
+    // On script complete: AUTO-SAVE. Do not auto-stop ANC — that blocked 「開始降噪」
+    // (delayed stop killed a restart; mute/gain=0 leftover felt like ANC dead).
     LaunchedEffect(guidedState.finished) {
         if (!guidedState.finished) return@LaunchedEffect
         autoSavedPath = null
@@ -296,10 +301,6 @@ fun GuidedTestPanel(
         } else {
             lastAutoSaveError = "自動存檔失敗 — 請手動按儲存"
             Toast.makeText(context, lastAutoSaveError, Toast.LENGTH_LONG).show()
-        }
-        delay(1500)
-        if (sessionContext.stateManager.state.value !is AncState.Stopped) {
-            onRequestStopAnc()
         }
     }
 

@@ -22,6 +22,104 @@
 
 
 
+## [1.2.22] — 2026-08-23 · Android code 24 · AA 當真正的音樂源（50Hz）
+
+### 問題
+
+USB AA 的 50Hz 低嗡一直沒進艙。先前改 USAGE / 改藍牙都沒打到真正差異：
+
+Spotify 走 AA **音樂 DAC**（有低音）。CarANC 只是一支 `AudioTrack`，還開了 **LOW_LATENCY**，車機常把它當附加音/語音（高通 → 只有沙）。
+
+USB AA 和藍牙**不能同時出聲**。要 AA，就必須讓 AA 把我們當「正在播放的音樂」。
+
+### 這次只改這一條
+
+| 項 | 內容 |
+|----|------|
+| **MediaSession** | 狀態 PLAYING、通知 MediaStyle、前景 `mediaPlayback` |
+| **AA AudioTrack** | **關掉 LOW_LATENCY**（改走一般媒體路徑） |
+| **50Hz 那幾秒** | 短暫 `AUDIOFOCUS_GAIN`（讓車機切到音樂通道） |
+| **日常 ANC** | 仍 MAY_DUCK，不整段掐掉你的歌 |
+
+測 50Hz：**自己暫停 Spotify/AA 音樂**，聽低沉嗡還是沙。路悶步可以再放音樂。
+
+若這次艙錄仍沒有 50Hz 线：就是 Skoda AA 音樂解碼也切了 50Hz，App **無法用 EQ 補回**。
+
+腳本：`三目標·1.2.22 AA當音樂源`
+
+---
+
+## [1.2.21] — 2026-08-23 · Android code 23 · AA 不搶音樂 + 腳本可再開降噪
+
+### 用戶回饋（1.2.20）
+
+- USB AA 與藍牙喇叭**不能同時出聲**；把 ANC 改走 A2DP 等於放棄 AA。
+- 腳本測完無法手動開一般降噪。
+- 腳本會切掉正在播的音樂。
+
+低音被切是 **車機 AA 混音/EQ**（remote_submix），不是「再改成藍牙就能一邊 AA 一邊低音」。
+
+### 修復
+
+| 項 | 內容 |
+|----|------|
+| **路由** | AA 連上 → 仍走 `remote_submix`（AA 混音）。沒 AA 才走 A2DP |
+| **焦點** | `MAY_DUCK`，不再 `AUDIOFOCUS_GAIN` 獨佔；不把 STREAM_MUSIC 拉滿 |
+| **腳本結束** | 不再自動停 ANC；reset gain=1 / mute=false |
+| **中止** | `test_script_abort` 也清 mute/gain（先前漏聽） |
+
+腳本：`三目標·1.2.21 AA可聽音樂`
+
+---
+
+## [1.2.20] — 2026-08-23 · Android code 22 · A2DP 低音优先
+
+### 路測（1.2.19）
+
+- **藍牙 A2DP**（沒 AA）：怠速艙錄 50Hz **LINE**（峰 48Hz，Q +11.5）。車機音樂功放能出低音。
+- **USB AA** `USAGE_MEDIA`：有聲但艙錄 **沒有 50Hz 线**；公平路悶 on 全頻 +7～11 dB（沙）。
+- 兩條路都還沒測到路悶取消。
+
+### 修復
+
+ANC PCM **優先走車機 A2DP**（分數高於 `remote_submix`）。USB AA 仍可連，但 anti 不再往 submix 灌（那條是沙）。沒有 A2DP 才 fallback submix。
+
+路測：**不要插 USB AA**（或關掉 AA），只留 Skoda 藍牙；怠速聽 50Hz 低嗡。log `bassSink=a2dp`。
+
+腳本：`三目標·1.2.20 A2DP低音优先`
+
+---
+
+## [1.2.19] — 2026-08-21 · Android code 21 · MUSIC 总线 + 四频路径
+
+### 問題（1.2.18 耳聽）
+
+開 ANC **沒有低沉 50Hz**，只有沙。NAV overlay 是車機**語音通道**（VAG 高通約 150–300Hz）。50Hz 進不了功放；活下來的是中高頻殘邊 → 沙。這條总线**無法用 App EQ 補回**。
+
+### 修復（唯一還能試的 AA 軟件路徑）
+
+| 項 | 內容 |
+|----|------|
+| **总线** | ANC PCM → `USAGE_MEDIA` + `CONTENT_TYPE_MUSIC`（與 Spotify 同音乐总线） |
+| **立体声** | L/R 複製，兩側門喇叭 |
+| **音量** | 手機 `STREAM_MUSIC` 拉滿（車機旋鈕仍是艙音量）；停止時還原。1.2.18 log 是 6/25 |
+| **Focus** | `AUDIOFOCUS_GAIN`（我們就是 media）；LOSS 後 5s 重請 |
+| **不再** | NAV overlay、靜音 MEDIA keep-alive |
+| **误伤** | AA 上不再用 STREAM_MUSIC 當「正在放音樂」去閘 anti |
+| **Tone** | 振幅 0.72；脚本 **50 / 80 / 120 / 200 Hz** 分段艙錄 |
+| **Anti** | 仍 70Hz LPF，避免沙走漏 |
+
+### 路測怎麼判
+
+- **50Hz 有低嗡** → 路径通，才能談消噪算法
+- **50 没有、80/120 有** → 车机切超低频，路闷带部分可做
+- **只有 200Hz 有声** → AA/喇叭物理切掉 40–80，**手机 AA 做不了路闷**（只能外接低频单元）
+- **四档全沙或没声** → 路由仍死
+
+腳本：`三目標·1.2.19 MUSIC总线+四频路径`
+
+---
+
 ## [1.2.18] — 2026-08-21 · Android code 20 · AA overlay 混音 + 50Hz 艙錄
 
 ### 問題（1.2.17 路測）

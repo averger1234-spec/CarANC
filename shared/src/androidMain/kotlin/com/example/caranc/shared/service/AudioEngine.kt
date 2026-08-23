@@ -72,9 +72,10 @@ class AudioEngine(
     private var processingJob: Job? = null
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
-    /** 1.2.18: silent USAGE_MEDIA so HU keeps pipe; ANC PCM is on overlay track. */
-    private var mediaKeepAliveTrack: AudioTrack? = null
-    private var keepAliveSilence = ShortArray(PROCESSING_READ_SIZE)
+    /** 1.2.19: AA MUSIC bus is stereo (duplicate L/R). Local remains mono. */
+    private var aaStereoOut = false
+    private var a2dpBassOut = false
+    private var stereoWriteBuf = ShortArray(0)
     private var sendLp1 = 0f
     private var sendLp2 = 0f
     private var ancProcessor: AncProcessorFacade? = null
@@ -214,7 +215,9 @@ class AudioEngine(
                 val aa = isAAConnected()
                 val route = routeManager.resolveRoute(aa)
                 currentRoute = route
-                val focusGranted = routeManager.prepareRunningAudioMix(aa)
+                a2dpBassOut = routeManager.isA2dpRoute(route)
+                val carMediaOut = aa || a2dpBassOut
+                val focusGranted = routeManager.prepareRunningAudioMix(carMediaOut)
                 AncSessionLogger.log(
                     phase = "aa_media_focus",
                     fields = mapOf(
@@ -223,7 +226,7 @@ class AudioEngine(
                         "holding" to routeManager.isHoldingRunningFocus(),
                         "requestResult" to routeManager.lastFocusRequestResult(),
                         "trackUsage" to routeManager.currentTrackUsageLabel(aa),
-                        "note" to "1.2.16_hold_USAGE_MEDIA_for_AA_speaker_path"
+                        "note" to "1.2.19_hold_USAGE_MEDIA_GAIN_music_bus"
                     )
                 )
 
@@ -238,7 +241,12 @@ class AudioEngine(
                     ?.coerceAtLeast(64) ?: 256
 
                 val minBuffer = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-                val minTrackBuffer = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                val carMediaOutMask = AudioFormat.CHANNEL_OUT_STEREO
+                val minTrackBuffer = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    if (carMediaOut) carMediaOutMask else AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
 
                 // #9: wired AA preferred; log wireless suspicion (do not hard-crash — warn + tag for analysis)
                 routeManager.requireWiredAa = true
@@ -260,7 +268,7 @@ class AudioEngine(
                 }
 
                 var audioBackendLabel = "AUDIOTRACK_AA_SUBMIX"
-                if (!aa) {
+                if (!carMediaOut) {
                     // #8: local garage / phone-speaker path — AAudio-like low latency (not used for AA)
                     val local = LocalLowLatencyAudio.plan(
                         audioManager = audioManager,
@@ -275,8 +283,10 @@ class AudioEngine(
                     trackHalSamples = trackBufferBytes / 2
                     audioRecord = LocalLowLatencyAudio.buildRecord(local, sampleRate)
                     audioTrack = LocalLowLatencyAudio.buildTrack(local, sampleRate)
+                    aaStereoOut = false
+                    a2dpBassOut = false
                     audioBackendLabel = local.backendLabel
-                    Log.i("ANCService", "AUDIO_BACKEND=$audioBackendLabel (non-AA local validation path)")
+                    Log.i("ANCService", "AUDIO_BACKEND=$audioBackendLabel (phone-speaker garage path)")
                 } else {
                     val bufferSize = LOW_LATENCY_BUFFER_SAMPLES.coerceAtLeast(
                         maxOf(minBuffer, minTrackBuffer) / LOW_LATENCY_BUFFER_DIVISOR
@@ -287,7 +297,7 @@ class AudioEngine(
 
                     // AA remote_submix: force smaller track buffer (16384 often still ~200ms+; try 8192)
                     val isHighLatencyRoute = trackBufferBytes > 12000 || minTrackBuffer > 8192
-                    if (isHighLatencyRoute || aa) {
+                    if (!a2dpBassOut && (isHighLatencyRoute || aa)) {
                         val forced = 8192
                         Log.w(
                             "ANCService",
@@ -316,40 +326,44 @@ class AudioEngine(
                     }
 
                     val trackAttributes = routeManager.buildTrackAudioAttributes(aa)
-                    val audioTrackBuilder = AudioTrack.Builder()
-                        .setAudioAttributes(trackAttributes)
-                        .setAudioFormat(
-                            AudioFormat.Builder()
-                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                                .setSampleRate(sampleRate)
-                                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                                .build()
-                        )
-                        .setBufferSizeInBytes(trackBufferBytes)
-                        .setTransferMode(AudioTrack.MODE_STREAM)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        // Still request low-latency mode; AA host may ignore and use submix
-                        audioTrackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                    fun buildAaTrack(channelMask: Int, lowLatency: Boolean): AudioTrack {
+                        val b = AudioTrack.Builder()
+                            .setAudioAttributes(trackAttributes)
+                            .setAudioFormat(
+                                AudioFormat.Builder()
+                                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                                    .setSampleRate(sampleRate)
+                                    .setChannelMask(channelMask)
+                                    .build()
+                            )
+                            .setBufferSizeInBytes(trackBufferBytes)
+                            .setTransferMode(AudioTrack.MODE_STREAM)
+                        if (lowLatency && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            b.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                        }
+                        return b.build()
                     }
-                    audioTrack = audioTrackBuilder.build()
-                    // Silent MEDIA keep-alive (music bus open) — ANC is NAV overlay, not MUSIC
-                    val keepAliveBuilder = AudioTrack.Builder()
-                        .setAudioAttributes(routeManager.buildKeepAliveAudioAttributes())
-                        .setAudioFormat(
-                            AudioFormat.Builder()
-                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                                .setSampleRate(sampleRate)
-                                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                                .build()
-                        )
-                        .setBufferSizeInBytes(trackBufferBytes)
-                        .setTransferMode(AudioTrack.MODE_STREAM)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        keepAliveBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                    // AA: never LOW_LATENCY — HU often maps that to speech/overlay (HP, 沙).
+                    // A2DP: low-latency was fine (idle 50Hz LINE).
+                    var built = buildAaTrack(AudioFormat.CHANNEL_OUT_STEREO, lowLatency = a2dpBassOut)
+                    if (built.state != AudioTrack.STATE_INITIALIZED) {
+                        built.release()
+                        built = buildAaTrack(AudioFormat.CHANNEL_OUT_MONO, lowLatency = false)
                     }
-                    mediaKeepAliveTrack = keepAliveBuilder.build()
-                    audioBackendLabel = "AUDIOTRACK_AA_NAV_OVERLAY+MEDIA_KEEPALIVE"
-                    Log.i("ANCService", "AUDIO_BACKEND=$audioBackendLabel")
+                    audioTrack = built
+                    aaStereoOut = built.channelCount >= 2
+                    try {
+                        built.setVolume(1f)
+                    } catch (_: Exception) {
+                    }
+                    trackHalSamples = if (aaStereoOut) trackBufferBytes / 4 else trackBufferBytes / 2
+                    audioBackendLabel = when {
+                        a2dpBassOut && aaStereoOut -> "AUDIOTRACK_A2DP_MEDIA_STEREO"
+                        a2dpBassOut -> "AUDIOTRACK_A2DP_MEDIA_MONO"
+                        aaStereoOut -> "AUDIOTRACK_AA_MEDIA_STEREO"
+                        else -> "AUDIOTRACK_AA_MEDIA_MONO"
+                    }
+                    Log.i("ANCService", "AUDIO_BACKEND=$audioBackendLabel stereo=$aaStereoOut a2dp=$a2dpBassOut")
                 }
                 lastAudioBackendLabel = audioBackendLabel
 
@@ -358,12 +372,6 @@ class AudioEngine(
                     audioTrack = audioTrack!!,
                     route = route
                 )
-                mediaKeepAliveTrack?.let { ka ->
-                    try {
-                        routeManager.ensureOutputRoute(null, ka, aa)
-                    } catch (_: Exception) {
-                    }
-                }
 
                 cabinProfileId = CabinProfileStore.resolveProfileId(appContext)
                 mimoTrialEnabled = AncTestPreferences.isMimoTrialEnabled(appContext) &&
@@ -427,6 +435,13 @@ class AudioEngine(
                             "requireWiredAa" to routeManager.requireWiredAa,
                             "tier" to currentTier.name,
                             "audioFocusMode" to if (aa) "hold_USAGE_MEDIA_GAIN" else "local_no_hold",
+                            "aaStereoOut" to aaStereoOut,
+                            "a2dpBassOut" to a2dpBassOut,
+                            "bassSink" to when {
+                                a2dpBassOut -> "a2dp"
+                                aa -> "aa_submix"
+                                else -> "local"
+                            },
                             "audioFocusGranted" to focusGranted,
                             "holdingMediaFocus" to routeManager.isHoldingRunningFocus(),
                             "aaConnected" to aa,
@@ -442,18 +457,10 @@ class AudioEngine(
 
                 audioRecord?.startRecording()
                 audioTrack?.play()
-                try {
-                    mediaKeepAliveTrack?.play()
-                } catch (_: Exception) {
-                }
 
                 val primingSize = sampleRate / 4
                 val silence = ShortArray(primingSize)
-                audioTrack?.write(silence, 0, silence.size)
-                try {
-                    mediaKeepAliveTrack?.write(silence, 0, silence.size)
-                } catch (_: Exception) {
-                }
+                writeTrackPcm(silence, primingSize)
 
                 val trash = ShortArray(primingSize)
                 if (audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
@@ -553,7 +560,7 @@ class AudioEngine(
                     if (willDoLearning && (readLen and 3) == 0) {
                         try {
                             audioTrack?.play()
-                            audioTrack?.write(ShortArray(PROCESSING_READ_SIZE), 0, PROCESSING_READ_SIZE)
+                            writeTrackPcm(ShortArray(PROCESSING_READ_SIZE), PROCESSING_READ_SIZE)
                         } catch (e: Exception) {
                             Log.w("ANCService", "power_meas silence feed write error (non-fatal): ${e.message}")
                         }
@@ -590,9 +597,7 @@ class AudioEngine(
                         if (!isActive) break
                         try {
                             audioTrack?.play()
-                            audioTrack?.write(learnSilence, 0, learnSilence.size)
-                            mediaKeepAliveTrack?.play()
-                            mediaKeepAliveTrack?.write(learnSilence, 0, learnSilence.size)
+                            writeTrackPcm(learnSilence, learnSilence.size)
                         } catch (e: Exception) {
                             Log.w("ANCService", "learning silence write error (non-fatal, continuing): ${e.message}")
                         }
@@ -615,7 +620,7 @@ class AudioEngine(
                 profileEnergyEma = 0.0
 
                 // 1.2.16 path self-check: 1.5s of 50 Hz after Running (AA only); log PASS/FAIL once
-                pathCheckAa = aa
+                pathCheckAa = aa || a2dpBassOut
                 pathCheckDone = false
                 pathCheckPeakAbs = 0
                 if (aa) {
@@ -1022,7 +1027,11 @@ class AudioEngine(
                         } catch (_: Exception) {
                             0f
                         }
-                        val musicGate = when {
+                        // AA: STREAM_MUSIC is our send level (boosted to max in 1.2.19), NOT cabin music.
+                        // Using it as a gate would mute anti right when the bass path is open.
+                        val musicGate = if (isAAConnected() || a2dpBassOut) {
+                            1f
+                        } else when {
                             musicVol >= 0.85f -> 0.05f  // near mute anti
                             musicVol >= 0.65f -> 0.35f  // attenuate
                             musicVol >= 0.45f -> 0.70f
@@ -1041,6 +1050,12 @@ class AudioEngine(
                         // 1.2.16 path self-check tone (AA, first 1.5s of Running) — before guided mute/diag
                         val nowPath = System.currentTimeMillis()
                         val pathChecking = pathCheckAa && !pathCheckDone && pathCheckUntilMs > 0L && nowPath < pathCheckUntilMs
+                        val wantBassFocus = pathChecking ||
+                            (!muteAnti && AncTestPreferences.getDiagToneHz(appContext) >= 40f)
+                        try {
+                            audioRouteManager?.setBassToneExclusive(wantBassFocus)
+                        } catch (_: Exception) {
+                        }
                         if (pathChecking && !muteAnti) {
                             injectDiagTone(output, read, 50f, sampleRate = audioRecord?.sampleRate ?: 44100)
                             for (j in 0 until read) {
@@ -1054,23 +1069,20 @@ class AudioEngine(
                             val usage = rm?.currentTrackUsageLabel(true) ?: "?"
                             val routedName = rm?.getActiveOutputDeviceName(audioTrack) ?: "?"
                             val submixOk = routedName.contains("submix", ignoreCase = true)
-                            val sinkOk = submixOk ||
+                            val a2dpOk = routedName.contains("a2dp", ignoreCase = true) ||
+                                routedName.contains("bluetooth", ignoreCase = true)
+                            val sinkOk = submixOk || a2dpOk ||
                                 routedName.contains("usb", ignoreCase = true) ||
                                 routedName.contains("bus", ignoreCase = true) ||
                                 routedName.contains("car", ignoreCase = true)
                             val sendOk = pathCheckPeakAbs >= 2000 // send-buffer peak only — not HU speakers
-                            val usageOk = usage.contains("NAVIGATION", ignoreCase = true) ||
-                                usage.contains("MEDIA", ignoreCase = true)
-                            // 1.2.18: overlay send+sink is the speaker path; exclusive MEDIA focus is not required
+                            val usageOk = usage.contains("MEDIA", ignoreCase = true)
+                            // 1.2.21: exclusive MUSIC focus is not required (that paused user music).
                             val pass = sendOk && sinkOk && usageOk
                             val failReasons = buildList {
                                 if (!sendOk) add("send_tone_peak_too_low")
                                 if (!sinkOk) add("not_car_or_submix_sink")
-                                if (!usageOk) add("trackUsage_not_overlay")
-                                if (!holding) add("keepalive_focus_not_live")
-                                if (rm?.lastFocusRequestResult() == AudioManager.AUDIOFOCUS_REQUEST_DELAYED) {
-                                    add("focus_was_DELAYED")
-                                }
+                                if (!usageOk) add("trackUsage_not_MEDIA")
                             }
                             AncSessionLogger.log(
                                 phase = "aa_path_check",
@@ -1083,6 +1095,8 @@ class AudioEngine(
                                     "trackUsage" to usage,
                                     "routedOutput" to routedName,
                                     "submixOk" to submixOk,
+                                    "a2dpOk" to a2dpOk,
+                                    "a2dpBassOut" to a2dpBassOut,
                                     "sinkOk" to sinkOk,
                                     "pathCheckPeakAbs" to pathCheckPeakAbs,
                                     "sendOk" to sendOk,
@@ -1100,9 +1114,9 @@ class AudioEngine(
                             )
                         }
 
-                        // 1.2.8/1.2.18: 50Hz overlay (replaces anti). Else extra send LPF vs cabin hiss.
+                        // Path-tone replaces anti. Else extra send LPF vs cabin hiss.
                         val diagHz = if (muteAnti) 0f else AncTestPreferences.getDiagToneHz(appContext)
-                        if (!pathChecking && diagHz >= 40f && diagHz <= 100f) {
+                        if (!pathChecking && diagHz >= 40f && diagHz <= 250f) {
                             injectDiagTone(output, read, diagHz, sampleRate = audioRecord?.sampleRate ?: 44100)
                             val nowT = System.currentTimeMillis()
                             if (nowT - lastDiagToneLogMs >= 2000L) {
@@ -1114,7 +1128,9 @@ class AudioEngine(
                                         "holdingMediaFocus" to (audioRouteManager?.isHoldingRunningFocus() == true),
                                         "pathLive" to (audioRouteManager?.isRunningMediaPathLive() == true),
                                         "trackUsage" to (audioRouteManager?.currentTrackUsageLabel(isAAConnected()) ?: "?"),
-                                        "note" to "1.2.18_50Hz_NAV_overlay_not_MUSIC_mix"
+                                        "stereo" to aaStereoOut,
+                                        "note" to "1.2.20_A2DP_bass_or_AA_fallback",
+                                        "a2dpBassOut" to a2dpBassOut
                                     )
                                 )
                             }
@@ -1145,15 +1161,7 @@ class AudioEngine(
                         if (read <= lastAntiNoise.size) {
                             output.copyInto(lastAntiNoise, 0, 0, read)
                         }
-                        audioTrack?.write(output, 0, read)
-                        val ka = mediaKeepAliveTrack
-                        if (ka != null) {
-                            if (keepAliveSilence.size < read) keepAliveSilence = ShortArray(read)
-                            try {
-                                ka.write(keepAliveSilence, 0, read)
-                            } catch (_: Exception) {
-                            }
-                        }
+                        writeTrackPcm(output, read)
 
                         // 1.2.12: KPI / plant residual must use **post-mute write** buffer (was pre-mute processed → fake antiNoiseDb≈−8 on mute)
                         updateVisualization(preprocessed, output, read)
@@ -1411,7 +1419,7 @@ class AudioEngine(
 
         val playbackJob = lifecycleScope.launch(Dispatchers.IO) {
             repeat(AudioSignalUtils.CALIBRATION_CHIRP_REPEATS) {
-                if (isActive) audioTrack?.write(chirpBuffer, 0, calibrationSize)
+                if (isActive) writeTrackPcm(chirpBuffer, calibrationSize)
             }
         }
 
@@ -1419,7 +1427,7 @@ class AudioEngine(
         while (totalRead < calibrationSize && System.currentTimeMillis() - startTime < 2000) {
             val r = audioRecord?.read(recordedChirp, totalRead, calibrationSize - totalRead) ?: 0
             if (r > 0) totalRead += r
-            audioTrack?.write(fillerSilence, 0, fillerSilence.size)
+            writeTrackPcm(fillerSilence, fillerSilence.size)
         }
         playbackJob.cancel()
         // 1.2.16: do NOT abandon focus after calib on AA — must keep MEDIA focus for speaker path.
@@ -2170,11 +2178,30 @@ class AudioEngine(
         output[2] = toS(output[2] / 32767f + a * 0.7f)
     }
 
-    /** 1.2.8/1.2.18 pure sine for AA bass path (overlay mix, slightly louder). */
+    /** Duplicate mono PCM onto AA stereo MUSIC track (both door speakers). */
+    private fun writeTrackPcm(mono: ShortArray, n: Int) {
+        val track = audioTrack ?: return
+        if (n <= 0) return
+        if (aaStereoOut) {
+            val need = n * 2
+            if (stereoWriteBuf.size < need) stereoWriteBuf = ShortArray(need)
+            var j = 0
+            for (i in 0 until n) {
+                val s = mono[i]
+                stereoWriteBuf[j++] = s
+                stereoWriteBuf[j++] = s
+            }
+            track.write(stereoWriteBuf, 0, need)
+        } else {
+            track.write(mono, 0, n)
+        }
+    }
+
+    /** 1.2.19 pure sine on MUSIC bus (loud enough to survive HU volume/EQ). */
     private fun injectDiagTone(output: ShortArray, size: Int, hz: Float, sampleRate: Int) {
         if (size <= 0 || sampleRate <= 0) return
         val twoPi = 2.0 * Math.PI
-        val amp = 0.38 // overlay bus is quieter than MUSIC; still clip-safe
+        val amp = 0.72
         for (i in 0 until size) {
             val s = kotlin.math.sin(diagTonePhase) * amp
             diagTonePhase += twoPi * hz / sampleRate
@@ -2261,7 +2288,7 @@ class AudioEngine(
         val aa = isAAConnected()
         val refreshed = routeManager.ensureOutputRoute(audioRecord, track, aa)
         currentRoute = refreshed.route
-        if (aa && !routeManager.isHoldingRunningFocus()) {
+        if ((aa || a2dpBassOut) && !routeManager.isHoldingRunningFocus()) {
             val ok = routeManager.requestRunningMediaFocus(true)
             AncSessionLogger.log(
                 phase = "aa_media_focus_rerequest",
@@ -2345,17 +2372,7 @@ class AudioEngine(
                     release()
                 }
                 audioTrack = null
-                mediaKeepAliveTrack?.apply {
-                    try {
-                        if (state == AudioTrack.STATE_INITIALIZED) {
-                            pause()
-                            flush()
-                        }
-                    } catch (_: Exception) {
-                    }
-                    release()
-                }
-                mediaKeepAliveTrack = null
+                aaStereoOut = false
             } catch (e: Exception) {
                 Log.e("ANCService", "releaseAudio error: ${e.message}")
             }

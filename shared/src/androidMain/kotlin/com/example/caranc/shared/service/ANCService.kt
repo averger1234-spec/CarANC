@@ -16,6 +16,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.car.app.connection.CarConnection
 import androidx.core.app.NotificationCompat
+import androidx.media.app.NotificationCompat as MediaNotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.example.caranc.shared.*
@@ -42,6 +43,7 @@ class ANCService : LifecycleService() {
     private var audioEngine: AudioEngine? = null
 
     private var carConnection: CarConnection? = null
+    private var mediaSession: AncMediaSession? = null
 
     private val notificationId = 101
     private val notificationChannelId = "ANC_SERVICE_CHANNEL_V3"
@@ -58,6 +60,7 @@ class ANCService : LifecycleService() {
     override fun onCreate() {
         super.onCreate()
         AncSessionLogger.init(this)
+        mediaSession = AncMediaSession(this)
         setupCarConnection()
     }
 
@@ -137,7 +140,8 @@ class ANCService : LifecycleService() {
             phase = "service_start",
             fields = mapOf(
                 "subscriptionPlan" to sessionContext.entitlementManager.currentPlan.id,
-                "mimoEnabled" to sessionContext.entitlementManager.canUseFeature(CommercialFeature.MIMO_TRIAL)
+                "mimoEnabled" to sessionContext.entitlementManager.canUseFeature(CommercialFeature.MIMO_TRIAL),
+                "mediaSession" to true
                 // OBD RPM (Bluetooth) removed - manual RPM via test prefs only
             )
         )
@@ -167,6 +171,9 @@ class ANCService : LifecycleService() {
 
     private fun foregroundServiceTypes(): Int {
         var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && hasLocationPermission()) {
             types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         }
@@ -186,6 +193,8 @@ class ANCService : LifecycleService() {
         Log.w("ANCService", "ANCService onDestroy called")
         audioEngine?.stop()
         audioEngine = null
+        mediaSession?.release()
+        mediaSession = null
         AncSessionLogger.endSession("service_destroyed")
         sessionContext.stateManager.updateState(AncState.Stopped())
 
@@ -246,6 +255,15 @@ class ANCService : LifecycleService() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+
+        mediaSession?.session?.sessionToken?.let { token ->
+            builder.setStyle(
+                MediaNotificationCompat.MediaStyle()
+                    .setMediaSession(token)
+                    .setShowActionsInCompactView(0)
+            )
+            builder.setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+        }
 
         Log.d("ANCService", "Notification object created successfully")
         return builder.build()

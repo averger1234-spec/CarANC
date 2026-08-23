@@ -18,6 +18,7 @@ kotlinxCoroutines = "1.8.1"
 carApp = "1.4.0"
 # Google Play Services Location (GPS) version from shared/build.gradle.kts direct string
 playServicesLocation = "21.3.0"
+androidxMedia = "1.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -49,6 +50,7 @@ androidx-lifecycle-viewmodel-ktx = { group = "androidx.lifecycle", name = "lifec
 androidx-car-app = { group = "androidx.car.app", name = "app", version.ref = "carApp" }
 # Play services location (com.google.android.gms:play-services-location)
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+androidx-media = { group = "androidx.media", name = "media", version.ref = "androidxMedia" }
 # Coroutines test dep (same version as core for androidUnitTest in shared)
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 

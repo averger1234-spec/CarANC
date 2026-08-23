@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- OBD Bluetooth removed (not needed). Manual RPM via prefs supported for engine harmonics. -->
 
@@ -75,7 +76,7 @@
         <service
             android:name="com.example.caranc.shared.service.ANCService"
             android:exported="false"
-            android:foregroundServiceType="microphone|location" />
+            android:foregroundServiceType="microphone|location|mediaPlayback" />
 
         <!-- Android Auto 服務入口 -->
         <service

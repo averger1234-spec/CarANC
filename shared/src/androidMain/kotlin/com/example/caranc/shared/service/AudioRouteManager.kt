@@ -77,14 +77,15 @@ class AudioRouteManager(context: Context) {
     private var deviceCallback: AudioDeviceCallback? = null
     private var routeChangeListener: ((RouteApplyResult) -> Unit)? = null
 
-    // 1.2.18 mix split (cabin hiss + no 50Hz bass):
-    // USAGE_MEDIA + AUDIOFOCUS_GAIN made HU treat ANC as *music* (EQ/HPF kills 50Hz,
-    // leftover mid-high = 雜訊) and fight AA for media focus (holdingMediaFocus flap).
-    // ANC PCM → NAVIGATION overlay; silent MEDIA keep-alive keeps HU pipe open.
+    // 1.2.20: ANC PCM prefers **car A2DP** (cabin 50Hz LINE on Octavia).
+    // USB AA remote_submix still only hiss — HU mix HP. Do not send anti there if BT exists.
     private var aaSonificationRoutingFailed = false
-    /** Legacy flag: ignored for overlay identity (ANC is never MUSIC in 1.2.18). */
+    /** AA ANC always uses the MUSIC bus (1.2.19). Flag kept for log compatibility. */
     @Volatile
-    var aaPreferMediaTrack: Boolean = false
+    var aaPreferMediaTrack: Boolean = true
+    private var savedStreamMusicVolume: Int? = null
+    @Volatile
+    private var bassToneExclusive = false
 
     fun resetAaSonificationFallback() {
         aaSonificationRoutingFailed = false
@@ -93,13 +94,12 @@ class AudioRouteManager(context: Context) {
 
     fun isAaSonificationFallbackActive(): Boolean = aaSonificationRoutingFailed
 
-    /** Log: overlay usage (+ keepalive). */
-    fun currentTrackUsageLabel(isAaConnected: Boolean): String {
-        return if (isAaConnected) {
-            "USAGE_ASSISTANCE_NAVIGATION_GUIDANCE+MEDIA_KEEPALIVE"
-        } else {
-            "USAGE_ASSISTANCE_SONIFICATION"
-        }
+    /** Actual send usage (A2DP and AA both use MUSIC). */
+    fun currentTrackUsageLabel(isAaConnected: Boolean): String = "USAGE_MEDIA"
+
+    fun isA2dpRoute(route: AudioRouteInfo): Boolean {
+        val t = route.preferredOutput?.type
+        return t == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || route.routeLabel == "bluetooth_a2dp"
     }
 
     @Volatile
@@ -175,12 +175,8 @@ class AudioRouteManager(context: Context) {
             else -> "aa_unknown"
         }
 
-        if (isAaConnected && wirelessSuspected && requireWiredAa) {
-            Log.w(
-                TAG,
-                "WIRELESS_AA_SUSPECTED: BT sink while requireWiredAa=true. Prefer USB Android Auto. " +
-                    "label=$routeLabel aaLinkType=$aaLinkType available=${describeDevices(sinks)}"
-            )
+        if (routeLabel == "bluetooth_a2dp") {
+            Log.i(TAG, "ANC_BASS_SINK=A2DP (50Hz path). label=$routeLabel aa=$isAaConnected")
         } else if (isAaConnected && aaLinkType == "projection_submix") {
             Log.i(
                 TAG,
@@ -225,39 +221,31 @@ class AudioRouteManager(context: Context) {
         }
     }
 
-    fun buildTrackAudioAttributes(isAaConnected: Boolean): AudioAttributes {
+    fun buildTrackAudioAttributes(isAaConnected: Boolean): AudioAttributes = buildMediaAudioAttributes()
+
+    /** AA music-bus attributes (ANC PCM + focus). */
+    fun buildMediaAudioAttributes(): AudioAttributes {
         val builder = AudioAttributes.Builder()
-        if (isAaConnected) {
-            // Overlay mix — not the music bus (1.2.18)
-            builder.setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            builder.setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
-            Log.i(TAG, "ANC overlay attrs=USAGE_ASSISTANCE_NAVIGATION_GUIDANCE")
-        } else {
-            builder.setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            builder.setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-            Log.i(TAG, "ANC track attrs=USAGE_ASSISTANCE_SONIFICATION")
-        }
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+        @Suppress("DEPRECATION")
+        builder.setLegacyStreamType(AudioManager.STREAM_MUSIC)
+        Log.i(TAG, "ANC track attrs=USAGE_MEDIA CONTENT_TYPE_MUSIC STREAM_MUSIC")
         return builder.build()
     }
 
-    /** Silent MEDIA keep-alive so HU does not mute overlay when no music app. */
-    fun buildKeepAliveAudioAttributes(): AudioAttributes {
-        return AudioAttributes.Builder()
-            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-            .setUsage(AudioAttributes.USAGE_MEDIA)
-            .build()
-    }
+    @Deprecated("Use buildMediaAudioAttributes", ReplaceWith("buildMediaAudioAttributes()"))
+    fun buildKeepAliveAudioAttributes(): AudioAttributes = buildMediaAudioAttributes()
 
-    fun prepareRunningAudioMix(isAaConnected: Boolean): Boolean {
+    /** Hold MEDIA focus for AA *or* A2DP bass (car music DAC). */
+    fun prepareRunningAudioMix(holdMediaFocus: Boolean): Boolean {
         ancOutputGain = 1f
-        if (isAaConnected) {
+        if (holdMediaFocus) {
             audioManager.mode = AudioManager.MODE_NORMAL
             @Suppress("DEPRECATION")
             audioManager.isSpeakerphoneOn = false
         }
-        // 1.2.16/1.2.17: AA session must HOLD media focus so HU opens Media stream to speakers.
-        // Previous bug: only transient SONIFICATION focus for calibration, then abandon → no lasting path.
-        return if (isAaConnected) {
+        return if (holdMediaFocus) {
             requestRunningMediaFocus(isAaConnected = true)
         } else {
             true
@@ -288,10 +276,10 @@ class AudioRouteManager(context: Context) {
 
     /**
      * Hold USAGE_MEDIA AudioFocus for the whole ANC session (AA).
-     * Uses AUDIOFOCUS_GAIN so HU treats us as an active media source even with music app off.
+     * GAIN: we *are* the media source (path test needs the bass bus at full level).
+     * 5s engine refresh re-requests on LOSS (AA may flap).
      */
     fun requestRunningMediaFocus(isAaConnected: Boolean): Boolean {
-        if (!isAaConnected) return false
         if (hasAudioFocus && focusRequest != null) return true
 
         val listener = AudioManager.OnAudioFocusChangeListener { change ->
@@ -321,11 +309,15 @@ class AudioRouteManager(context: Context) {
         }
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val attrs = buildTrackAudioAttributes(isAaConnected = true)
-            // 1.2.18: MAY_DUCK — do not steal exclusive media (AA was flapping LOSS/GAIN).
-            val keepAliveAttrs = buildKeepAliveAudioAttributes()
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-                .setAudioAttributes(keepAliveAttrs)
+            val mediaAttrs = buildMediaAudioAttributes()
+            // Normal ANC: MAY_DUCK (keep user music). 50Hz path tone: GAIN so HU uses music DAC.
+            val focusType = if (bassToneExclusive) {
+                AudioManager.AUDIOFOCUS_GAIN
+            } else {
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            }
+            val request = AudioFocusRequest.Builder(focusType)
+                .setAudioAttributes(mediaAttrs)
                 .setAcceptsDelayedFocusGain(false)
                 .setWillPauseWhenDucked(false)
                 .setOnAudioFocusChangeListener(listener, mainHandler)
@@ -333,21 +325,44 @@ class AudioRouteManager(context: Context) {
             focusRequest = request
             val result = audioManager.requestAudioFocus(request)
             lastFocusRequestResultCode = result
-            // DELAYED is NOT a live speaker path
             hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-            Log.i(TAG, "requestRunningMediaFocus result=$result granted=$hasAudioFocus usage=MEDIA_KEEPALIVE_DUCK")
+            Log.i(
+                TAG,
+                "requestRunningMediaFocus result=$result granted=$hasAudioFocus " +
+                    "exclusiveBassTone=$bassToneExclusive"
+            )
             hasAudioFocus
         } else {
             @Suppress("DEPRECATION")
             val result = audioManager.requestAudioFocus(
                 listener,
                 AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN
+                if (bassToneExclusive) AudioManager.AUDIOFOCUS_GAIN
+                else AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
             )
             lastFocusRequestResultCode = result
             hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
             hasAudioFocus
         }
+    }
+
+    /**
+     * During 50/80/120/200 path tones only: exclusive MUSIC so HU uses the music DAC.
+     * Normal ANC stays MAY_DUCK so user music is not killed.
+     */
+    fun setBassToneExclusive(enable: Boolean) {
+        if (bassToneExclusive == enable) return
+        bassToneExclusive = enable
+        Log.i(TAG, "setBassToneExclusive=$enable")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(null)
+        }
+        hasAudioFocus = false
+        focusRequest = null
+        requestRunningMediaFocus(true)
     }
 
     /** Calibration chirp: reuse running focus if held; else short transient. */
@@ -402,6 +417,50 @@ class AudioRouteManager(context: Context) {
         focusRequest = null
         ancOutputGain = 1f
         Log.i(TAG, "abandonAudioFocus (running MEDIA focus released)")
+    }
+
+    /**
+     * Phone STREAM_MUSIC scales USAGE_MEDIA PCM *before* AA encodes.
+     * 1.2.18 logs showed 6/25 — 50Hz became inaudible even if HU passed bass.
+     * Car knob is still the cabin volume; this only un-attenuates the send.
+     */
+    fun boostStreamMusicForAaSend() {
+        if (savedStreamMusicVolume != null) return
+        try {
+            if (audioManager.isVolumeFixed) {
+                Log.i(TAG, "STREAM_MUSIC volume fixed by policy; cannot boost")
+                return
+            }
+            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val cur = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            savedStreamMusicVolume = cur
+            if (max > 0 && cur < max) {
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, max, 0)
+                Log.i(TAG, "STREAM_MUSIC boost $cur -> $max (restore on stop)")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "STREAM_MUSIC boost failed: ${e.message}")
+        }
+    }
+
+    fun restoreStreamMusicVolume() {
+        val saved = savedStreamMusicVolume ?: return
+        savedStreamMusicVolume = null
+        try {
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, saved, 0)
+            Log.i(TAG, "STREAM_MUSIC restored to $saved")
+        } catch (e: Exception) {
+            Log.w(TAG, "STREAM_MUSIC restore failed: ${e.message}")
+        }
+    }
+
+    fun streamMusicVolumePair(): Pair<Int, Int> {
+        return try {
+            audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) to
+                audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        } catch (_: Exception) {
+            0 to 0
+        }
     }
 
     fun describeOutputDevices(): List<String> {
@@ -585,13 +644,15 @@ class AudioRouteManager(context: Context) {
         var score = 0
         // #9: wired USB/BUS first; BT A2DP (wireless AA / phone A2DP) heavily penalized when requireWiredAa
         score += when (device.type) {
+            // USB AA connected: must use remote_submix (HU AA mix). A2DP cannot run beside USB AA.
+            // No AA: A2DP is the car music DAC (idle 50Hz LINE on Octavia).
+            AudioDeviceInfo.TYPE_REMOTE_SUBMIX -> if (isAaConnected) 900 else 200
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> if (isAaConnected) 80 else 1100
             AudioDeviceInfo.TYPE_BUS -> 1000
             AudioDeviceInfo.TYPE_USB_DEVICE -> 980
             AudioDeviceInfo.TYPE_USB_HEADSET -> 950
             AudioDeviceInfo.TYPE_HDMI -> 800
             AudioDeviceInfo.TYPE_HDMI_ARC -> 780
-            AudioDeviceInfo.TYPE_REMOTE_SUBMIX -> 620  // often AA projection; keep mid if no USB enum
-            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> if (requireWiredAa && isAaConnected) 80 else 400
             AudioDeviceInfo.TYPE_LINE_ANALOG -> 500
             AudioDeviceInfo.TYPE_AUX_LINE -> 500
             else -> 0
@@ -599,9 +660,7 @@ class AudioRouteManager(context: Context) {
         if (isAaConnected && isPhoneLocalOutput(device)) {
             score -= 10_000
         }
-        if (requireWiredAa && isAaConnected && device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP) {
-            score -= 500
-        }
+        // 1.2.20: do not penalize A2DP — it is the bass sink.
         score += nameHintScore(device)
         return score
     }

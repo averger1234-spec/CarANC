@@ -19,25 +19,25 @@ struct GuidedTestStep: Identifiable {
 
 enum CarRoadTuningScript {
     static let scriptId = "car_road_tuning_v1"
-    /// 對齊 Android 1.2.17：雙端 P0/P1 對齊
-    static let scriptName = "三目標·1.2.17 雙端對齊P0P1"
+    /// 對齊 Android 1.2.20：A2DP 低音优先
+    static let scriptName = "三目標·1.2.22 AA當音樂源"
 
     static let steps: [GuidedTestStep] = [
         GuidedTestStep(
             id: "tuning_prep",
-            title: "準備：1.2.17 雙端對齊P0P1",
+            title: "準備：1.2.21 USB AA（不搶音樂）",
             instructions: [
-                "★ 對齊 Android v1.2.17（live path check / classifier+plant D / open 25–30%）",
+                "★ Android v1.2.19：ANC 走 USAGE_MEDIA（不是 NAV overlay）",
                 "iOS 本機或 CarPlay；Android 有線 AA 完整診斷",
                 "★ placement=floor/seat；音樂關；PRO；預設極性 −1",
                 "★ 只收等長 ~20s 三件套 off/ppos/pneg（≥45 km/h）",
-                "★ 開 ANC 後應聽到短 50Hz；log carplay_path_check=PASS 且 carAudio 才信消噪"
+                "★ 开 ANC 后听 50/80/120/200 哪档有低音；log path_check=PASS 才信消噪"
             ],
             durationSec: 20,
             suggestedTier: .pro,
             requiresAncRunning: false,
             checklist: [
-                "對齊1.2.17",
+                "對齊1.2.19",
                 "tier=PRO",
                 "placement=floor/seat",
                 "音樂關",
@@ -58,23 +58,86 @@ enum CarRoadTuningScript {
         ),
         GuidedTestStep(
             id: "diag_tone_50",
-            title: "⓪ AA 低頻診斷 50Hz tone（30s）",
+            title: "⓪a 路径 50Hz（10s）",
             instructions: [
                 "停車或怠速；開 ANC",
-                "應聽到低沉 50Hz；完全沒低音 → 路徑不通"
+                "應聽到低沉 50Hz；只有沙 → 這档被切掉"
             ],
-            durationSec: 30,
+            durationSec: 10,
             suggestedTier: .pro,
             requiresAncRunning: true,
             checklist: ["ANC開", "聽到50Hz?", "tier=PRO"],
             minSpeedKmh: 0,
             wallClockOnly: true,
-            maxWallSec: 45,
+            maxWallSec: 20,
             debugPresets: [
                 "tier": "PRO",
                 "userAncGain": "1.0",
                 "muteAnti": "false",
                 "diagToneHz": "50",
+                "forceNormalMode": "true"
+            ]
+        ),
+        GuidedTestStep(
+            id: "diag_tone_80",
+            title: "⓪b 路径 80Hz（8s）",
+            instructions: [
+                "同上，聽 80Hz"
+            ],
+            durationSec: 8,
+            suggestedTier: .pro,
+            requiresAncRunning: true,
+            checklist: ["80Hz?"],
+            minSpeedKmh: 0,
+            wallClockOnly: true,
+            maxWallSec: 16,
+            debugPresets: [
+                "tier": "PRO",
+                "userAncGain": "1.0",
+                "muteAnti": "false",
+                "diagToneHz": "80",
+                "forceNormalMode": "true"
+            ]
+        ),
+        GuidedTestStep(
+            id: "diag_tone_120",
+            title: "⓪c 路径 120Hz（8s）",
+            instructions: [
+                "同上，聽 120Hz"
+            ],
+            durationSec: 8,
+            suggestedTier: .pro,
+            requiresAncRunning: true,
+            checklist: ["120Hz?"],
+            minSpeedKmh: 0,
+            wallClockOnly: true,
+            maxWallSec: 16,
+            debugPresets: [
+                "tier": "PRO",
+                "userAncGain": "1.0",
+                "muteAnti": "false",
+                "diagToneHz": "120",
+                "forceNormalMode": "true"
+            ]
+        ),
+        GuidedTestStep(
+            id: "diag_tone_200",
+            title: "⓪d 路径 200Hz（8s）",
+            instructions: [
+                "同上，聽 200Hz。只有這档有聲 → 做不了 40–80 路悶"
+            ],
+            durationSec: 8,
+            suggestedTier: .pro,
+            requiresAncRunning: true,
+            checklist: ["200Hz?"],
+            minSpeedKmh: 0,
+            wallClockOnly: true,
+            maxWallSec: 16,
+            debugPresets: [
+                "tier": "PRO",
+                "userAncGain": "1.0",
+                "muteAnti": "false",
+                "diagToneHz": "200",
                 "forceNormalMode": "true"
             ]
         ),

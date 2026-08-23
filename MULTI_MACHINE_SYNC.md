@@ -6,7 +6,7 @@
 
 ---
 
-## 另一台電腦現在請這樣拉（2026-08-20 · 現行）
+## 另一台電腦現在請這樣拉（2026-08-23 · 現行）
 
 > 你有多台電腦：以 **GitHub `main` 為唯一真相**。換機先 pull，改完再 push。
 
@@ -14,7 +14,7 @@
 
 | 平台 | 版號 | App 怎麼對版 |
 |------|------|----------------|
-| Android | **1.2.18 / code 20** | 主畫面 `v1.2.18` |
+| Android | **1.2.22 / code 24** | 主畫面 `v1.2.22` |
 | iOS | **1.2.17 (build 28)** | 狀態頁 **`v1.2.17 (28)`**；安全 teardown + classifier/plant D；路徑自檢需 carAudio |
 
 ### 1. 拉程式（每台、每次開工）
@@ -24,6 +24,7 @@ cd <你的路徑>\CarANC
 git pull origin main
 git log -5 --oneline
 # 近期應能看到例如：
+# fix(anc): v1.2.22 AA MediaSession music path for 50Hz
 # fix: v1.2.17 dual-end P0/P1 alignment
 # ios: ship 1.2.16 (27) path check and fix ANC start crash
 # fix(anc): v1.2.16 hold MEDIA focus and aa_path_check PASS/FAIL

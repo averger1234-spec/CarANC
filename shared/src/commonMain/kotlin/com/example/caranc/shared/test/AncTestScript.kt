@@ -401,14 +401,12 @@ object CarAncTestScript {
 }
 
 object CarRoadTuningScript {
-    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.18-aligned. */
+    /** Keep id stable so guidedTestStepId history stays comparable; content is 1.2.21-aligned. */
     const val SCRIPT_ID = "car_road_tuning_v1"
     /**
-     * === 1.2.18 NAV overlay mix + 50Hz cabin + send LPF ===
-     * prep → diag_tone_50 (艙錄) → road_off → ppos → pneg → tire → wind → finish
-     * 必收：50Hz 低嗡不是沙；cabin_diag 有 50Hz 峰；開 ANC 中高頻不大增
+     * === 1.2.22 AA as real media source (MediaSession, no LOW_LATENCY) ===
      */
-    const val SCRIPT_NAME = "三目標·1.2.18 overlay混音+50Hz艙錄"
+    const val SCRIPT_NAME = "三目標·1.2.22 AA當音樂源"
 
     // TIER-ONLY MANUAL (per user): switch LIGHT/STANDARD/PRO only; leakage (alpha), blockRmsVssScale, rumbleBoostFactor (IMU), useNativeLowBand ALL auto via updateTier in processor.
     // sim_iter.ps1 runs full per-tier sims (normal/strict +/- rough IMU accel +/- native 2x save, pothole impulses, 06-29 log calib) to recommend best values balancing stability (low pfxVarEma, no pop) + perf (high effMidMu, red in 200-350Hz, lms).
@@ -453,14 +451,13 @@ object CarRoadTuningScript {
     val steps: List<TestScriptStep> = listOf(
         TestScriptStep(
             id = "tuning_prep",
-            title = "準備：1.2.18 overlay混音+50Hz艙錄",
+            title = "準備：1.2.22 AA當音樂源",
             instructions = listOf(
-                "★ 版號 **v1.2.18**；anti 走 **NAV overlay**，不是音樂混音",
-                "USB 有線 AA；placement=floor/seat；**音樂全關**",
-                "啟動 ANC 後約 1.5s 自動 50Hz 自檢 → log **aa_path_check PASS/FAIL**",
-                "★ PASS=live focus+MEDIA+car sink+送出；你還須聽到低嗡才算喇叭通",
-                "★ FAIL=不要信消噪 KPI；先修路徑（DELAYED/無 submix 不算 PASS）",
-                "★ 只收等長三件套；長 off/停速丟"
+                "★ 版號 **v1.2.22**；USB AA；CarANC 以 **MediaSession 正在播放** 進音樂 DAC",
+                "測 50Hz **請暫停 Spotify/車機音樂**（這幾秒 App 會當音樂源，否則車機仍當附加音）",
+                "應聽 **低沉 50Hz**，不是沙。通知欄應像音樂播放中",
+                "路悶步可再開音樂。腳本結束可直接一般降噪",
+                "★ 只收等長三件套"
             ),
             durationSec = 20,
             requiresAncRunning = false,
@@ -468,10 +465,10 @@ object CarRoadTuningScript {
             maxWallSec = 60,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
-                "版號v1.2.18",
+                "版號v1.2.22",
                 "tier=PRO",
                 "USB AA",
-                "50Hz無音樂可聽?",
+                "不搶音樂",
                 "ANC可啟動"
             ),
             logPhases = listOf("audio_init", "aa_connected", "test_script_start"),
@@ -487,31 +484,96 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "diag_tone_50",
-            title = "⓪ AA 低頻診斷 50Hz tone（30s）",
+            title = "⓪a 路径 50Hz（10s，AA）",
             instructions = listOf(
-                "停車或怠速；**開 ANC**（50Hz 走 **NAV overlay**，不是音樂混音）",
-                "應聽到 **低沉 50Hz 嗡**；若是沙沙聲 = 混音仍錯",
-                "★ 此步自動艙錄 cabin_diag_tone_50_*.wav（不須車速）",
-                "log：diag_tone_active note 含 1.2.18 overlay；主觀有/無 50Hz"
+                "停車/怠速；USB AA；**請自己暫停音樂**（App 不再強制切斷）",
+                "聽是低沉 50Hz 還是只有沙",
+                "★ 艙錄 cabin_diag_tone_50_*.wav"
             ),
-            durationSec = 30,
+            durationSec = 10,
             requiresAncRunning = true,
             wallClockOnly = true,
-            maxWallSec = 45,
+            maxWallSec = 20,
             suggestedTier = UserTier.PRO,
-            checklist = listOf(
-                "ANC開",
-                "聽到50Hz低嗡?",
-                "不是沙沙?",
-                "艙錄50Hz",
-                "tier=PRO"
-            ),
+            checklist = listOf("ANC開", "50Hz低音?", "不是沙?", "艙錄", "tier=PRO"),
             logPhases = listOf("diag_tone_active", "cabin_record_start", "spectrum_kpi", "running_snapshot"),
             debugPresets = mapOf(
                 "tier" to "PRO",
                 "userAncGain" to 1.0f,
                 "muteAnti" to false,
                 "diagToneHz" to 50f,
+                "forceNormalMode" to true,
+                "cabinRecord" to true,
+                "cabinRecordOnValidSpeed" to false
+            )
+        ),
+        TestScriptStep(
+            id = "diag_tone_80",
+            title = "⓪b 路径 80Hz（8s）",
+            instructions = listOf(
+                "同上，聽 **80Hz**。50 沒有、80 有 → 車機高通約在中間",
+                "★ 艙錄 cabin_diag_tone_80_*.wav"
+            ),
+            durationSec = 8,
+            requiresAncRunning = true,
+            wallClockOnly = true,
+            maxWallSec = 16,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf("80Hz低音?", "艙錄"),
+            logPhases = listOf("diag_tone_active", "cabin_record_start", "spectrum_kpi"),
+            debugPresets = mapOf(
+                "tier" to "PRO",
+                "userAncGain" to 1.0f,
+                "muteAnti" to false,
+                "diagToneHz" to 80f,
+                "forceNormalMode" to true,
+                "cabinRecord" to true,
+                "cabinRecordOnValidSpeed" to false
+            )
+        ),
+        TestScriptStep(
+            id = "diag_tone_120",
+            title = "⓪c 路径 120Hz（8s）",
+            instructions = listOf(
+                "同上，聽 **120Hz**（較不像低嗡、較像悶哼）",
+                "★ 艙錄 cabin_diag_tone_120_*.wav"
+            ),
+            durationSec = 8,
+            requiresAncRunning = true,
+            wallClockOnly = true,
+            maxWallSec = 16,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf("120Hz?", "艙錄"),
+            logPhases = listOf("diag_tone_active", "cabin_record_start", "spectrum_kpi"),
+            debugPresets = mapOf(
+                "tier" to "PRO",
+                "userAncGain" to 1.0f,
+                "muteAnti" to false,
+                "diagToneHz" to 120f,
+                "forceNormalMode" to true,
+                "cabinRecord" to true,
+                "cabinRecordOnValidSpeed" to false
+            )
+        ),
+        TestScriptStep(
+            id = "diag_tone_200",
+            title = "⓪d 路径 200Hz（8s）",
+            instructions = listOf(
+                "同上，聽 **200Hz**。若只有這档有聲 → AA/喇叭切掉路悶帶，手機 AA 做不了 40–80 取消",
+                "★ 艙錄 cabin_diag_tone_200_*.wav"
+            ),
+            durationSec = 8,
+            requiresAncRunning = true,
+            wallClockOnly = true,
+            maxWallSec = 16,
+            suggestedTier = UserTier.PRO,
+            checklist = listOf("200Hz?", "艙錄"),
+            logPhases = listOf("diag_tone_active", "cabin_record_start", "spectrum_kpi"),
+            debugPresets = mapOf(
+                "tier" to "PRO",
+                "userAncGain" to 1.0f,
+                "muteAnti" to false,
+                "diagToneHz" to 200f,
                 "forceNormalMode" to true,
                 "cabinRecord" to true,
                 "cabinRecordOnValidSpeed" to false
@@ -704,13 +766,11 @@ object CarRoadTuningScript {
         ),
         TestScriptStep(
             id = "tuning_finish",
-            title = "結束：1.2.18 對照匯出",
+            title = "結束：1.2.21 對照匯出",
             instructions = listOf(
-                "停 ANC → 存 Log；scenario：50Hz無音樂、等長三件套",
-                "★ PASS：trackUsage=MEDIA；50Hz無音樂可聽；40–80 on≤off；180–350 <+1.5dB",
-                "★ 極性步短測 open≈30%；長 off/停速丟",
-                "★ FAIL：無音樂完全沒聲 / on 更響 / 採信不等長",
-                "tire 步可看 tireNotchEnergy"
+                "腳本結束 **不必重開 App**；可直接開始一般降噪、可放 AA 音樂",
+                "★ PASS：結束後開始降噪有作用；音樂不被掐掉",
+                "★ 50Hz 仍可能只有沙（車機 AA 混音），與能否聽音樂分開看"
             ),
             durationSec = 15,
             requiresAncRunning = false,
