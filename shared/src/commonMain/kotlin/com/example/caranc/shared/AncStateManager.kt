@@ -43,7 +43,23 @@ class AncStateManager {
     val latencyTrackMs = MutableStateFlow(0f)
     val latencyBlockMs = MutableStateFlow(0f)
 
+    /**
+     * When the user hits 停止, a leftover AudioEngine block must not flip
+     * the UI back to Running after we already set Stopped.
+     */
+    private var stopLatched: Boolean = false
+
+    fun latchStopped() {
+        stopLatched = true
+        _state.value = AncState.Stopped()
+    }
+
+    fun clearStopLatch() {
+        stopLatched = false
+    }
+
     fun updateState(newState: AncState) {
+        if (stopLatched && newState !is AncState.Stopped) return
         _state.value = newState
     }
 

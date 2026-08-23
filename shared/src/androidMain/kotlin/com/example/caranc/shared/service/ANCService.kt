@@ -61,7 +61,11 @@ class ANCService : LifecycleService() {
         super.onCreate()
         AncSessionLogger.init(this)
         try {
-            mediaSession = AncMediaSession(this)
+            mediaSession = AncMediaSession(this) {
+                Log.w("ANCService", "MediaSession transport STOP")
+                tearDownEngine("media_session")
+                stopSelf()
+            }
         } catch (e: Exception) {
             Log.e("ANCService", "MediaSession init failed (ANC still starts): ${e.message}")
             mediaSession = null
@@ -108,17 +112,23 @@ class ANCService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
 
-        // P0 #1 + P2: thin onStartCommand - FG, notif, AA handled here; heavy audio/processing delegated to AudioEngine (created via AncSessionFactory)
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         Log.d("ANCService", "Notifications enabled: ${manager.areNotificationsEnabled()}")
 
         if (intent?.action == ACTION_STOP_SERVICE) {
-            Log.w("ANCService", "收到通知欄停止指令")
+            Log.w("ANCService", "收到停止指令")
+            tearDownEngine("user_stop")
             stopSelf()
             return START_NOT_STICKY
         }
 
-        // Note: audioManager/route/speed creation moved inside AudioEngine for ownership
+        // Duplicate startForegroundService (script + 開始降噪, or every script step)
+        // used to leak the previous AudioEngine. Stop then leaked the latest only.
+        if (audioEngine != null) {
+            Log.w("ANCService", "already running — ignore duplicate onStartCommand")
+            return START_STICKY
+        }
+
         try {
             val notification = createNotification("ANC 正在啟動...")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -147,14 +157,11 @@ class ANCService : LifecycleService() {
                 "subscriptionPlan" to sessionContext.entitlementManager.currentPlan.id,
                 "mimoEnabled" to sessionContext.entitlementManager.canUseFeature(CommercialFeature.MIMO_TRIAL),
                 "mediaSession" to true
-                // OBD RPM (Bluetooth) removed - manual RPM via test prefs only
             )
         )
 
-        // P0 #1 + P2: create AudioEngine via light AncSessionFactory (in commonMain + android actual).
-        // AudioEngine creation now goes through factory for scoped components / future DI (Koin/manual).
-        // Factory holds sessionContext; android actual provides the platform createAudioEngine.
-        // (processor creation inside engine also uses factory - see AudioEngine.kt)
+        mediaSession?.setPlaying(true)
+        sessionContext.stateManager.clearStopLatch()
         val factory = AncSessionFactory(sessionContext)
         audioEngine = factory.createAudioEngine(
             appContext = this,
@@ -166,6 +173,18 @@ class ANCService : LifecycleService() {
         )
         audioEngine?.start()
         return START_STICKY
+    }
+
+    private fun tearDownEngine(reason: String) {
+        Log.w("ANCService", "tearDownEngine reason=$reason")
+        try {
+            audioEngine?.stop()
+        } catch (e: Exception) {
+            Log.e("ANCService", "engine.stop: ${e.message}")
+        }
+        audioEngine = null
+        mediaSession?.setPlaying(false)
+        sessionContext.stateManager.latchStopped()
     }
 
     // P0 #1: hasLocationPermission + foregroundServiceTypes kept in (thin) ANCService because they are used only for startForeground type declaration here.
@@ -193,11 +212,8 @@ class ANCService : LifecycleService() {
 
 
     override fun onDestroy() {
-        // P0 #1 + P2: thin onDestroy - delegate stop/release to AudioEngine (which owns all audio/loop/resources; was created via factory).
-        // Then do logger end + state + stopForeground (exact same as before).
         Log.w("ANCService", "ANCService onDestroy called")
-        audioEngine?.stop()
-        audioEngine = null
+        tearDownEngine("onDestroy")
         mediaSession?.release()
         mediaSession = null
         AncSessionLogger.endSession("service_destroyed")
@@ -275,7 +291,20 @@ class ANCService : LifecycleService() {
     }
 
     companion object {
-        // P0 #1: Only ACTION_STOP kept here (thin service); all audio consts/loop consts now owned exclusively inside AudioEngine.
-        private const val ACTION_STOP_SERVICE = "com.example.caranc.STOP_SERVICE"
+        const val ACTION_STOP_SERVICE = "com.example.caranc.STOP_SERVICE"
+
+        /** Flip UI to Stopped immediately, then ask the service to die (even if already gone). */
+        fun requestStopFromUi(context: Context) {
+            GlobalAncSessionContext.stateManager.latchStopped()
+            val stop = Intent(context, ANCService::class.java).apply {
+                action = ACTION_STOP_SERVICE
+            }
+            try {
+                context.startService(stop)
+            } catch (e: Exception) {
+                Log.w("ANCService", "startService STOP: ${e.message}")
+            }
+            context.stopService(Intent(context, ANCService::class.java))
+        }
     }
 }

@@ -29,6 +29,7 @@ import com.example.caranc.shared.latency.AntiNoiseDelayLine
 import com.example.caranc.shared.latency.PlantAlignedResidual
 import com.example.caranc.shared.BoomPolarityAbTracker
 import com.example.caranc.shared.MultiBandANCProcessor  // for cast to access extra low-band counters (fdaf/multirate)
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -70,6 +71,8 @@ class AudioEngine(
 ) {
     // All audio/processing ownership moved here from ANCService (P0 #1 refactor)
     private var processingJob: Job? = null
+    @Volatile
+    private var stopRequested = false
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
     /** 1.2.19: AA MUSIC bus is stereo (duplicate L/R). Local remains mono. */
@@ -171,10 +174,12 @@ class AudioEngine(
     private var lastOutputPathActive = false
 
     fun start() {
+        if (stopRequested) return
         if (processingJob?.isActive == true) return
 
         processingJob = lifecycleScope.launch(Dispatchers.IO) {
             try {
+                if (stopRequested) return@launch
                 // CYCLE3_EXTRA native low-freq proto: report availability once per engine start (JNI load happens in actual ctor)
                 val nativeLowAvail = NativeLowBandProcessor.isNativeAvailable()
                 Log.i("ANCService", "CYCLE3_EXTRA: NativeLowBandProcessor available=$nativeLowAvail (proto; cmake notes in shared/build.gradle.kts)")
@@ -659,7 +664,7 @@ class AudioEngine(
                     )
                 )
 
-                while (isActive) {
+                while (isActive && !stopRequested) {
                     maybeRefreshAudioRoute(routeManager)
 
                     val activeTier = sessionContext.tierManager.currentTier.value
@@ -784,6 +789,7 @@ class AudioEngine(
                     referencePipeline?.setContext(musicActive = isMusic, callActive = isCall)
 
                     val read = audioRecord?.read(input, 0, readSize) ?: 0
+                    if (stopRequested || !isActive) break
                     if (read > 0) {
                         if (GuidedCabinRecorder.isRecording()) {
                             GuidedCabinRecorder.append(input, read)
@@ -1312,24 +1318,34 @@ class AudioEngine(
                     }
                 }
 
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                sessionContext.stateManager.updateState(AncState.Error("服務異常"))
-                AncSessionLogger.log(
-                    phase = "error",
-                    fields = mapOf(
-                        "message" to (e.message ?: "unknown"),
-                        "type" to e.javaClass.simpleName
+                if (!stopRequested) {
+                    sessionContext.stateManager.updateState(AncState.Error("服務異常"))
+                    AncSessionLogger.log(
+                        phase = "error",
+                        fields = mapOf(
+                            "message" to (e.message ?: "unknown"),
+                            "type" to e.javaClass.simpleName
+                        )
                     )
-                )
+                }
             } finally {
                 releaseAudio()
-                requestStop()
+                // User/system stop already called stopSelf/onDestroy. A leaked
+                // sibling engine must not kill a still-running session.
+                if (!stopRequested) {
+                    requestStop()
+                }
             }
         }
     }
 
     fun stop() {
+        stopRequested = true
         processingJob?.cancel()
+        processingJob = null
         releaseAudio()
     }
 

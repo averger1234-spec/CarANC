@@ -159,7 +159,6 @@ class CarAncAutoScreen(carContext: CarContext) : Screen(carContext), DefaultLife
     }
 
     private fun stopAncService() {
-        val intent = Intent(carContext, ANCService::class.java)
-        carContext.stopService(intent)
+        ANCService.requestStopFromUi(carContext)
     }
 }

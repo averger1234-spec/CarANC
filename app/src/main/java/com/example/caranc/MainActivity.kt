@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopAncService() {
-        stopService(Intent(this, ANCService::class.java))
+        ANCService.requestStopFromUi(this)
     }
 }
 

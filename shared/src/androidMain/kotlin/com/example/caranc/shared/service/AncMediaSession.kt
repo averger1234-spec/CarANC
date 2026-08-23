@@ -12,7 +12,10 @@ import android.util.Log
  * Makes CarANC a real "now playing" music source for Android Auto.
  * Do not call setPlaying() from the session property initializer — session is still null.
  */
-class AncMediaSession(context: Context) {
+class AncMediaSession(
+    context: Context,
+    private val onUserStop: () -> Unit = {}
+) {
 
     val session: MediaSessionCompat = MediaSessionCompat(context, "CarANC")
 
@@ -28,7 +31,16 @@ class AncMediaSession(context: Context) {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         session.setSessionActivity(pi)
-        session.setCallback(object : MediaSessionCompat.Callback() {})
+        session.setCallback(object : MediaSessionCompat.Callback() {
+            override fun onStop() {
+                Log.w(TAG, "callback onStop")
+                onUserStop()
+            }
+            override fun onPause() {
+                Log.w(TAG, "callback onPause → stop ANC")
+                onUserStop()
+            }
+        })
         session.setPlaybackToLocal(android.media.AudioManager.STREAM_MUSIC)
         session.setMetadata(
             MediaMetadataCompat.Builder()

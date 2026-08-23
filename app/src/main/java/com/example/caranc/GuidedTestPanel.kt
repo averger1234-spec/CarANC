@@ -275,13 +275,9 @@ fun GuidedTestPanel(
         }
     }
 
-    // Auto-start ANC when script begins (not on finish)
-    LaunchedEffect(guidedState.active, guidedState.finished, guidedState.currentStep?.id, ancRunning) {
-        val onFinish = guidedState.currentStep?.id.orEmpty().contains("finish", ignoreCase = true)
-        if (guidedState.active && !guidedState.finished && !onFinish && !ancRunning) {
-            onRequestStartAnc()
-        }
-    }
+    // Script start already calls onRequestStartAnc once (startRoadTest).
+    // Do NOT re-start whenever ancRunning flips false or the step changes —
+    // that leaked a second AudioEngine and made 停止降噪 immediately restart.
 
     // On script complete: AUTO-SAVE. Do not auto-stop ANC — that blocked 「開始降噪」
     // (delayed stop killed a restart; mute/gain=0 leftover felt like ANC dead).

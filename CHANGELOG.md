@@ -22,6 +22,21 @@
 
 
 
+## [1.2.24] — 2026-08-23 · Android code 26 · 停止降噪真的會停
+
+1.2.23 實車：App 開著，按「停止降噪」沒反應（或停一下又自己開）。Log：`onStartCommand` 連打兩次（約 80ms）→ 兩條 AudioEngine；`onDestroy` 只停到最新那條；腳本 `LaunchedEffect(ancRunning)` 一看到停就再 `startForegroundService`。服務已死時 UI 還卡在 Running，再按停止是 no-op。
+
+| 項 | 內容 |
+|----|------|
+| **停** | 按鈕立刻 `latchStopped()`，再送 `STOP` intent；殘留 loop 不能把 UI 寫回 Running |
+| **雙開** | 已有 engine 就忽略第二次 `onStartCommand`；`stop()` 設 `stopRequested` 再放音訊 |
+| **腳本** | 不再在 `!ancRunning` 或換步驟時自動再開 ANC；開始腳本仍只開一次 |
+| **通知** | MediaSession Pause/Stop 會停服務 |
+
+裝 1.2.24 後：按停止 → 按鈕變「開始降噪」、通知消失、喇叭不再出 anti。腳本進行中也可以停；要再開就按「開始降噪」。
+
+---
+
 ## [1.2.23] — 2026-08-23 · Android code 25 · 修復開 ANC 閃退
 
 1.2.22 `AncMediaSession` 在 `session` 屬性尚未賦值時呼叫 `setPlaying()` → NPE，**開始降噪 / 腳本直接閃退**。改為 init 完成後再設 PLAYING；MediaSession 失敗不擋服務啟動。
