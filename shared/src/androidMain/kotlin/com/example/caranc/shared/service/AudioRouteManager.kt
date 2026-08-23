@@ -596,7 +596,14 @@ class AudioRouteManager(context: Context) {
                 .filterNot { isPhoneLocalOutput(it) }
                 .map { device -> device to scoreOutputDevice(device, isAaConnected) }
                 .sortedByDescending { it.second }
-            scored.firstOrNull { it.second > 0 }?.first?.let { return it }
+            scored.firstOrNull { it.second > 0 }?.let { (device, score) ->
+                Log.i(
+                    TAG,
+                    "AA_SUBMIX_PICK score=$score ${describeDevice(device)} " +
+                        "(prefer mixp:0 48kHz music over mixp:1 16kHz voice)"
+                )
+                return device
+            }
 
             // AA 已連線但沒有外接 sink 時，不 fallback 到手機喇叭，改走媒體預設路由。
             Log.w(TAG, "AA connected but no external sink found; available=${describeDevices(sinks)}")
@@ -667,7 +674,36 @@ class AudioRouteManager(context: Context) {
         }
         // 1.2.20: do not penalize A2DP — it is the bass sink.
         score += nameHintScore(device)
+        // 1.2.26: AA opens mixp:0 @ 48 kHz (music) and mixp:1 @ 16 kHz (voice).
+        // 16 kHz voice HP kills 50 Hz. Prefer mixp:0 / 48 kHz.
+        if (isAaConnected && device.type == AudioDeviceInfo.TYPE_REMOTE_SUBMIX) {
+            score += aaMediaSubmixBias(device)
+        }
         return score
+    }
+
+    /** Positive = music bus; negative = voice/nav 16 kHz bus. */
+    private fun aaMediaSubmixBias(device: AudioDeviceInfo): Int {
+        val addr = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            device.address.orEmpty().lowercase()
+        } else {
+            ""
+        }
+        var bias = 0
+        if ("mixp:0" in addr) bias += 400
+        if ("mixp:1" in addr) bias -= 500
+        val rates = try {
+            device.sampleRates ?: intArrayOf()
+        } catch (_: Exception) {
+            intArrayOf()
+        }
+        if (rates.contains(48000) || rates.contains(44100)) bias += 200
+        if (rates.isNotEmpty() && rates.maxOrNull() ?: 0 <= 16000) bias -= 400
+        Log.i(
+            TAG,
+            "AA_SUBMIX_CANDIDATE id=${device.id} addr=$addr rates=${rates.joinToString()} bias=$bias"
+        )
+        return bias
     }
 
     private fun nameHintScore(device: AudioDeviceInfo): Int {

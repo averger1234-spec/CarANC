@@ -22,6 +22,16 @@
 
 
 
+## [1.2.26] — 2026-08-24 · Android code 28 · AA 走 48kHz 音樂埠（mixp:0）
+
+實車 USB AA：Gearhead 開兩條 `remote_submix`——`mixp:0` 48 kHz 音樂、`mixp:1` 16 kHz 語音。1.2.25 同分時選到 **mixp:1** → 50Hz 送得出、艙裡 `NO_LINE`。
+
+改為打分偏好 `mixp:0` / 48 kHz，罰 `mixp:1` / ≤16 kHz。Log：`AA_SUBMIX_PICK` + `AA_SUBMIX_CANDIDATE`。
+
+裝完：**AA 仍插著 → 停止再開始降噪** → 暫停音樂、車機音量拉高 → 聽 50Hz 悶或沙。log `routedOutput` 應含 `mixp:0`。
+
+---
+
 ## [1.2.25] — 2026-08-23 · Android code 27 · AA 連上就自動測路徑
 
 USB AA 連上時自動跑路徑檢測，不再只信 `aa_path_check` 的「送出 peak」。
