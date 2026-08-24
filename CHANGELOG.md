@@ -22,6 +22,18 @@
 
 
 
+## [1.2.27] — 2026-08-24 · Android code 29 · AA 無低音就停送 anti；Pause 不停 ANC
+
+實車：USB AA 即使 mixp:0 艙裡仍無 50Hz，on 比 off 更吵。藍牙才是低音通道。
+
+| 項 | 內容 |
+|----|------|
+| **AA** | 路徑自檢艙裡沒 50Hz → **停送 anti**（不再越開越吵） |
+| **Pause** | MediaSession Pause **不再停止降噪**（AA 斷開會誤殺） |
+| **用法** | 要有低頻感覺：**不要插 USB AA，只連 Skoda 藍牙** |
+
+---
+
 ## [1.2.26] — 2026-08-24 · Android code 28 · AA 走 48kHz 音樂埠（mixp:0）
 
 實車 USB AA：Gearhead 開兩條 `remote_submix`——`mixp:0` 48 kHz 音樂、`mixp:1` 16 kHz 語音。1.2.25 同分時選到 **mixp:1** → 50Hz 送得出、艙裡 `NO_LINE`。

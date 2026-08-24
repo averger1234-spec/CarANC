@@ -37,8 +37,8 @@ class AncMediaSession(
                 onUserStop()
             }
             override fun onPause() {
-                Log.w(TAG, "callback onPause → stop ANC")
-                onUserStop()
+                // AA disconnect / HU pause must not kill ANC.
+                Log.w(TAG, "callback onPause ignored (use Stop to quit ANC)")
             }
         })
         session.setPlaybackToLocal(android.media.AudioManager.STREAM_MUSIC)
