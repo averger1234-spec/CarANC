@@ -1,16 +1,17 @@
 # 最新多機同步索引（2026-08-23）
 
-**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.29**）。
+**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.30**）。
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.29 / code 31** · iOS **1.2.17 (28)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.30 / code 32** · iOS **1.2.17 (28)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
+**1.2.30 重點**：論壇／HUIG：AA LF shelf + 50/80Hz 路徑 + 不自 duck + 48k mixer；測不到仍送 anti。  
 **1.2.29 重點**：AA 50Hz 自檢 FAIL 仍繼續送 anti（不關通道）。  
 **1.2.28 重點**：AA 與 A2DP 都 GAIN + STREAM_MUSIC 拉滿（佔音樂 DAC）。  
 **1.2.27 重點**：AA 艙無 50Hz 就停送 anti；Pause 不停 ANC。  

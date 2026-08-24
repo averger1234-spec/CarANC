@@ -5,13 +5,16 @@ import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
+import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioMixerAttributes
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.annotation.RequiresApi
 
 data class AudioRouteInfo(
     val routeLabel: String,
@@ -230,7 +233,12 @@ class AudioRouteManager(context: Context) {
             .setUsage(AudioAttributes.USAGE_MEDIA)
         @Suppress("DEPRECATION")
         builder.setLegacyStreamType(AudioManager.STREAM_MUSIC)
-        Log.i(TAG, "ANC track attrs=USAGE_MEDIA CONTENT_TYPE_MUSIC STREAM_MUSIC")
+        // AA Gearhead captures MUSIC via remote_submix. Pixel privacy defaults
+        // must not hide this track from the projection mix.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            builder.setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_ALL)
+        }
+        Log.i(TAG, "ANC track attrs=USAGE_MEDIA CONTENT_TYPE_MUSIC STREAM_MUSIC capture=ALL")
         return builder.build()
     }
 
@@ -288,16 +296,18 @@ class AudioRouteManager(context: Context) {
             when (change) {
                 AudioManager.AUDIOFOCUS_LOSS -> {
                     hasAudioFocus = false
-                    ancOutputGain = 0.05f
-                    Log.w(TAG, "AA running MEDIA focus LOSS — path likely dead until re-request")
+                    // Forum: AA is already ~20–30 dB quieter than BT. Do not
+                    // self-mute anti while waiting for the 5s focus re-request.
+                    ancOutputGain = 1f
+                    Log.w(TAG, "AA running MEDIA focus LOSS — keep writing anti, will re-request")
                 }
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                    ancOutputGain = 0.15f
-                    Log.w(TAG, "AA running MEDIA focus LOSS_TRANSIENT")
+                    ancOutputGain = 1f
+                    Log.w(TAG, "AA running MEDIA focus LOSS_TRANSIENT — keep writing anti")
                 }
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                    ancOutputGain = 0.45f
-                    Log.i(TAG, "AA running MEDIA focus ducked")
+                    ancOutputGain = 1f
+                    Log.i(TAG, "AA running MEDIA focus ducked by policy — keep PCM at full")
                 }
                 AudioManager.AUDIOFOCUS_GAIN,
                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
@@ -371,8 +381,8 @@ class AudioRouteManager(context: Context) {
             lastFocusChangeCode = change
             when (change) {
                 AudioManager.AUDIOFOCUS_LOSS,
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> ancOutputGain = 0.15f
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> ancOutputGain = 0.35f
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> ancOutputGain = 1f
                 AudioManager.AUDIOFOCUS_GAIN,
                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK -> ancOutputGain = 1f
@@ -572,7 +582,43 @@ class AudioRouteManager(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || device == null) return false
         val applied = audioTrack.setPreferredDevice(device)
         Log.i(TAG, "AudioTrack preferred device: ${describeDevice(device)} applied=$applied")
+        preferAaMusicMixer(device)
         return applied
+    }
+
+    /**
+     * Ask AudioFlinger for a 48 kHz stereo MUSIC mixer on the AA submix.
+     * AA MEDIA channel is 48 kHz stereo PCM/AAC (open-android-auto / HUIG).
+     * A 16 kHz mixer here is the voice bus — 50 Hz dies.
+     */
+    private fun preferAaMusicMixer(device: AudioDeviceInfo) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        preferAaMusicMixer33(device)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private fun preferAaMusicMixer33(device: AudioDeviceInfo) {
+        if (device.type != AudioDeviceInfo.TYPE_REMOTE_SUBMIX &&
+            device.type != AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+        ) return
+        try {
+            val format = AudioFormat.Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setSampleRate(48000)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                .build()
+            val mixer = AudioMixerAttributes.Builder(format)
+                .setMixerBehavior(AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT)
+                .build()
+            val ok = audioManager.setPreferredMixerAttributes(
+                buildMediaAudioAttributes(),
+                device,
+                mixer
+            )
+            Log.i(TAG, "AA_MIXER_ATTR 48k_stereo applied=$ok ${describeDevice(device)}")
+        } catch (e: Exception) {
+            Log.w(TAG, "AA_MIXER_ATTR failed: ${e.message}")
+        }
     }
 
     private fun applyRecordPreferredDevice(audioRecord: AudioRecord, device: AudioDeviceInfo?): Boolean {

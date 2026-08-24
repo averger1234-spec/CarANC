@@ -22,6 +22,33 @@
 
 
 
+## [1.2.30] — 2026-08-24 · Android code 32 · 論壇／規格：把 AA 低音送進喇叭
+
+論壇與協定對得上我們的死結（Octavia USB AA 沒低音、藍牙有）：不是放棄，是對準別人已經走過的路徑再推。
+
+| 來源 | 說法 | 我們怎麼用 |
+|------|------|------------|
+| Google AA 社群：Huawei Mate 20 Pro **+ Skoda Octavia** | AA「Flat / Silent and no Bass」，純藍牙正常 | 同車系已知病，不是 CarANC 獨有 |
+| Drive2.ru MIB 線纜 | 線上 AA 常切 **40–50Hz 以下**；藍牙沒這刀 | 路徑音改 **50+80Hz**；80Hz 起來 = 喇叭有出、50Hz 被車機刀 |
+| r/AndroidAuto + XDA Wavelet | AA 沒 EQ、低音死；Wavelet 低架可補 | AA/藍牙送出前 **+~8 dB LF shelf @ 90Hz** |
+| AA 開發者選項（多國教學） | 編解碼 **PCM** 比 AAC-LC 保真；AAC 最殺孤立低音 | 通知提醒設 PCM（App 改不了 HU 協商） |
+| open-android-auto / HUIG | MEDIA = ch4 **48k 立體聲**；語音 ch5 = 16k 單聲 | 明確 `PERFORMANCE_MODE_NONE` + 48k mixer；繼續 mixp:0 |
+| VW/Skoda 社群 | AA 比藍牙安靜一大截；Adaptive Sound / GALA 再削低音 | **不再**因 focus duck/LOSS 把 anti 自己關到 0.05；怠速也不再 ×0.65 |
+| 我們自己 1.2.18 | 送出 70Hz LPF 防沙 | **車機改 220Hz**：70Hz 把 80–200Hz 悶（艙錄主能量）先濾掉了 |
+
+仍繼續：GAIN + STREAM_MUSIC 拉滿（1.2.28）、測不到 50Hz 也送 anti（1.2.29）、mixp:0（1.2.26）。
+
+**你車上要設一次（論壇共識，App 做不到）**
+
+1. 手機 **Android Auto** → 連點「版本」10 下 → 開發者設定 → **音訊編解碼 = PCM**（不要 AAC）
+2. 車機 EQ Bass 拉高、Adaptive Sound / GALA（車速音量）關
+3. Spotify **Normalize / 等化器關**
+4. 測路徑時**暫停音樂**、車機音量高；聽 50Hz 或 80Hz 悶，不要沙
+
+裝完：**停止再開始**降噪（USB 仍插著）。log 看 `heard50` / `heard80`、`AA_MIXER_ATTR`、`STREAM_MUSIC boost`。
+
+---
+
 ## [1.2.29] — 2026-08-24 · Android code 31 · AA 測不到艙 50Hz 仍繼續送 anti
 
 50Hz 麥自檢在行駛中常 FAIL（路噪／音樂／AEC），**不能當停送開關**。1.2.27 會把 AA anti 關死，等於放棄對消。改回：自檢只寫 log，AA 與藍牙都繼續推 anti。

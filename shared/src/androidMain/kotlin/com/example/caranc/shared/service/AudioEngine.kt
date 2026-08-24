@@ -81,6 +81,8 @@ class AudioEngine(
     private var stereoWriteBuf = ShortArray(0)
     private var sendLp1 = 0f
     private var sendLp2 = 0f
+    /** Wavelet-style LF shelf state (forum: AA bass missing vs BT). */
+    private var sendShelfLp = 0f
     private var ancProcessor: AncProcessorFacade? = null
     private var cabinProfileId: String = CabinTransferModel.DEFAULT_PROFILE_ID
     private lateinit var audioManager: AudioManager
@@ -146,6 +148,8 @@ class AudioEngine(
     private var lastAaConnected = false
     private val mic50Base = ToneGoertzel(50f)
     private val mic50Live = ToneGoertzel(50f)
+    private val mic80Base = ToneGoertzel(80f)
+    private val mic80Live = ToneGoertzel(80f)
     private val mic200Live = ToneGoertzel(200f)
     private var trackHalSamples = 0
 
@@ -157,6 +161,7 @@ class AudioEngine(
     private val antiKpiAccum = ShortArray(8192)
     private var antiKpiWrite = 0
     private var diagTonePhase = 0.0
+    private var diagTonePhase80 = 0.0
     private var lastDiagToneLogMs = 0L
     private var lastBlockRms = 0f  // for idle telegraph diagnostic in running_snapshot (protocol)
     private var lastBlockRmsVssScale = 1f  // VSS scale passed to processor based on blockRms + pfx variance for dynamic mu
@@ -349,8 +354,13 @@ class AudioEngine(
                             )
                             .setBufferSizeInBytes(trackBufferBytes)
                             .setTransferMode(AudioTrack.MODE_STREAM)
-                        if (lowLatency && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            b.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            // AA: NEVER LOW_LATENCY — HU maps that to speech/overlay (HP).
+                            // Explicit NONE so we stay on the full-range MUSIC mixer.
+                            b.setPerformanceMode(
+                                if (lowLatency) AudioTrack.PERFORMANCE_MODE_LOW_LATENCY
+                                else AudioTrack.PERFORMANCE_MODE_NONE
+                            )
                         }
                         return b.build()
                     }
@@ -797,9 +807,11 @@ class AudioEngine(
                             nowMic < pathCheckUntilMs
                         if (inPath && nowMic >= pathCheckBaselineEndMs) {
                             mic50Live.add(input, read, srMic)
+                            mic80Live.add(input, read, srMic)
                             mic200Live.add(input, read, srMic)
                         } else if (inPath) {
                             mic50Base.add(input, read, srMic)
+                            mic80Base.add(input, read, srMic)
                         }
                         if (GuidedCabinRecorder.isRecording()) {
                             GuidedCabinRecorder.append(input, read)
@@ -1033,7 +1045,12 @@ class AudioEngine(
                         // IDLE ARTIFACT SUPPRESS (minimal, speed<8 only): auto lower effective gain at idle/low speed to mask any residual telegraph clicks from low-energy LMS (musicLow + high mu).
                         // Full gain at 50+kmh for #6/#7 rumble breakthrough validation (effMid 0.6+). User can still override via TestLogPanel but idle caps it.
                         val speedForGain = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
-                        val idleGainFactor = if (speedForGain.valid && speedForGain.speedKmh < 8f) 0.65f else 1f
+                        // Idle cut was hiding the 50Hz path on car sinks (forum: AA already quiet).
+                        val idleGainFactor =
+                            if ((isAAConnected() || a2dpBassOut) ||
+                                !speedForGain.valid ||
+                                speedForGain.speedKmh >= 8f
+                            ) 1f else 0.65f
                         // 1.2.8 P4-lite: entertainment loud → freeze-ish attenuate anti (Bose-style)
                         val musicVol = try {
                             val am = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -1078,7 +1095,8 @@ class AudioEngine(
                         val routedTypeNow = audioRouteManager?.getActiveOutputDeviceType(audioTrack) ?: -1
                         val speakerNow = isPhoneSpeakerRoute(routedNow, routedTypeNow)
                         if (pathToning && !muteAnti && !speakerNow) {
-                            injectDiagTone(output, read, 50f, sampleRate = audioRecord?.sampleRate ?: 44100)
+                            // Drive2/MIB: cable path often HPF ~40–50Hz; 80Hz still on the music DAC.
+                            injectPathTones(output, read, sampleRate = audioRecord?.sampleRate ?: 44100)
                             for (j in 0 until read) {
                                 val a = kotlin.math.abs(output[j].toInt())
                                 if (a > pathCheckPeakAbs) pathCheckPeakAbs = a
@@ -1108,7 +1126,12 @@ class AudioEngine(
                                 )
                             }
                         } else if (!pathChecking && !muteAnti) {
-                            lowPassSendInPlace(output, read, sampleRate = audioRecord?.sampleRate ?: 44100)
+                            shapeCarSendInPlace(
+                                output,
+                                read,
+                                sampleRate = audioRecord?.sampleRate ?: 44100,
+                                carPath = isAAConnected() || a2dpBassOut
+                            )
                         }
 
                         // Accumulate anti PCM for send-path band energy KPI (post-mute write buffer)
@@ -2193,11 +2216,49 @@ class AudioEngine(
         }
     }
 
-    /** Extra 70 Hz dual pole on send (not diag tone) — cabin hiss was mid-high leak. */
-    private fun lowPassSendInPlace(output: ShortArray, size: Int, sampleRate: Int) {
-        val coeff = (2.0 * Math.PI * 70.0 / sampleRate).toFloat().coerceIn(0.003f, 0.08f)
+    /**
+     * Path probe: 50 Hz (gold) + 80 Hz (above reported MIB cable HPF ~40–50 Hz).
+     * Amplitudes chosen so the sum rarely clips.
+     */
+    private fun injectPathTones(output: ShortArray, size: Int, sampleRate: Int) {
+        if (size <= 0 || sampleRate <= 0) return
+        val twoPi = 2.0 * Math.PI
+        val amp50 = 0.62
+        val amp80 = 0.50
         for (i in 0 until size) {
-            val x = output[i] / 32768f
+            val s = kotlin.math.sin(diagTonePhase) * amp50 +
+                kotlin.math.sin(diagTonePhase80) * amp80
+            diagTonePhase += twoPi * 50.0 / sampleRate
+            diagTonePhase80 += twoPi * 80.0 / sampleRate
+            if (diagTonePhase > twoPi) diagTonePhase -= twoPi
+            if (diagTonePhase80 > twoPi) diagTonePhase80 -= twoPi
+            output[i] = (s * 32767.0).coerceIn(-32768.0, 32767.0).toInt().toShort()
+        }
+    }
+
+    /**
+     * Car send shaper (r/AndroidAuto Wavelet + our 1.2.18 hiss LPF):
+     * - Local: 70 Hz 2-pole (garage hiss).
+     * - AA/A2DP: +~8 dB LF shelf @ 90 Hz, then 220 Hz 2-pole so 80–200 Hz rumble
+     *   actually leaves the phone (70 Hz LPF was killing the band the HU can play).
+     */
+    private fun shapeCarSendInPlace(
+        output: ShortArray,
+        size: Int,
+        sampleRate: Int,
+        carPath: Boolean
+    ) {
+        val lpfHz = if (carPath) 220.0 else 70.0
+        val maxCoeff = if (carPath) 0.22f else 0.08f
+        val coeff = (2.0 * Math.PI * lpfHz / sampleRate).toFloat().coerceIn(0.003f, maxCoeff)
+        val shelfBoost = if (carPath) 1.5f else 0f
+        val shelfCoeff = (2.0 * Math.PI * 90.0 / sampleRate).toFloat().coerceIn(0.003f, 0.12f)
+        for (i in 0 until size) {
+            var x = output[i] / 32768f
+            if (carPath) {
+                sendShelfLp += shelfCoeff * (x - sendShelfLp)
+                x = (x + shelfBoost * sendShelfLp).coerceIn(-1.15f, 1.15f)
+            }
             sendLp1 += coeff * (x - sendLp1)
             sendLp2 += coeff * (sendLp1 - sendLp2)
             output[i] = (sendLp2 * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
@@ -2283,13 +2344,17 @@ class AudioEngine(
         pathCheckUntilMs = now + PATH_CHECK_BASELINE_MS + PATH_CHECK_TONE_MS
         mic50Base.reset()
         mic50Live.reset()
+        mic80Base.reset()
+        mic80Live.reset()
         mic200Live.reset()
-        onUpdateNotification("AA 路徑檢測：請暫停音樂，聽 50Hz")
+        diagTonePhase = 0.0
+        diagTonePhase80 = 0.0
+        onUpdateNotification("路徑檢測：暫停音樂，聽 50/80Hz")
         AncSessionLogger.log(
             phase = "aa_path_check_start",
             fields = mapOf(
                 "reason" to reason,
-                "hz" to 50f,
+                "hz" to "50+80",
                 "baselineMs" to PATH_CHECK_BASELINE_MS,
                 "toneMs" to PATH_CHECK_TONE_MS,
                 "audioBackend" to lastAudioBackendLabel,
@@ -2299,7 +2364,7 @@ class AudioEngine(
                 "routedOutputType" to routeManager.getActiveOutputDeviceType(audioTrack),
                 "aaLinkType" to (currentRoute?.aaLinkType ?: "?"),
                 "sampleRate" to sr,
-                "note" to "pause_music; mic_50Hz_rise_means_HU_speakers"
+                "note" to "pause_music; mic_50_or_80_rise_means_HU_speakers; AA_dev_codec=PCM"
             )
         )
         Log.i("ANCService", "aa_path_probe armed reason=$reason backend=$lastAudioBackendLabel")
@@ -2366,11 +2431,16 @@ class AudioEngine(
             lastAudioBackendLabel.contains("AAUDIO", ignoreCase = true)
         val mic50IdleDb = mic50Base.magnitudeDb()
         val mic50Db = mic50Live.magnitudeDb()
+        val mic80IdleDb = mic80Base.magnitudeDb()
+        val mic80Db = mic80Live.magnitudeDb()
         val mic200Db = mic200Live.magnitudeDb()
         val micDelta50 = mic50Db - mic50IdleDb
+        val micDelta80 = mic80Db - mic80IdleDb
         val micVs200 = mic50Db - mic200Db
+        val heard50 = micDelta50 >= 6f && micVs200 >= 3f
+        val heard80 = micDelta80 >= 6f
         val cabinHeard = !speakerRouted && !localBackend && sinkOk && sendOk &&
-            micDelta50 >= 6f && micVs200 >= 3f
+            (heard50 || heard80)
         val sendPass = sendOk && sinkOk && usageOk && !speakerRouted && !localBackend
         val verdict = when {
             speakerRouted || localBackend -> "PHONE_SPEAKER"
@@ -2388,7 +2458,7 @@ class AudioEngine(
             if (!sendOk) add("send_tone_peak_too_low")
             if (!sinkOk) add("not_car_or_submix_sink")
             if (!usageOk) add("trackUsage_not_MEDIA")
-            if (sendPass && !cabinHeard) add("mic_no_50Hz_rise")
+            if (sendPass && !cabinHeard) add("mic_no_50_or_80Hz_rise")
         }
         val musicVol = try {
             val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat().coerceAtLeast(1f)
@@ -2404,8 +2474,10 @@ class AudioEngine(
                 "cabinHeard" to cabinHeard,
                 "cabinResult" to when {
                     speakerRouted || localBackend -> "INVALID_PHONE_SPEAKER"
-                    cabinHeard -> "HEARD"
-                    else -> "NO_50HZ_AT_MIC"
+                    heard50 && heard80 -> "HEARD_50_AND_80"
+                    heard50 -> "HEARD_50"
+                    heard80 -> "HEARD_80_MIB_HPF_LIKELY"
+                    else -> "NO_50_OR_80_AT_MIC"
                 },
                 "reason" to reason,
                 "holdingMediaFocus" to holding,
@@ -2427,15 +2499,23 @@ class AudioEngine(
                 "sendOk" to sendOk,
                 "mic50IdleDb" to mic50IdleDb,
                 "mic50Db" to mic50Db,
+                "mic80IdleDb" to mic80IdleDb,
+                "mic80Db" to mic80Db,
                 "mic200Db" to mic200Db,
                 "micDelta50Db" to micDelta50,
+                "micDelta80Db" to micDelta80,
+                "heard50" to heard50,
+                "heard80" to heard80,
                 "mic50Minus200Db" to micVs200,
                 "musicActive" to try { audioManager.isMusicActive } catch (_: Exception) { false },
                 "streamMusicNorm" to musicVol,
                 "failReasons" to failReasons.joinToString(","),
                 "note" to when (verdict) {
-                    "AA_MIC_HEARD_50HZ", "A2DP_MIC_HEARD_50HZ" -> "MIC_HEARD_50HZ_likely_HU_speakers"
-                    "AA_SEND_OK_MIC_NO_50HZ" -> "AA_send_ok_keep_pushing_anti"
+                    "AA_MIC_HEARD_50HZ", "A2DP_MIC_HEARD_50HZ" ->
+                        if (heard80 && !heard50) "MIC_HEARD_80HZ_MIB_cable_HPF_likely"
+                        else "MIC_HEARD_50HZ_likely_HU_speakers"
+                    "AA_SEND_OK_MIC_NO_50HZ" ->
+                        "AA_send_ok_keep_pushing_anti; set_AA_developer_audio_codec_PCM"
                     "A2DP_SEND_OK_MIC_NO_50HZ" -> "A2DP_send_ok_mic_no_50Hz"
                     "PHONE_SPEAKER" -> "STOP_AND_RESTART_ANC_after_AA_connected"
                     else -> "PATH_FAIL_do_not_trust_cancel_KPI"
@@ -2448,9 +2528,10 @@ class AudioEngine(
                 "peak=$pathCheckPeakAbs routed=$routedName d50=$micDelta50"
         )
         if (cabinHeard) {
-            onUpdateNotification("路徑：麥有收到 50Hz（車機有出）")
+            val band = if (heard50) "50Hz" else "80Hz"
+            onUpdateNotification("路徑：麥有收到 $band（車機有出）")
         } else if (sendPass) {
-            onUpdateNotification("已送到車機，持續送 anti")
+            onUpdateNotification("已送到車機，持續送 anti（AA 開發者請設 PCM）")
         } else if (speakerRouted || localBackend) {
             onUpdateNotification("AA 已連上：請停止再開始，聲音才會進車機")
         }
