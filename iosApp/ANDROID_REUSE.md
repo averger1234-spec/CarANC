@@ -35,7 +35,7 @@ iPhone 麥克風
 車速：GPS → gps_hold → imu_proxy（VehicleSpeedFusion，與 Android 同策略）
 ```
 
-**對版**：iOS / Android **1.2.30**（狀態頁 `v1.2.30 (29)` · Android `v1.2.30` code 32）。
+**對版**：iOS / Android **1.2.30**（狀態頁 `v1.2.30 (31)` · Android `v1.2.30` code 32）。
 
 | 對齊項 | iOS | Android |
 |--------|-----|---------|

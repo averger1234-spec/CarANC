@@ -306,7 +306,6 @@ final class SessionLogger: ObservableObject {
             AndroidSnapshotKeys.muteAnti: "\(model.muteAnti)",
             AndroidSnapshotKeys.userAncGain: f2(model.userAncGain),
             AndroidSnapshotKeys.forceBoomPolarity: f1(model.forceBoomPolarity),
-            AndroidSnapshotKeys.plantResidualReductionDb: f2(model.plantResidualReductionDb),
 
             // Vehicle / IMU（gps | gps_hold | imu_proxy）
             AndroidSnapshotKeys.vehicleSpeedKmh: f1(model.vehicleSpeedKmh),

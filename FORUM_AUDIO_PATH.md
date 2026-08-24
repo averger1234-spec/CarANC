@@ -1,6 +1,6 @@
 # 1.2.30 論壇音訊路徑（Android Auto + CarPlay）
 
-對版：**Android `v1.2.30` / code 32** · **iOS `v1.2.30 (29)`**  
+對版：**Android `v1.2.30` / code 32** · **iOS `v1.2.30 (31)`**  
 改版細節：[`CHANGELOG.md`](CHANGELOG.md) · CarPlay：[`iosApp/CARPLAY.md`](iosApp/CARPLAY.md)
 
 Skoda Octavia 2019（MIB2）在 **USB Android Auto / CarPlay 沒低音、純藍牙有**，論壇與協定都對得上。1.2.30 不是放棄投影，是按那些做法繼續推 anti。
@@ -46,7 +46,7 @@ Skoda Octavia 2019（MIB2）在 **USB Android Auto / CarPlay 沒低音、純藍�
 2. 暫停音樂 → 開頭聽 50 或 80Hz 悶
 3. anti 出聲時再轉車機音量（音樂／導航音量分開記）
 4. iPhone 音樂 EQ / Sound Check 關；車機 Bass 高、GALA 關
-5. 狀態頁必須是 **`v1.2.30 (29)`**（這台 Windows 編不出 IPA，需 Mac Xcode）
+5. 狀態頁必須是 **`v1.2.30 (31)`**（這台 Windows 編不出 IPA，需 Mac Xcode）
 
 ## 怎麼判 log
 

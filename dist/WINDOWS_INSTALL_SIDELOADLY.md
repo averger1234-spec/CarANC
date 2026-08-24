@@ -68,8 +68,8 @@ Windows：`git pull` 後再跑 `scripts\install-ios-sideloadly.bat`。
 
 ## 本包內容（KMP 共用 DSP）
 
-- App 版本：**1.2.30 (29)** — 狀態頁應顯示 **`v1.2.30 (29)`**（請用 Xcode 重編 IPA；舊 1.2.17 包不要當這版）
-- 含：開始降噪不閃退（removeTap）+ classifier/plant D + 路徑自檢需 carAudio + Embed（必重裝；勿用 build 22）
+- App 版本：**1.2.30 (31)** — 狀態頁應顯示 **`v1.2.30 (31)`**
+- 含：iPad 同意鈕可按；開始降噪不因 snapshot 重複 key 閃退；CarPlay 論壇路徑 50+80；Embed（必重裝；勿用 build 22）
 - 見 `CHANGELOG.md`、`iosApp/README.md`
 - DSP：KMP MultiBand + `SpeedScheduledNvhGains`
 - 車速備用：`speedSource=gps|gps_hold|imu_proxy`（無 GPS 仍可能餵速域）

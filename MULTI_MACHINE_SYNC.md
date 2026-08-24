@@ -6,7 +6,7 @@
 
 ---
 
-## 另一台電腦現在請這樣拉（2026-08-23 · 現行）
+## 另一台電腦現在請這樣拉（2026-08-24 · 現行）
 
 > 你有多台電腦：以 **GitHub `main` 為唯一真相**。換機先 pull，改完再 push。
 
@@ -15,7 +15,7 @@
 | 平台 | 版號 | App 怎麼對版 |
 |------|------|----------------|
 | Android | **1.2.30 / code 32** | 主畫面 `v1.2.30` |
-| iOS | **1.2.30 (build 29)** | 狀態頁 **`v1.2.30 (29)`**；CarPlay 50+80 艙麥 + LF shelf + Now Playing |
+| iOS | **1.2.30 (build 31)** | 狀態頁 **`v1.2.30 (31)`**；iPad 同意鈕＋開始降噪不閃；CarPlay 50+80 |
 
 ### 1. 拉程式（每台、每次開工）
 
@@ -24,9 +24,9 @@ cd <你的路徑>\CarANC
 git pull origin main
 git log -5 --oneline
 # 近期應能看到例如：
-# ios: v1.2.30 (29) CarPlay forum path (50+80, LF shelf, Now Playing)
+# ios: 1.2.30 (31) iPad consent + start-ANC crash
+# ios: rebuild Sideloadly IPA 1.2.30 (29)
 # fix(anc): v1.2.30 forum-backed AA bass path
-# fix(anc): v1.2.29 keep pushing AA anti even if 50Hz mic check fails
 ```
 
 ### 2. 依用途選讀文件（多機必讀索引）
@@ -38,7 +38,7 @@ git log -5 --oneline
 | **AA / CarPlay 低音路徑（1.2.30）** | `FORUM_AUDIO_PATH.md` |
 | 專案總覽 / iOS+Android 現況 | `README.md` →「最新進度」 |
 | Android 日常裝機 / 拉 log | `scripts/README.md` |
-| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md`（對版 **1.2.30 (29)**；舊 IPA 不要用） |
+| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md`（對版 **1.2.30 (31)**；舊 IPA 不要用） |
 | iOS 專案 / CarPlay / 路測 | `iosApp/README.md`、`iosApp/CARPLAY.md`、`iosApp/ROAD_TEST_VERIFY.md` |
 | Play 上架 / store vs internal | `DISTRIBUTION.md`、`PLAY_RELEASE_CHECKLIST.md` |
 | Play 資料安全怎麼填 | `DATA_SAFETY.md` |

@@ -14,39 +14,53 @@ struct SafetyConsentView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("安全與使用聲明")
-                        .font(.title2.bold())
-                    Text("請閱讀並同意後再啟動主動降噪。")
-                        .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("安全與使用聲明")
+                            .font(.title2.bold())
+                        Text("請閱讀並同意後再啟動主動降噪。")
+                            .foregroundStyle(.secondary)
 
-                    ForEach(Array(bullets.enumerated()), id: \.offset) { _, line in
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "exclamationmark.shield.fill")
-                                .foregroundStyle(.orange)
-                            Text(line)
-                                .font(.body)
+                        ForEach(Array(bullets.enumerated()), id: \.offset) { _, line in
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: "exclamationmark.shield.fill")
+                                    .foregroundStyle(.orange)
+                                Text(line)
+                                    .font(.body)
+                            }
                         }
-                    }
 
-                    Toggle("願意接收產品更新資訊（可選）", isOn: $marketing)
-                        .padding(.top, 8)
-
-                    Button {
-                        model.acceptSafetyConsent(marketingOptIn: marketing)
-                    } label: {
-                        Text("我已閱讀並同意")
-                            .frame(maxWidth: .infinity)
-                            .padding()
+                        Toggle("願意接收產品更新資訊（可選）", isOn: $marketing)
+                            .padding(.top, 8)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .padding(.top, 8)
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding()
+
+                Button(action: accept) {
+                    Text("我已閱讀並同意")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .contentShape(Rectangle())
+                .padding(.horizontal)
+                .padding(.bottom, 16)
+                .background(.bar)
             }
             .navigationTitle("CarANC")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+
+    private func accept() {
+        model.acceptSafetyConsent(marketingOptIn: marketing)
+        SessionLogger.shared.event("safety_consent_accepted", [
+            "marketingOptIn": "\(marketing)",
+            "platform": "ios"
+        ])
     }
 }

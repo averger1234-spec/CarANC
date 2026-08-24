@@ -36,9 +36,14 @@ struct ContentView: View {
             .tabItem { Label("測試平台", systemImage: "wrench.and.screwdriver.fill") }
             .tag(3)
         }
-        .sheet(isPresented: Binding(
+        // iPad `.sheet` 常把同意鈕捲出可視區或吞掉點擊；全螢幕 + 底部固定鈕才關得掉
+        .fullScreenCover(isPresented: Binding(
             get: { model.showSafetyConsent },
-            set: { model.showSafetyConsent = $0 }
+            set: { newValue in
+                if model.safetyConsentAccepted || newValue {
+                    model.showSafetyConsent = newValue
+                }
+            }
         )) {
             SafetyConsentView(model: model)
                 .interactiveDismissDisabled(true)

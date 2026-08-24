@@ -59,7 +59,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.2.30</string>
 	<key>CFBundleVersion</key>
-	<string>29</string>
+	<string>31</string>
 	<key>AVInitialRouteSharingPolicy</key>
 	<string>LongFormAudio</string>
 	<key>CPSupportsDashboardNavigationScene</key>

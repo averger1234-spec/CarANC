@@ -22,6 +22,20 @@
 
 
 
+## [1.2.30] — 2026-08-24 · iOS build 31 · iPad 同意鈕 + 開始降噪閃退
+
+Lu的 iPad（第 9 代）實裝：
+
+| 問題 | 原因 | 修 |
+|------|------|-----|
+| 「我已閱讀並同意」沒反應 | iPad `.sheet` + 鈕在 ScrollView 裡，點擊被吃 | 改 **全螢幕**，同意鈕釘在底部 |
+| 按開始降噪閃退 | Debug：`runningSnapshot` dictionary **重複 key** `plantResidualReductionDb` → `EXC_BREAKPOINT` | 刪重複欄位 |
+| crash 看得到 | USB 開發者模式可 `devicectl copy systemCrashLogs` | 閃退時 session log 來不及寫 |
+
+狀態頁 **`v1.2.30 (31)`**。Android 仍 **1.2.30 / code 32**（Pixel 10 已裝 internal）。
+
+---
+
 ## [1.2.30] — 2026-08-24 · Android code 32 · iOS build 29 · 論壇／規格：把 AA／CarPlay 低音送進喇叭
 
 路測總表：[`FORUM_AUDIO_PATH.md`](FORUM_AUDIO_PATH.md)。
@@ -62,7 +76,7 @@
 
 **iPhone／車機請設：** USB 有線（不要無線）→ 暫停音樂 → 開頭聽 50/80 悶 → Music EQ / Sound Check 關 → 車機 Bass 高、GALA 關。anti 出聲時再轉車機音量（CarPlay 音樂／導航音量是分開的）。
 
-狀態頁應顯示 **`v1.2.30 (29)`**。log：`carplay_path_check` 的 `heard50` / `heard80` / `cabinResult`。
+狀態頁現行請對 **`v1.2.30 (31)`**（build 29 論壇路徑；30/31 修 iPad 同意＋閃退）。log：`carplay_path_check` 的 `heard50` / `heard80` / `cabinResult`。
 
 路測總表：[`FORUM_AUDIO_PATH.md`](FORUM_AUDIO_PATH.md)。
 
