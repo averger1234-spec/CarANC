@@ -22,6 +22,18 @@
 
 
 
+## [1.2.28] — 2026-08-24 · Android code 30 · AA 與藍牙同一套音樂通道
+
+兩邊一起改：佔住車機 **MUSIC DAC**（獨佔 AudioFocus GAIN + 把手機 STREAM_MUSIC 拉滿並在停止時還原）。50Hz 路徑音加大。AA 若艙裡仍無 50Hz 仍停送 anti（1.2.27）。
+
+- **藍牙**：Skoda A2DP 低音通道 + GAIN，不再被 Spotify duck
+- **USB AA**：同樣 GAIN + 音量；仍走 mixp:0；測不到低音就不灌沙
+- 降噪時**會暫停其他音樂**（這是為了佔音樂通道）
+
+測法：藍牙或 AA 擇一。暫停歌、音量高、聽 50Hz。
+
+---
+
 ## [1.2.27] — 2026-08-24 · Android code 29 · AA 無低音就停送 anti；Pause 不停 ANC
 
 實車：USB AA 即使 mixp:0 艙裡仍無 50Hz，on 比 off 更吵。藍牙才是低音通道。

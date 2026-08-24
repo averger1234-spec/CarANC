@@ -240,7 +240,7 @@ class AudioEngine(
                         "holding" to routeManager.isHoldingRunningFocus(),
                         "requestResult" to routeManager.lastFocusRequestResult(),
                         "trackUsage" to routeManager.currentTrackUsageLabel(aa),
-                        "note" to "1.2.19_hold_USAGE_MEDIA_GAIN_music_bus"
+                        "note" to "1.2.28_GAIN_AA_and_A2DP_plus_STREAM_MUSIC_boost"
                     )
                 )
 
@@ -2189,7 +2189,7 @@ class AudioEngine(
     private fun injectDiagTone(output: ShortArray, size: Int, hz: Float, sampleRate: Int) {
         if (size <= 0 || sampleRate <= 0) return
         val twoPi = 2.0 * Math.PI
-        val amp = 0.72
+        val amp = 0.90
         for (i in 0 until size) {
             val s = kotlin.math.sin(diagTonePhase) * amp
             diagTonePhase += twoPi * hz / sampleRate

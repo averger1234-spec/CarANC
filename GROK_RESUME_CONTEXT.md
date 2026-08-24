@@ -1,17 +1,18 @@
 # 最新多機同步索引（2026-08-23）
 
-**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.27**）。
+**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.28**）。
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.27 / code 29** · iOS **1.2.17 (28)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.28 / code 30** · iOS **1.2.17 (28)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
-**1.2.27 重點**：AA 艙無 50Hz 就停送 anti；Pause 不停 ANC；日常用藍牙不要 USB AA。  
+**1.2.28 重點**：AA 與 A2DP 都 GAIN + STREAM_MUSIC 拉滿（佔音樂 DAC）。  
+**1.2.27 重點**：AA 艙無 50Hz 就停送 anti；Pause 不停 ANC。  
 **1.2.26 重點**：AA submix 優先 `mixp:0` 48kHz 音樂埠，避開 `mixp:1` 16kHz 語音。  
 **1.2.25 重點**：AA 連上自動測路徑（submix vs 喇叭 + 麥是否聽到 50Hz）。  
 **1.2.24 重點**：停止降噪真的會停（latchStopped、禁雙 engine、腳本不再自動重開）。  

@@ -246,6 +246,7 @@ class AudioRouteManager(context: Context) {
             audioManager.isSpeakerphoneOn = false
         }
         return if (holdMediaFocus) {
+            boostStreamMusicForAaSend()
             requestRunningMediaFocus(isAaConnected = true)
         } else {
             true
@@ -310,12 +311,9 @@ class AudioRouteManager(context: Context) {
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val mediaAttrs = buildMediaAudioAttributes()
-            // Normal ANC: MAY_DUCK (keep user music). 50Hz path tone: GAIN so HU uses music DAC.
-            val focusType = if (bassToneExclusive) {
-                AudioManager.AUDIOFOCUS_GAIN
-            } else {
-                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-            }
+            // AA and A2DP: exclusive MUSIC so the HU uses the music DAC (50Hz).
+            // MAY_DUCK let Spotify bury ANC — cabin had send but no line.
+            val focusType = AudioManager.AUDIOFOCUS_GAIN
             val request = AudioFocusRequest.Builder(focusType)
                 .setAudioAttributes(mediaAttrs)
                 .setAcceptsDelayedFocusGain(false)
@@ -337,8 +335,7 @@ class AudioRouteManager(context: Context) {
             val result = audioManager.requestAudioFocus(
                 listener,
                 AudioManager.STREAM_MUSIC,
-                if (bassToneExclusive) AudioManager.AUDIOFOCUS_GAIN
-                else AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+                AudioManager.AUDIOFOCUS_GAIN
             )
             lastFocusRequestResultCode = result
             hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
@@ -416,6 +413,7 @@ class AudioRouteManager(context: Context) {
         hasAudioFocus = false
         focusRequest = null
         ancOutputGain = 1f
+        restoreStreamMusicVolume()
         Log.i(TAG, "abandonAudioFocus (running MEDIA focus released)")
     }
 
