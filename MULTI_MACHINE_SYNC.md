@@ -24,10 +24,9 @@ cd <你的路徑>\CarANC
 git pull origin main
 git log -5 --oneline
 # 近期應能看到例如：
-# fix(anc): v1.2.22 AA MediaSession music path for 50Hz
-# fix: v1.2.17 dual-end P0/P1 alignment
-# ios: ship 1.2.16 (27) path check and fix ANC start crash
-# fix(anc): v1.2.16 hold MEDIA focus and aa_path_check PASS/FAIL
+# ios: v1.2.30 (29) CarPlay forum path (50+80, LF shelf, Now Playing)
+# fix(anc): v1.2.30 forum-backed AA bass path
+# fix(anc): v1.2.29 keep pushing AA anti even if 50Hz mic check fails
 ```
 
 ### 2. 依用途選讀文件（多機必讀索引）
@@ -36,6 +35,7 @@ git log -5 --oneline
 |------------|-------------|
 | **換機同步流程（本檔）** | `MULTI_MACHINE_SYNC.md`（本節） |
 | **這版改了什麼** | `CHANGELOG.md` + `version.properties` + iOS Info.plist |
+| **AA / CarPlay 低音路徑（1.2.30）** | `FORUM_AUDIO_PATH.md` |
 | 專案總覽 / iOS+Android 現況 | `README.md` →「最新進度」 |
 | Android 日常裝機 / 拉 log | `scripts/README.md` |
 | **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md`（對版 **1.2.30 (29)**；舊 IPA 不要用） |

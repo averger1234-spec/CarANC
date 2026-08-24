@@ -2,6 +2,8 @@
 
 這些腳本是為了讓你「改程式 → 裝到手機 → 測試 → 拿 log 回來分析」這一整套動作變快很多。
 
+現行路測版：**Android 1.2.30 / code 32** · **iOS 1.2.30 (29)**。AA / CarPlay 低音路徑見 repo 根 [`FORUM_AUDIO_PATH.md`](../FORUM_AUDIO_PATH.md)。
+
 注意：腳本輸出訊息已改為英文（純 ASCII），以避免在繁體中文 Windows 上因編碼問題導致 PowerShell 解析錯誤（missing }）或閃退。功能完全相同。
 
 ## 準備工作（只做一次）

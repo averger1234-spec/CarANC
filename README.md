@@ -44,12 +44,15 @@ git push origin main
 
 ---
 
-## 最新進度（2026-08-24）— 1.2.30 論壇路徑：AA 低音仍推
+## 最新進度（2026-08-24）— 1.2.30 論壇路徑：AA + CarPlay
+
+路測／車上設定請看 **[`FORUM_AUDIO_PATH.md`](FORUM_AUDIO_PATH.md)**。
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
 | **Android 版號** | **`1.2.30` / code `32`** · 主畫面 `v1.2.30` | ✅ |
-| **1.2.30** | 論壇：LF shelf、50+80Hz、PCM 提醒、不自關 anti、送出 220Hz | ✅ |
+| **1.2.30 Android** | 論壇：LF shelf、50+80Hz、PCM 提醒、不自關 anti、送出 220Hz | ✅ |
+| **1.2.30 iOS** | CarPlay 同套：有線 LPCM、艙麥 50/80、Now Playing、FAIL 仍送 | ✅ |
 | **1.2.29** | AA 50Hz 自檢 FAIL 仍送 anti（行駛不關通道） | ✅ |
 | **1.2.28** | AA 與藍牙都 GAIN + STREAM_MUSIC 拉滿 | ✅ |
 | **1.2.27** | AA 無艙低音就停 anti；Pause 不停 ANC | ✅ |
@@ -61,12 +64,13 @@ git push origin main
 | **iOS 版號** | **`1.2.30` (build 29)** · 狀態頁 **`v1.2.30 (29)`** · CarPlay 對齊論壇路徑（50+80、LF shelf、Now Playing） | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
-| **CarPlay** | 對齊 AA（見 `iosApp/CARPLAY.md`） | ✅ 程式；圖示需 Apple entitlement |
+| **CarPlay** | 1.2.30 對齊 AA 論壇路徑（見 `iosApp/CARPLAY.md`） | ✅ 程式；圖示需 Apple entitlement |
 | **Log schema** | 同 Android 欄位名 + `speedSource` 等 | ✅ |
 | **Windows 裝 iPhone** | 預編 IPA + Sideloadly | ✅ |
 
 | 路徑 | 用途 |
 |------|------|
+| [`FORUM_AUDIO_PATH.md`](FORUM_AUDIO_PATH.md) | **1.2.30 AA + CarPlay 論壇路徑、車上設定、log 怎麼判** |
 | [`iosApp/README.md`](iosApp/README.md) | iOS 專案、版號對版 |
 | [`iosApp/CARPLAY.md`](iosApp/CARPLAY.md) | CarPlay ↔ AA 對照、entitlement |
 | [`iosApp/ROAD_TEST_VERIFY.md`](iosApp/ROAD_TEST_VERIFY.md) | 實車驗證 × log 欄位 |

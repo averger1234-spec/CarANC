@@ -23,7 +23,7 @@ shared/     → 兩邊共用：DSP、schema、commercial、腳本定義
 dist/       → 預編 .ipa + Windows 安裝說明
 ```
 
-## 目前架構（2026-08-20 · 1.2.17 雙端 P0/P1）
+## 目前架構（2026-08-24 · 1.2.30 論壇路徑）
 
 ```
 iPhone 麥克風

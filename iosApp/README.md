@@ -2,7 +2,8 @@
 
 SwiftUI + AVAudioEngine 本機主動降噪 App，對齊 Android 產品策略（路噪 / 輪噪主力、風切不追消）。
 
-**路測驗證與 Log 欄位**：見 [`ROAD_TEST_VERIFY.md`](./ROAD_TEST_VERIFY.md)
+**路測驗證與 Log 欄位**：見 [`ROAD_TEST_VERIFY.md`](./ROAD_TEST_VERIFY.md)  
+**AA / CarPlay 1.2.30 論壇路徑**：見 [`../FORUM_AUDIO_PATH.md`](../FORUM_AUDIO_PATH.md)
 
 ## 與 Android 在同一 GitHub 怎麼分
 

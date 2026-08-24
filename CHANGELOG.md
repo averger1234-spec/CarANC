@@ -22,9 +22,11 @@
 
 
 
-## [1.2.30] — 2026-08-24 · Android code 32 · 論壇／規格：把 AA 低音送進喇叭
+## [1.2.30] — 2026-08-24 · Android code 32 · iOS build 29 · 論壇／規格：把 AA／CarPlay 低音送進喇叭
 
-論壇與協定對得上我們的死結（Octavia USB AA 沒低音、藍牙有）：不是放棄，是對準別人已經走過的路徑再推。
+路測總表：[`FORUM_AUDIO_PATH.md`](FORUM_AUDIO_PATH.md)。
+
+論壇與協定對得上我們的死結（Octavia USB AA / CarPlay 沒低音、藍牙有）：不是放棄，是對準別人已經走過的路徑再推。
 
 | 來源 | 說法 | 我們怎麼用 |
 |------|------|------------|
@@ -61,6 +63,8 @@
 **iPhone／車機請設：** USB 有線（不要無線）→ 暫停音樂 → 開頭聽 50/80 悶 → Music EQ / Sound Check 關 → 車機 Bass 高、GALA 關。anti 出聲時再轉車機音量（CarPlay 音樂／導航音量是分開的）。
 
 狀態頁應顯示 **`v1.2.30 (29)`**。log：`carplay_path_check` 的 `heard50` / `heard80` / `cabinResult`。
+
+路測總表：[`FORUM_AUDIO_PATH.md`](FORUM_AUDIO_PATH.md)。
 
 ---
 

@@ -1,6 +1,7 @@
 # iOS 實車驗證與 Log 指南
 
 **現行對版**：**iOS 狀態頁 `v1.2.30 (29)`** · Android **`v1.2.30` / code 32** · 腳本不變  
+**CarPlay / AA 低音路徑**：[`../FORUM_AUDIO_PATH.md`](../FORUM_AUDIO_PATH.md)  
 **Log 欄位名與 Android `running_snapshot` 同一套**（見 `shared/.../AncRunningSnapshotSchema.kt`、`ANDROID_REUSE.md`）。  
 缺能力填 `n/a`，不改名。
 

@@ -5,6 +5,7 @@
 | 區塊 | 文件 |
 |------|------|
 | **改版紀錄** | `CHANGELOG.md` · Android **1.2.30 / code 32** · iOS **1.2.30 (29)** |
+| **AA / CarPlay 論壇路徑** | `FORUM_AUDIO_PATH.md` |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
