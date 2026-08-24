@@ -144,9 +144,6 @@ class AudioEngine(
     private var pathCheckDone = false
     private var pathCheckAa = false
     private var lastAaConnected = false
-    /** AA mix reached the HU but cabin has no 50Hz — don't keep sending anti (adds sand). */
-    @Volatile
-    private var aaCabinHasNoLf = false
     private val mic50Base = ToneGoertzel(50f)
     private val mic50Live = ToneGoertzel(50f)
     private val mic200Live = ToneGoertzel(200f)
@@ -634,7 +631,6 @@ class AudioEngine(
                 profileEnergyEma = 0.0
 
                 lastAaConnected = aa
-                aaCabinHasNoLf = false
                 pathCheckAa = false
                 pathCheckDone = true
                 pathCheckPeakAbs = 0
@@ -1057,8 +1053,7 @@ class AudioEngine(
                             musicVol >= 0.45f -> 0.70f
                             else -> 1f
                         }
-                        val aaNoLf = aaCabinHasNoLf && isAAConnected()
-                        val finalWriteGain = if (muteAnti || aaNoLf) {
+                        val finalWriteGain = if (muteAnti) {
                             0f
                         } else {
                             cappedGain * antiArtifactGain * userGain * idleGainFactor * musicGate
@@ -2387,11 +2382,6 @@ class AudioEngine(
             a2dpOk -> "A2DP_SEND_OK_MIC_NO_50HZ"
             else -> "AA_SEND_OK_MIC_NO_50HZ"
         }
-        if (isAAConnected() && submixOk && sendPass && !cabinHeard) {
-            aaCabinHasNoLf = true
-            Log.w("ANCService", "AA cabin has no 50Hz — muting anti so we do not add sand")
-            onUpdateNotification("AA 無低音：已停送 anti（請改用藍牙）")
-        }
         val failReasons = buildList {
             if (speakerRouted) add("routed_phone_speaker")
             if (localBackend) add("backend_still_local")
@@ -2445,7 +2435,7 @@ class AudioEngine(
                 "failReasons" to failReasons.joinToString(","),
                 "note" to when (verdict) {
                     "AA_MIC_HEARD_50HZ", "A2DP_MIC_HEARD_50HZ" -> "MIC_HEARD_50HZ_likely_HU_speakers"
-                    "AA_SEND_OK_MIC_NO_50HZ" -> "AA_music_bus_no_cabin_50Hz_anti_muted"
+                    "AA_SEND_OK_MIC_NO_50HZ" -> "AA_send_ok_keep_pushing_anti"
                     "A2DP_SEND_OK_MIC_NO_50HZ" -> "A2DP_send_ok_mic_no_50Hz"
                     "PHONE_SPEAKER" -> "STOP_AND_RESTART_ANC_after_AA_connected"
                     else -> "PATH_FAIL_do_not_trust_cancel_KPI"
@@ -2457,12 +2447,10 @@ class AudioEngine(
             "aa_path_check $verdict sendPass=$sendPass cabinHeard=$cabinHeard " +
                 "peak=$pathCheckPeakAbs routed=$routedName d50=$micDelta50"
         )
-        if (aaCabinHasNoLf) {
-            // notification already set
-        } else if (cabinHeard) {
+        if (cabinHeard) {
             onUpdateNotification("路徑：麥有收到 50Hz（車機有出）")
         } else if (sendPass) {
-            onUpdateNotification("已送到車機，麥沒聽到 50Hz")
+            onUpdateNotification("已送到車機，持續送 anti")
         } else if (speakerRouted || localBackend) {
             onUpdateNotification("AA 已連上：請停止再開始，聲音才會進車機")
         }

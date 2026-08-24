@@ -5,7 +5,7 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**版號**：Android **`version.properties` → 1.2.28 / code 30** · iOS **1.2.17 (28)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+**版號**：Android **`version.properties` → 1.2.29 / code 31** · iOS **1.2.17 (28)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 
 **跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-23 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
@@ -44,11 +44,12 @@ git push origin main
 
 ---
 
-## 最新進度（2026-08-24）— 1.2.28 AA+藍牙音樂通道
+## 最新進度（2026-08-24）— 1.2.29 AA 繼續推 anti
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| **Android 版號** | **`1.2.28` / code `30`** · 主畫面 `v1.2.28` | ✅ |
+| **Android 版號** | **`1.2.29` / code `31`** · 主畫面 `v1.2.29` | ✅ |
+| **1.2.29** | AA 50Hz 自檢 FAIL 仍送 anti（行駛不關通道） | ✅ |
 | **1.2.28** | AA 與藍牙都 GAIN + STREAM_MUSIC 拉滿 | ✅ |
 | **1.2.27** | AA 無艙低音就停 anti；Pause 不停 ANC | ✅ |
 | **1.2.26** | AA 優先 mixp:0 48kHz 音樂埠（避開 16kHz 語音） | ✅ |

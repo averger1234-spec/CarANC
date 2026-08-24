@@ -22,6 +22,12 @@
 
 
 
+## [1.2.29] — 2026-08-24 · Android code 31 · AA 測不到艙 50Hz 仍繼續送 anti
+
+50Hz 麥自檢在行駛中常 FAIL（路噪／音樂／AEC），**不能當停送開關**。1.2.27 會把 AA anti 關死，等於放棄對消。改回：自檢只寫 log，AA 與藍牙都繼續推 anti。
+
+---
+
 ## [1.2.28] — 2026-08-24 · Android code 30 · AA 與藍牙同一套音樂通道
 
 兩邊一起改：佔住車機 **MUSIC DAC**（獨佔 AudioFocus GAIN + 把手機 STREAM_MUSIC 拉滿並在停止時還原）。50Hz 路徑音加大。AA 若艙裡仍無 50Hz 仍停送 anti（1.2.27）。
