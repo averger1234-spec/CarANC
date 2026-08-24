@@ -18,6 +18,7 @@ final class AppController: ObservableObject {
         self.engine = AncAudioEngine(model: m)
         self.routeMonitor = CarAudioRouteMonitor()
         self.routeMonitor.start()
+        AncNowPlaying.installRemoteCommandsIfNeeded()
         bindRouteToModel()
     }
 

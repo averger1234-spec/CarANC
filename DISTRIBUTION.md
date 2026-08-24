@@ -75,9 +75,9 @@ VERSION_NAME=1.2.1
 
 | 位置 | 欄位 | 目前 |
 |------|------|------|
-| `iosApp/CarANC/Info.plist` | `CFBundleShortVersionString` / `CFBundleVersion` | **1.2.17** / **28** |
+| `iosApp/CarANC/Info.plist` | `CFBundleShortVersionString` / `CFBundleVersion` | **1.2.30** / **29** |
 | Xcode target | `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | 同上 |
-| App UI | 狀態頁 | **`v1.2.17 (28)`** |
+| App UI | 狀態頁 | **`v1.2.30 (29)`** |
 
 - 每次可路測 IPA：**build +1**；功能包再升 marketing
 - 寫 **`CHANGELOG.md`**；更新 `dist/WINDOWS_INSTALL_SIDELOADLY.md` 版本字樣

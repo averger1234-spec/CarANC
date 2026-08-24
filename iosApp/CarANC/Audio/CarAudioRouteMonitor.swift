@@ -127,17 +127,35 @@ final class CarAudioRouteMonitor: ObservableObject {
 
     /// 啟動 ANC 前呼叫，讓 session 偏好車機輸出（對齊 AA 不 fallback 手機喇叭的意圖）。
     ///
-    /// **勿用 `.voiceChat`**：會開語音處理／AGC，通話結束後 CarPlay 音樂常變「電話聲道」或忽然很大聲。
+    /// **勿用 `.voiceChat` / `.voicePrompt` / `.spokenAudio`**：車機會當導航 Alternate（高通、小聲）。
+    /// CarPlay 有線 Main = LPCM 48k 立體聲；無線媒體 = AAC-LC（低音差，優先有線）。
+    /// 車機路徑拿掉 `mixWithOthers` + `longFormAudio`，對齊 Android GAIN 佔音樂 DAC。
     static func configureSessionForCarIfNeeded(preferCar: Bool) throws {
         let session = AVAudioSession.sharedInstance()
         if preferCar {
-            // 不強制 defaultToSpeaker，讓系統把輸出送到 CarPlay；與音樂 mix，不搶通話聲道
-            // 對齊 Android 1.2.16：盡量走「媒體」可聽路徑（勿 voiceChat）
-            try session.setCategory(
-                .playAndRecord,
-                mode: .default,
-                options: [.allowBluetoothA2DP, .mixWithOthers, .allowAirPlay, .allowBluetoothHFP]
-            )
+            // playAndRecord 因為要麥；mode .default 才是音樂，不是電話。
+            // 不要 allowBluetoothHFP（SCO 高通）。不要 duckOthers / mixWithOthers（次要音=導航聲道）。
+            let carOptions: AVAudioSession.CategoryOptions = [.allowBluetoothA2DP, .allowAirPlay]
+            do {
+                try session.setCategory(
+                    .playAndRecord,
+                    mode: .default,
+                    policy: .longFormAudio,
+                    options: carOptions
+                )
+            } catch {
+                try session.setCategory(
+                    .playAndRecord,
+                    mode: .default,
+                    options: carOptions
+                )
+                Task { @MainActor in
+                    SessionLogger.shared.event("audio_session_policy_fallback", [
+                        "error": error.localizedDescription,
+                        "note": "longFormAudio_rejected_used_playAndRecord_default"
+                    ])
+                }
+            }
         } else {
             try session.setCategory(
                 .playAndRecord,
@@ -147,15 +165,24 @@ final class CarAudioRouteMonitor: ObservableObject {
         }
         try session.setPreferredSampleRate(48_000)
         try session.setPreferredIOBufferDuration(preferCar ? 0.02 : 0.01)
+        if preferCar {
+            try? session.setPreferredOutputNumberOfChannels(min(2, session.maximumOutputNumberOfChannels))
+        }
         try session.setActive(true, options: [])
         let outs = session.currentRoute.outputs.map { "\($0.portType.rawValue):\($0.portName)" }.joined(separator: "|")
         let cat = session.category.rawValue
         let mode = session.mode.rawValue
+        let policy = session.routeSharingPolicy.rawValue
         Task { @MainActor in
             SessionLogger.shared.event("audio_session_configured", [
                 "preferCar": "\(preferCar)",
                 "category": cat,
                 "mode": mode,
+                "routeSharingPolicy": "\(policy)",
+                "mixWithOthers": preferCar ? "false" : "true",
+                "note": preferCar
+                    ? "carplay_main_lpcm_not_nav; prefer_wired_usb"
+                    : "local_speaker",
                 "routeOutputs": outs.isEmpty ? "none" : outs
             ])
         }

@@ -4,14 +4,14 @@
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.30 / code 32** · iOS **1.2.17 (28)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.30 / code 32** · iOS **1.2.30 (29)** |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
 | Play store/internal | `DISTRIBUTION.md` / `PLAY_RELEASE_CHECKLIST.md` |
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
-**1.2.30 重點**：論壇／HUIG：AA LF shelf + 50/80Hz 路徑 + 不自 duck + 48k mixer；測不到仍送 anti。  
+**1.2.30 重點**：論壇路徑：AA LF shelf + 50/80Hz；iOS CarPlay 同套（LPCM session、艙麥 50/80、Now Playing、測不到仍送）。  
 **1.2.29 重點**：AA 50Hz 自檢 FAIL 仍繼續送 anti（不關通道）。  
 **1.2.28 重點**：AA 與 A2DP 都 GAIN + STREAM_MUSIC 拉滿（佔音樂 DAC）。  
 **1.2.27 重點**：AA 艙無 50Hz 就停送 anti；Pause 不停 ANC。  
@@ -30,7 +30,7 @@
 **1.2.14 重點**：open boom + 預設極性−1 + cabin winner；停速場作廢。  
 **1.2.13 重點**：85Hz 真 LF 終端 LPF（修 speed 320Hz 假低通）；HIGH_LAT ROAD 清 FDAF/bank/engine；forced 極性 boom floor；notch 不盲播。  
 **1.2.12 重點**：真 mute KPI + 極性 A/B + 負 corr boom mix=0；只採信等長艙錄。  
-**iOS build 28**：1.2.17 雙端對齊（removeTap / classifier / plant D / carAudio path_check）；**build 27**：對齊 1.2.16 + NSLock 橋接 + carplay_path_check；**build 26**：結束存 Log 檔+分享 wav；**build 25**：對齊 1.2.15 boomOut+中頻winner；**build 24**：對齊 1.2.14 openBoom；**build 23**：修開機閃退（Xcode Embed `CarANCShared` + IPA 刪檔重建）；**build 22**：對齊 1.2.13 KMP 真 LF（IPA 有缺 embed 問題，勿用）；**build 21**：通話結束 CarPlay 音量暴衝修復。  
+**iOS build 29**：1.2.30 CarPlay 論壇路徑（50+80 艙麥、LF shelf、longFormAudio、Now Playing、FAIL 仍送）；**build 28**：1.2.17 雙端對齊（removeTap / classifier / plant D / carAudio path_check）；**build 27**：對齊 1.2.16 + NSLock 橋接 + carplay_path_check；**build 26**：結束存 Log 檔+分享 wav；**build 25**：對齊 1.2.15 boomOut+中頻winner；**build 24**：對齊 1.2.14 openBoom；**build 23**：修開機閃退（Xcode Embed `CarANCShared` + IPA 刪檔重建）；**build 22**：對齊 1.2.13 KMP 真 LF（IPA 有缺 embed 問題，勿用）；**build 21**：通話結束 CarPlay 音量暴衝修復。  
 **1.2.11 重點**：相位對齊 — HIGH_LAT 120、關 Wiener、拒 12ms probe、IMU 不混 ref。  
 **1.2.10 重點**：真 mute baseline + 可感 boom + 公平艙錄 A/B。  
 **1.2.9 重點**：P2 PlantPathStore + boomPlantCorr；1.2.8 antiE/tone/艙錄/IMU。  

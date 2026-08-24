@@ -35,14 +35,14 @@ iPhone 麥克風
 車速：GPS → gps_hold → imu_proxy（VehicleSpeedFusion，與 Android 同策略）
 ```
 
-**對版**：iOS / Android 均 **1.2.17**（狀態頁 `v1.2.17 (28)` · Android `v1.2.17` code 19）。
+**對版**：iOS / Android **1.2.30**（狀態頁 `v1.2.30 (29)` · Android `v1.2.30` code 32）。
 
 | 對齊項 | iOS | Android |
 |--------|-----|---------|
 | 開 ANC 不閃退 | 只在有 tap 才 `removeTap`；先 stop 再 detach | AudioRecord 路徑 |
 | NVH classifier | 每 block `applyBandSnapshotFromBlock` → `ROAD_NOISE_GPS` | vis 迴圈 `applyClassifierResult` |
 | plant D | `setMeasuredLatencyBreakdown` + store `refinePlantDelayFromProbe` | 同 KMP API |
-| 路徑自檢 | `carplay_path_check` PASS 需 **carAudio** | `aa_path_check` PASS 需 live MEDIA + car sink |
+| 路徑自檢 | `carplay_path_check` 送到 carAudio 即 PASS；艙麥 `heard50`/`heard80`；FAIL 仍送 anti | `aa_path_check` 同：送到即 PASS，艙麥分開記 |
 | 艙錄 | ANC tap → `cabin_*.wav` | AudioRecord 同路 → `cabin_*.wav`（不再第二路 MediaRecorder） |
 
 建 framework（本機需 JDK 17）：

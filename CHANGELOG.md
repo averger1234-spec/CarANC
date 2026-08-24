@@ -47,6 +47,21 @@
 
 裝完：**停止再開始**降噪（USB 仍插著）。log 看 `heard50` / `heard80`、`AA_MIXER_ATTR`、`STREAM_MUSIC boost`。
 
+### iOS 1.2.30 (build 29) · CarPlay 對齊同一套論壇路徑
+
+| 來源 | 說法 | iOS 怎麼用 |
+|------|------|------------|
+| WWDC 2016 session 722 | 有線 Main = **LPCM**；無線媒體 = **AAC-LC**；Alternate = 導航提示 | 車機 session：`.default` + `longFormAudio`，**不要** voicePrompt／duckOthers |
+| r/skoda、MacUser Octavia Columbus、VW Vortex | CarPlay 沒低音、比藍牙小聲 | 與 AA 同一病；優先 **USB 有線** |
+| Apple：`.voicePrompt` / mixWithOthers | 車機當導航聲道（高通、獨立小聲） | 拿掉 mixWithOthers；Now Playing 當音樂源 |
+| Drive2 MIB 線纜 HPF ~50Hz | 50Hz 可能沒、80Hz 還在 | 路徑音 **50+80Hz** + 艙麥 `heard50`/`heard80` |
+| Wavelet / 我們 1.2.30 Android | LF 架 + 不要 70Hz 把悶濾掉 | CarPlay 送出 **+8 dB @ 90Hz、220Hz LPF** |
+| 1.2.29 | 測不到低音仍送 | **不因自檢 FAIL 關 anti**；Pause 不停降噪 |
+
+**iPhone／車機請設：** USB 有線（不要無線）→ 暫停音樂 → 開頭聽 50/80 悶 → Music EQ / Sound Check 關 → 車機 Bass 高、GALA 關。anti 出聲時再轉車機音量（CarPlay 音樂／導航音量是分開的）。
+
+狀態頁應顯示 **`v1.2.30 (29)`**。log：`carplay_path_check` 的 `heard50` / `heard80` / `cabinResult`。
+
 ---
 
 ## [1.2.29] — 2026-08-24 · Android code 31 · AA 測不到艙 50Hz 仍繼續送 anti

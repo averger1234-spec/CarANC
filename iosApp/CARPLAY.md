@@ -1,7 +1,7 @@
 # iOS CarPlay（對齊 Android Auto）
 
-**本功能自 iOS 1.2.0 起**；現行全包 **iOS / Android 1.2.1**（含車速 hold／IMU 備用）。  
-狀態頁應顯示 **`v1.2.17 (28)`**。
+**本功能自 iOS 1.2.0 起**；現行 **iOS 1.2.30 (build 29)**（對齊 Android 1.2.30 論壇路徑）。  
+狀態頁應顯示 **`v1.2.30 (29)`**。
 
 ## 通話結束後車機音樂忽然很大（已修 · build 21）
 
@@ -66,12 +66,16 @@ CarPlay **畫面** 需要 entitlement：
 Xcode → I/O → External Displays → CarPlay（需有效 entitlement 才會進 template scene）。
 
 
-## 路徑自檢（1.2.17 / build 28）
+## 路徑自檢（1.2.30 / build 29）
 
-開降噪後約 1.5 秒會自動播 **50Hz** 並寫 log：
+開降噪後：400ms 麥 baseline → **1.8s 50+80Hz**（對齊 Android 1.2.30）。
 
-- `carplay_path_check` / `aa_path_check` = **PASS** 或 **FAIL**
-- 欄位：`sendPeak`、`hasCarAudio`、`failReasons`、`routeOutputs`、`aaLinkType`
-- **PASS**（preferCar 時必須當時路由在 **carAudio**）且主觀聽到低嗡 → 才可信後續消噪 KPI
-- **FAIL** → 先查 CarPlay 連線／音訊路由，不要解讀消噪結果
+- `carplay_path_check`：`sendPeak`、`hasCarAudio`、`heard50`、`heard80`、`cabinHeard`、`cabinResult`
+- **有送到 carAudio** = 路徑通，**即使艙麥沒聽到 50Hz 也繼續送 anti**
+- 麥只聽到 **80Hz** → 車機線上刀了 ~50Hz，喇叭仍有出
+- **FAIL 路由**（沒有 `carAudio`）→ 停止再開始；優先 **USB 有線**（LPCM）。無線 CarPlay 是 AAC，低音差
+- Session：`.playAndRecord` + `.default` + `longFormAudio`（不是 voicePrompt／導航 overlay）
+- Now Playing 顯示 CarANC；Pause 不停降噪
 - 車機圖示仍需 Apple entitlement；無圖示時用手機 UI 啟停，音訊仍可走 carAudio
+
+**論壇共識（Octavia / Columbus）：** CarPlay 常比藍牙小聲、沒低音。測路徑時暫停音樂、車機音量在 anti 出聲時轉、Music EQ / Sound Check 關。

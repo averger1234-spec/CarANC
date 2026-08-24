@@ -43,6 +43,11 @@ final class AncAudioEngine: ObservableObject {
     /// 1.2.8 診斷 tone（音訊執行緒讀取）
     private var diagToneHz: Float = 0
     private var diagTonePhase: Double = 0
+    private var diagTonePhase80: Double = 0
+    /// 對齊 Android 1.2.30：車機 LF shelf + 220Hz 送出 LPF
+    private var sendLp1: Float = 0
+    private var sendLp2: Float = 0
+    private var sendShelfLp: Float = 0
     /// 1.2.10–1.2.12 mute / gain / polarity（音訊執行緒讀取）
     private var muteAnti = false
     private var userAncGain: Float = 1
@@ -54,10 +59,17 @@ final class AncAudioEngine: ObservableObject {
     private var interruptionObserver: NSObjectProtocol?
     private var secondarySilenceObserver: NSObjectProtocol?
     private var resumeRampTimer: Timer?
-    /// 1.2.16：對齊 Android `aa_path_check`（啟動後短播 50Hz 測路徑）
+    /// 1.2.30：對齊 Android `aa_path_check`（400ms baseline → 50+80Hz，艙麥判定）
     private var pathCheckActive = false
+    private var pathCheckToning = false
     private var pathCheckPeak: Float = 0
     private var pathCheckTimer: Timer?
+    private var pathCheckToneTimer: Timer?
+    private let mic50Base = ToneGoertzel(50)
+    private let mic50Live = ToneGoertzel(50)
+    private let mic80Base = ToneGoertzel(80)
+    private let mic80Live = ToneGoertzel(80)
+    private let mic200Live = ToneGoertzel(200)
     /// Never call `removeTap` unless we actually installed one (first-start crash).
     private var tapInstalled = false
 
@@ -94,14 +106,29 @@ final class AncAudioEngine: ObservableObject {
             guard let self,
                   let typeVal = note.userInfo?[AVAudioSessionSilenceSecondaryAudioHintTypeKey] as? UInt,
                   let hint = AVAudioSession.SilenceSecondaryAudioHintType(rawValue: typeVal) else { return }
-            // 系統媒體成為主音訊時，暫時壓低我們的 anti，減少與車機搶增益
+            // CarPlay：論壇說投影已比藍牙小聲，不要自己再把 anti 關到 0.15。
             if hint == .begin {
-                self.outputGain = min(self.outputGain, 0.15)
-                Task { @MainActor in
-                    SessionLogger.shared.event("secondary_audio_hint", ["hint": "begin", "outputGain": "0.15"])
+                if self.preferCarAudio {
+                    self.outputGain = 1
+                    Task { @MainActor in
+                        SessionLogger.shared.event("secondary_audio_hint", [
+                            "hint": "begin",
+                            "outputGain": "1",
+                            "note": "keep_pushing_carplay_anti"
+                        ])
+                    }
+                } else {
+                    self.outputGain = min(self.outputGain, 0.15)
+                    Task { @MainActor in
+                        SessionLogger.shared.event("secondary_audio_hint", ["hint": "begin", "outputGain": "0.15"])
+                    }
                 }
             } else if !self.interrupted, self.isStarted {
-                self.beginOutputGainRamp(from: max(self.outputGain, 0.15), duration: 1.0)
+                if self.preferCarAudio {
+                    self.outputGain = 1
+                } else {
+                    self.beginOutputGainRamp(from: max(self.outputGain, 0.15), duration: 1.0)
+                }
                 Task { @MainActor in
                     SessionLogger.shared.event("secondary_audio_hint", ["hint": "end"])
                 }
@@ -402,7 +429,10 @@ final class AncAudioEngine: ObservableObject {
         resumeRampTimer = nil
         pathCheckTimer?.invalidate()
         pathCheckTimer = nil
+        pathCheckToneTimer?.invalidate()
+        pathCheckToneTimer = nil
         pathCheckActive = false
+        pathCheckToning = false
         pathCheckPeak = 0
 
         outputRing = [Float](repeating: 0, count: max(Int(sampleRate), 48000))
@@ -433,6 +463,7 @@ final class AncAudioEngine: ObservableObject {
 
         try engine.start()
         isStarted = true
+        AncNowPlaying.setPlaying(true)
         blockCount = 0
         uiTickCount = 0
 
@@ -467,11 +498,12 @@ final class AncAudioEngine: ObservableObject {
             "dsp": "shared.MultiBandANCProcessor",
             "aaLinkType": link,
             "carPlayConnected": "\(model.carPlayConnected)",
-            "routeOutputs": outputs
+            "routeOutputs": outputs,
+            "note": "1.2.30_carplay_lpcm_shelf_50_80"
         ])
         SessionLogger.shared.event("calibration", ["msg": "learning_window_start"])
 
-        // 1.2.16：對齊 Android aa_path_check — 開 ANC 後短播 50Hz，看喇叭／CarPlay 是否真有輸出
+        // 1.2.30：400ms 麥 baseline → 50+80Hz；艙麥判定，FAIL 仍送 anti
         schedulePathCheck(preferCar: preferCarAudio, routeOutputs: outputs)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
@@ -491,21 +523,36 @@ final class AncAudioEngine: ObservableObject {
         uiTimer = timer
     }
 
-    /// 對齊 Android `aa_path_check`：1.5s 50Hz；依 anti 峰值 + 路由判 PASS/FAIL
+    /// 對齊 Android 1.2.30：400ms baseline → 1.8s 50+80Hz；艙麥判定；FAIL 仍送 anti。
     @MainActor
     private func schedulePathCheck(preferCar: Bool, routeOutputs: String) {
         pathCheckPeak = 0
         pathCheckActive = true
-        setDiagToneHz(50)
+        pathCheckToning = false
+        diagTonePhase = 0
+        diagTonePhase80 = 0
+        mic50Base.reset()
+        mic50Live.reset()
+        mic80Base.reset()
+        mic80Live.reset()
+        mic200Live.reset()
+        model.statusDetail = "路徑檢測：暫停音樂，聽 50/80Hz"
         SessionLogger.shared.event("path_check_start", [
-            "hz": "50",
-            "durationSec": "1.5",
+            "hz": "50+80",
+            "baselineMs": "400",
+            "toneMs": "1800",
             "preferCar": "\(preferCar)",
             "routeOutputs": routeOutputs,
-            "note": "ios_carplay_or_local_path_self_test"
+            "note": "pause_music; mic_50_or_80_rise; prefer_wired_carplay_lpcm"
         ])
         pathCheckTimer?.invalidate()
-        let t = Timer(timeInterval: 1.5, repeats: false) { [weak self] _ in
+        pathCheckToneTimer?.invalidate()
+        let toneStart = Timer(timeInterval: 0.40, repeats: false) { [weak self] _ in
+            self?.pathCheckToning = true
+        }
+        RunLoop.main.add(toneStart, forMode: .common)
+        pathCheckToneTimer = toneStart
+        let t = Timer(timeInterval: 2.20, repeats: false) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
                 self.finishPathCheck(preferCar: preferCar, routeOutputs: routeOutputs)
@@ -517,9 +564,11 @@ final class AncAudioEngine: ObservableObject {
 
     @MainActor
     private func finishPathCheck(preferCar: Bool, routeOutputs: String) {
+        pathCheckToning = false
         pathCheckActive = false
-        setDiagToneHz(0)
         pathCheckTimer = nil
+        pathCheckToneTimer?.invalidate()
+        pathCheckToneTimer = nil
         let peak = pathCheckPeak
         AppController.shared.routeMonitor.refresh()
         let session = AVAudioSession.sharedInstance()
@@ -529,31 +578,76 @@ final class AncAudioEngine: ObservableObject {
         let route = AppController.shared.routeMonitor.linkType
         let sendOk = peak >= 0.02
         let routeOk = !preferCar || hasCarAudio
-        let pass = sendOk && routeOk
-        let result = pass ? "PASS" : "FAIL"
-        let failReasons: [String] = {
-            var r: [String] = []
-            if !sendOk { r.append("send_tone_peak_too_low") }
-            if preferCar && !hasCarAudio { r.append("not_on_carAudio") }
-            return r
+        let sendPass = sendOk && routeOk
+        let mic50Idle = mic50Base.magnitudeDb()
+        let mic50 = mic50Live.magnitudeDb()
+        let mic80Idle = mic80Base.magnitudeDb()
+        let mic80 = mic80Live.magnitudeDb()
+        let mic200 = mic200Live.magnitudeDb()
+        let d50 = mic50 - mic50Idle
+        let d80 = mic80 - mic80Idle
+        let heard50 = d50 >= 6 && (mic50 - mic200) >= 3
+        let heard80 = d80 >= 6
+        let cabinHeard = sendPass && (heard50 || heard80)
+        let result = sendPass ? "PASS" : "FAIL"
+        let cabinResult: String = {
+            if !routeOk { return "INVALID_ROUTE" }
+            if heard50 && heard80 { return "HEARD_50_AND_80" }
+            if heard50 { return "HEARD_50" }
+            if heard80 { return "HEARD_80_MIB_HPF_LIKELY" }
+            return "NO_50_OR_80_AT_MIC"
         }()
+        var failReasons: [String] = []
+        if !sendOk { failReasons.append("send_tone_peak_too_low") }
+        if preferCar && !hasCarAudio { failReasons.append("not_on_carAudio") }
+        if sendPass && !cabinHeard { failReasons.append("mic_no_50_or_80Hz_rise") }
+        let wireless = route == .carplayWireless
+        let note: String
+        if cabinHeard && heard80 && !heard50 {
+            note = "MIC_HEARD_80HZ_keep_pushing_anti"
+        } else if cabinHeard {
+            note = "MIC_HEARD_50HZ_likely_HU_speakers"
+        } else if sendPass {
+            note = "SEND_OK_keep_pushing_anti; prefer_wired_LPCM_not_wireless_AAC"
+        } else {
+            note = "SEND_OR_CARAUDIO_FAIL_keep_pushing_anti"
+        }
         SessionLogger.shared.event("carplay_path_check", [
             "result": result,
             "aa_path_check": result,
+            "cabinHeard": "\(cabinHeard)",
+            "cabinResult": cabinResult,
+            "heard50": "\(heard50)",
+            "heard80": "\(heard80)",
+            "micDelta50Db": String(format: "%.1f", d50),
+            "micDelta80Db": String(format: "%.1f", d80),
+            "mic50IdleDb": String(format: "%.1f", mic50Idle),
+            "mic50Db": String(format: "%.1f", mic50),
+            "mic80IdleDb": String(format: "%.1f", mic80Idle),
+            "mic80Db": String(format: "%.1f", mic80),
+            "mic200Db": String(format: "%.1f", mic200),
             "sendPeak": String(format: "%.4f", peak),
             "preferCar": "\(preferCar)",
             "hasCarAudio": "\(hasCarAudio)",
             "carPlayConnected": "\(model.carPlayConnected)",
             "aaLinkType": route.rawValue,
+            "wirelessCarPlay": "\(wireless)",
             "routeOutputs": routeNow.isEmpty ? routeOutputs : routeNow,
             "failReasons": failReasons.joined(separator: ","),
-            "note": pass
-                ? "SEND_AND_ROUTE_OK_listen_for_50Hz_to_confirm_speakers"
-                : "SEND_OR_CARAUDIO_FAIL_do_not_trust_ANC_KPI"
+            "note": note
         ])
-        model.statusDetail = pass
-            ? "路徑自檢 PASS（應聽到短 50Hz）"
-            : "路徑自檢 FAIL — 喇叭/CarPlay 可能無輸出"
+        if cabinHeard {
+            let band = heard50 ? "50Hz" : "80Hz"
+            model.statusDetail = "路徑：麥有收到 \(band)（車機有出）"
+        } else if sendPass {
+            model.statusDetail = wireless
+                ? "已送到車機，持續送 anti（請改有線 CarPlay）"
+                : "已送到車機，持續送 anti"
+        } else if preferCar && !hasCarAudio {
+            model.statusDetail = "CarPlay 未走 carAudio：請停止再開始（優先 USB）"
+        } else {
+            model.statusDetail = "路徑送出弱，仍持續送 anti"
+        }
     }
 
     private static func requestMicPermission() async -> Bool {
@@ -574,10 +668,14 @@ final class AncAudioEngine: ObservableObject {
         resumeRampTimer = nil
         pathCheckTimer?.invalidate()
         pathCheckTimer = nil
+        pathCheckToneTimer?.invalidate()
+        pathCheckToneTimer = nil
         pathCheckActive = false
+        pathCheckToning = false
         interrupted = false
         outputGain = 1
         diagToneHz = 0
+        AncNowPlaying.setPlaying(false)
         teardownGraph()
         speedProvider.stop()
         imuProvider.stop()
@@ -670,11 +768,23 @@ final class AncAudioEngine: ObservableObject {
         let linearRms = pow(10 as Float, rmsDb / 20)
         _ = kmpProcessor?.registerBlockEnergy(rms: linearRms)
 
+        if pathCheckActive {
+            if pathCheckToning {
+                mic50Live.add(mono, count: frameCount, sampleRate: sampleRate)
+                mic80Live.add(mono, count: frameCount, sampleRate: sampleRate)
+                mic200Live.add(mono, count: frameCount, sampleRate: sampleRate)
+            } else {
+                mic50Base.add(mono, count: frameCount, sampleRate: sampleRate)
+                mic80Base.add(mono, count: frameCount, sampleRate: sampleRate)
+            }
+        }
+
         guard var anti = kmpProcessor?.process(mono: mono) else { return }
         let muted = muteAnti || userAncGain <= 0.001
-        // 1.2.8 diag tone（mute 時關閉）
-        let toneHz = muted ? 0 : diagToneHz
-        if toneHz > 0, sampleRate > 0 {
+        let toneHz = muted || pathCheckActive ? 0 : diagToneHz
+        if pathCheckToning && !muted && !interrupted {
+            injectPathTones(&anti)
+        } else if toneHz > 0, sampleRate > 0 {
             let twoPi = 2.0 * Double.pi
             for i in 0..<anti.count {
                 let s = sin(diagTonePhase)
@@ -682,9 +792,7 @@ final class AncAudioEngine: ObservableObject {
                 diagTonePhase += twoPi * Double(toneHz) / sampleRate
                 if diagTonePhase > twoPi { diagTonePhase -= twoPi }
             }
-        }
-        // 1.2.10/1.2.12：post-mute write（KPI 與喇叭一致）
-        if muted || interrupted {
+        } else if muted || interrupted {
             for i in 0..<anti.count { anti[i] = 0 }
         } else {
             var g = userAncGain
@@ -694,6 +802,7 @@ final class AncAudioEngine: ObservableObject {
                 let m = g * og
                 for i in 0..<anti.count { anti[i] *= m }
             }
+            shapeCarSend(&anti)
         }
         pushAnti(anti)
         if pathCheckActive {
@@ -934,6 +1043,44 @@ final class AncAudioEngine: ObservableObject {
         }
     }
 
+    /// Path probe: 50 Hz (gold) + 80 Hz (above reported VAG USB HPF ~40–50 Hz).
+    private func injectPathTones(_ samples: inout [Float]) {
+        guard sampleRate > 0, !samples.isEmpty else { return }
+        let twoPi = 2.0 * Double.pi
+        let amp50 = 0.62
+        let amp80 = 0.50
+        for i in 0..<samples.count {
+            let s = sin(diagTonePhase) * amp50 + sin(diagTonePhase80) * amp80
+            diagTonePhase += twoPi * 50.0 / sampleRate
+            diagTonePhase80 += twoPi * 80.0 / sampleRate
+            if diagTonePhase > twoPi { diagTonePhase -= twoPi }
+            if diagTonePhase80 > twoPi { diagTonePhase80 -= twoPi }
+            samples[i] = Float(max(-1.0, min(1.0, s)))
+        }
+    }
+
+    /// Car send shaper（對齊 Android 1.2.30 Wavelet shelf）：
+    /// 本機 70Hz 2-pole；CarPlay/車機 +8 dB @ 90Hz 再 220Hz，讓 80–200Hz 悶出得去。
+    private func shapeCarSend(_ samples: inout [Float]) {
+        guard sampleRate > 0, !samples.isEmpty else { return }
+        let car = preferCarAudio
+        let lpfHz: Double = car ? 220 : 70
+        let maxCoeff: Float = car ? 0.22 : 0.08
+        let coeff = min(max(Float(2.0 * Double.pi * lpfHz / sampleRate), 0.003), maxCoeff)
+        let shelfBoost: Float = car ? 1.5 : 0
+        let shelfCoeff = min(max(Float(2.0 * Double.pi * 90.0 / sampleRate), 0.003), 0.12)
+        for i in 0..<samples.count {
+            var x = samples[i]
+            if car {
+                sendShelfLp += shelfCoeff * (x - sendShelfLp)
+                x = max(-1.15, min(1.15, x + shelfBoost * sendShelfLp))
+            }
+            sendLp1 += coeff * (x - sendLp1)
+            sendLp2 += coeff * (sendLp1 - sendLp2)
+            samples[i] = max(-1, min(1, sendLp2))
+        }
+    }
+
     enum EngineError: LocalizedError {
         case needsConsent
         case needsMicPermission
@@ -946,5 +1093,52 @@ final class AncAudioEngine: ObservableObject {
             case .invalidFormat: return "無法取得麥克風格式（請確認未佔用／已連 CarPlay 再試）"
             }
         }
+    }
+}
+
+/// Streaming Goertzel for one frequency; call reset() before a new window.
+private final class ToneGoertzel {
+    let targetHz: Float
+    private var coeff: Float = 0
+    private var q1: Float = 0
+    private var q2: Float = 0
+    private var n: Int = 0
+    private var sr: Int = 0
+
+    init(_ hz: Float) {
+        targetHz = hz
+    }
+
+    func reset() {
+        q1 = 0
+        q2 = 0
+        n = 0
+        sr = 0
+        coeff = 0
+    }
+
+    func add(_ samples: [Float], count: Int, sampleRate: Double) {
+        let rate = Int(sampleRate.rounded())
+        if count <= 0 || rate <= 0 { return }
+        if sr != rate {
+            sr = rate
+            coeff = Float(2.0 * cos(2.0 * Double.pi * Double(targetHz) / sampleRate))
+            q1 = 0
+            q2 = 0
+            n = 0
+        }
+        let nAdd = min(count, samples.count)
+        for i in 0..<nAdd {
+            let q0 = coeff * q1 - q2 + samples[i]
+            q2 = q1
+            q1 = q0
+        }
+        n += nAdd
+    }
+
+    func magnitudeDb() -> Float {
+        if n < 256 || sr <= 0 { return -120 }
+        let mag = sqrt(max(0, q1 * q1 + q2 * q2 - coeff * q1 * q2)) / (Float(n) / 2)
+        return max(-120, min(0, 20 * log10(max(mag, 1e-8))))
     }
 }

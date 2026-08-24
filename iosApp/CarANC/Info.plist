@@ -57,9 +57,11 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.17</string>
+	<string>1.2.30</string>
 	<key>CFBundleVersion</key>
-	<string>28</string>
+	<string>29</string>
+	<key>AVInitialRouteSharingPolicy</key>
+	<string>LongFormAudio</string>
 	<key>CPSupportsDashboardNavigationScene</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>

@@ -5,7 +5,7 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**版號**：Android **`version.properties` → 1.2.30 / code 32** · iOS **1.2.17 (28)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+**版號**：Android **`version.properties` → 1.2.30 / code 32** · iOS **1.2.30 (29)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 
 **跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-23 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
@@ -58,7 +58,7 @@ git push origin main
 | **1.2.24** | 停止降噪真的會停（禁雙 engine、腳本不再自動重開） | ✅ |
 | **1.2.23** | 修 1.2.22 開 ANC / 腳本閃退（MediaSession NPE） | ✅ |
 | **1.2.22** | MediaSession + AA 關掉 LOW_LATENCY，讓車機走音樂 DAC 出 50Hz | ✅ |
-| **iOS 版號** | **`1.2.17` (build 28)** · 狀態頁 **`v1.2.17 (28)`** · 安全 teardown（removeTap）+ classifier/plant D + 路徑自檢需 carAudio | ✅ |
+| **iOS 版號** | **`1.2.30` (build 29)** · 狀態頁 **`v1.2.30 (29)`** · CarPlay 對齊論壇路徑（50+80、LF shelf、Now Playing） | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
 | **CarPlay** | 對齊 AA（見 `iosApp/CARPLAY.md`） | ✅ 程式；圖示需 Apple entitlement |
@@ -76,8 +76,8 @@ git push origin main
 
 ```bash
 git pull origin main
-# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.17
-# iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.17 (28)
+# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.30
+# iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.30 (29)
 ```
 
 **注意**：plant residual KPI 在 iOS 仍多為代理／`n/a`。Android 路測仍以 USB AA + `lowBandRumbleReduction` 為準。無 GPS 時看 log `speedSource`（hold／imu_proxy 可餵速域，勿當精密 GPS KPI）。
