@@ -742,4 +742,70 @@ class MultiBandANCProcessorTest {
         assertTrue(proc.getBoomPressureOut() > 0.02f, "boomPressureOut=${proc.getBoomPressureOut()}")
         assertTrue(proc.isOpenBoomActive(), "openBoom should be active")
     }
+
+    /** 1.2.31: classifier WIND at cruise must still mix boom (evening 70+ boomOut=0). */
+    @Test
+    fun classifierWind_keepsBoom_unlessGuidedWind() {
+        GuidedNvhOverride.clear()
+        val proc = MultiBandANCProcessor(sampleRate, bufferSize, UserTier.PRO)
+        proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f)
+        proc.setVehicleSpeed(72f, true)
+        proc.setRumbleAccel(1.0f)
+        proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+        proc.setBoomPolarityForced(-1f)
+        proc.setAntiOutputMuted(false)
+        proc.setForcedNvhFocus(null)
+        proc.applyBandSnapshotFromBlock(0.05f, 0.04f, 0.91f)
+        assertEquals("WIND_SHEAR", proc.getNvhFocus())
+        warmUp(proc, generateTone(50f, 512, 0.35f), 8)
+        val out = proc.process(generateTone(50f, 256, 0.35f))
+        val peak = out.maxOf { abs(it.toInt()) }
+        assertTrue(proc.isOpenBoomActive(), "cruise WIND classifier must still open boom")
+        assertTrue(proc.getBoomPressureOut() > 0.008f, "boomPressureOut=${proc.getBoomPressureOut()}")
+        assertTrue(peak > 150, "peak=$peak")
+
+        proc.setForcedNvhFocus("WIND_SHEAR")
+        warmUp(proc, generateTone(50f, 512, 0.35f), 4)
+        proc.process(generateTone(50f, 256, 0.35f))
+        assertFalse(proc.isOpenBoomActive(), "guided WIND step must hold boom off")
+        assertTrue(proc.getBoomPressureOut() < 0.01f, "guided wind boomOut=${proc.getBoomPressureOut()}")
+    }
+
+    /** 1.2.31: city 25 km/h was below old 35 openBoom floor. */
+    @Test
+    fun citySpeed_22kmh_openBoom() {
+        GuidedNvhOverride.clear()
+        val proc = MultiBandANCProcessor(sampleRate, bufferSize, UserTier.PRO)
+        proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f)
+        proc.setVehicleSpeed(25f, true)
+        proc.setRumbleAccel(0.8f)
+        proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+        proc.setForcedNvhFocus("ROAD_RUMBLE")
+        proc.setBoomPolarityForced(-1f)
+        proc.setAntiOutputMuted(false)
+        warmUp(proc, generateTone(50f, 512, 0.35f), 8)
+        proc.process(generateTone(50f, 256, 0.35f))
+        assertTrue(proc.isOpenBoomActive(), "25 km/h must open boom")
+        assertTrue(proc.getBoomPressureOut() > 0.008f, "boomPressureOut=${proc.getBoomPressureOut()}")
+    }
+
+    @Test
+    fun liveTuneOverlay_parsesPolarityAndScale() {
+        LiveTuneOverlay.clear()
+        LiveTuneOverlay.parse(
+            """
+            # comment
+            forceBoomPolarity=1
+            boomOpenScale=0.5
+            forceNvhFocus=ROAD_RUMBLE
+            userAncGain=0.8
+            """.trimIndent()
+        )
+        assertEquals(1f, LiveTuneOverlay.forceBoomPolarity)
+        assertEquals(0.5f, LiveTuneOverlay.boomOpenScale)
+        assertEquals("ROAD_RUMBLE", LiveTuneOverlay.forceNvhFocus)
+        assertEquals(0.8f, LiveTuneOverlay.userAncGain)
+        LiveTuneOverlay.clear()
+        assertEquals(null, LiveTuneOverlay.forceBoomPolarity)
+    }
 }

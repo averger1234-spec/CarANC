@@ -17,8 +17,56 @@
 
 ---
 
+## [1.2.33] — 2026-08-25 · Android code 35 · 狀態頁對齊 iOS
 
+Android 主畫面原本是行銷風（大圓環 dB、標題「感受安靜的駕駛體驗」、狀態頁切等級）。iOS `StatusTabView` 比較好用：運作中圓點、版本膠囊、NVH、藥丸 KPI、麥克風／反噪兩條頻譜、一個開始鈕。
 
+此版 Android **狀態**分頁改成同一套；等級改到「方案」（對齊 iOS）；主題固定 iOS 藍，不再跟 Material You 跑掉。DSP 仍是 1.2.32 live-tune。iOS marketing 仍 **1.2.32 (33)**（IPA 尚未重編，Sideloadly 包仍是 1.2.30 (31)）。
+
+**Pixel 10 Pro Fold**：2026-08-25 已 `adb install` **1.2.33-internal / code 35**。`files/anc_live_tune.properties` 仍是 `forceBoomPolarity=1`、`boomOpenScale=0.45`、`forceNvhFocus=ROAD_RUMBLE`。**明天再拉頻譜改極性**（不要今晚再翻）。
+
+---
+
+## [1.2.32] — 2026-08-25 · Android code 34 · iOS build 33 · live-tune 熱改極性 + 自動翻轉真的會觸發
+
+1.2.31 上路後 **openBoom 已開**（WIND 67 km/h 也 true），但：
+
+| KPI | 1.2.31 實測 | 問題 |
+|-----|-------------|------|
+| `boomPolarity` | −1（auto） | `plantResidual` 50+ km/h 平均 **−4 dB**（anti 在加能量） |
+| `boomPressureOut` | ~0.01 | 自動翻轉要求 `boomOut>0.02` → **永遠不翻** |
+| SharedPreferences | 每 block 讀 | 行程內 cache，adb 改 XML **當下無效** |
+
+修：
+
+- `filesDir/anc_live_tune.properties`（iOS：Documents 同檔名）mtime 變就套用：`forceBoomPolarity` / `forceNvhFocus` / `boomOpenScale` / `userAncGain`
+- 自動翻轉門檻 `boomOut>0.02` → **0.005**
+- 裝完可 `run-as` 寫檔，**不必重開 App**
+
+---
+
+## [1.2.31] — 2026-08-25 · Android code 33 · iOS build 32 · 頻譜閉環：高速仍送路悶、城市打得開 boom
+
+晚間 `174407` 路徑對（mixp:0、heard50、USAGE_MEDIA），但 **沒在降悶**：
+
+| 頻譜 | 數字 | 原因 |
+|------|------|------|
+| 70+ km/h `nvhFocus=WIND_SHEAR` | `boomOut≈0`、`openBoom=false` | mixer 把 WIND/TIRE **整段 boom 關掉**（分類器自己的 tire 註解卻寫 keep boom） |
+| 城市 20–40 km/h | `openBoom` 幾乎 0 | 開門檻 **35 km/h**；腳本／A/B 又丟棄 &lt;45 |
+| 全程 `plantResidualReductionDb` | **−2～−9 dB** | anti 在加能量；corr≈0 因為 boom 沒出，極性永遠翻不了 |
+| 現況怠速 3 km/h + 音樂滿 | `antiE40_80≈−82`、`IDLE` | 怠速本來不該打 boom；prefs 熱改打不開 35 km/h 閘 |
+
+修（**KMP 雙端**）：
+
+- 行駛 ≥22 km/h **保持 boom**，除非腳本強制 TIRE/WIND 步
+- `openBoom` 35→**22**；`boomOut≈0` 視為 starved 直接開（打破 corr 雞生蛋）
+- vis `plantResidualReductionDb` 餵回 processor：boom 真的在出且 residual 變差 ~2s → **自動翻極性**
+- A/B 有效速 45→**28**；結束步 `forceNvhFocus=auto`
+- Android 可 `adb` 寫 `force_nvh_focus`（腳本未跑時每 block 讀）
+
+即時：不能對正在跑的 1.2.30 APK 熱補 KMP 閘門。裝 **1.2.31** 後 ≥22 km/h 應看到 `openBoom=true`、`boomPressureOut≫0`。
+
+---
 
 
 

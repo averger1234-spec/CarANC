@@ -1,10 +1,10 @@
-# 最新多機同步索引（2026-08-24）
+# 最新多機同步索引（2026-08-25）
 
-**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 **1.2.30**）。
+**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 Android **1.2.33 / code 35**）。
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.30 / code 32** · iOS **1.2.30 (31)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.33 / code 35** · iOS 原始碼 **1.2.32 (33)** · IPA 仍 **1.2.30 (31)** |
 | **AA / CarPlay 論壇路徑** | `FORUM_AUDIO_PATH.md` |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
@@ -12,6 +12,9 @@
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
+**1.2.33 重點**：Android 狀態頁對齊 iOS（藥丸 KPI、雙頻譜、藍主題）；Pixel 已裝。**明天再拉頻譜改極性。**  
+**1.2.32 重點**：`anc_live_tune.properties` 熱改極性／NVH／openScale；自動翻轉 `boomOut>0.005`。  
+**1.2.31 重點**：≥22 km/h 保持 boom（分類 WIND 不關悶）；openBoom 35→22；A/B 有效速 28。  
 **1.2.30 重點**：論壇路徑：AA LF shelf + 50/80Hz；iOS CarPlay 同套。**build 31**：iPad 同意鈕全螢幕；`runningSnapshot` 重複 key 閃退（Debug trap）。  
 **1.2.29 重點**：AA 50Hz 自檢 FAIL 仍繼續送 anti（不關通道）。  
 **1.2.28 重點**：AA 與 A2DP 都 GAIN + STREAM_MUSIC 拉滿（佔音樂 DAC）。  

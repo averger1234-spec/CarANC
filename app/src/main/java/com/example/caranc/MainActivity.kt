@@ -31,6 +31,7 @@ import com.example.caranc.shared.commercial.TierChangeResult
 import com.example.caranc.shared.commercial.PrivacyPolicy
 import com.example.caranc.shared.commercial.TermsOfService
 import com.example.caranc.shared.service.ANCService
+import com.example.caranc.ui.IosStyleStatusTab
 import com.example.caranc.ui.theme.CarANCTheme
 import android.widget.Toast
 import androidx.compose.material.icons.Icons
@@ -151,6 +152,13 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
     val maxCancelFrequencyHz by sessionContext.stateManager.maxCancelFrequencyHz.collectAsState()
     val latencyMidEnabled by sessionContext.stateManager.latencyMidEnabled.collectAsState()
     val latencyHighEnabled by sessionContext.stateManager.latencyHighEnabled.collectAsState()
+    val antiDb by sessionContext.stateManager.antiDb.collectAsState()
+    val antiSpectrum by sessionContext.stateManager.antiSpectrum.collectAsState()
+    val nvhFocus by sessionContext.stateManager.nvhFocus.collectAsState()
+    val rumbleAccel by sessionContext.stateManager.rumbleAccel.collectAsState()
+    val lowBandRumbleReduction by sessionContext.stateManager.lowBandRumbleReduction.collectAsState()
+    val carLinkConnected by sessionContext.stateManager.carLinkConnected.collectAsState()
+    val carLinkLabel by sessionContext.stateManager.carLinkLabel.collectAsState()
 
     val statusText = when (val state = uiState) {
         is AncState.Calibrating -> state.message
@@ -177,7 +185,6 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
         "延遲：啟動降噪後顯示"
     }
 
-    val scrollState = rememberScrollState()
     val context = androidx.compose.ui.platform.LocalContext.current
     var showSafetyConsent by remember {
         mutableStateOf(sessionContext.entitlementManager.requiresSafetyConsent())
@@ -204,7 +211,7 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
         listOf("狀態", "方案")
     }
     val tabIcons = if (showTuningLab) {
-        listOf(Icons.Filled.Home, Icons.Filled.ShoppingCart, Icons.Filled.List, Icons.Filled.Settings)
+        listOf(Icons.Filled.Home, Icons.Filled.ShoppingCart, Icons.Filled.List, Icons.Filled.Build)
     } else {
         listOf(Icons.Filled.Home, Icons.Filled.ShoppingCart)
     }
@@ -331,7 +338,29 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
         )
     }
 
+    val isRunning = uiState !is AncState.Stopped && uiState !is AncState.Error
+    val channelLabel = when {
+        BuildConfig.IS_STORE -> "公開版"
+        isDevMode -> "內部測試"
+        else -> "內部建置"
+    }
+    val onToggleAnc = {
+        if (isRunning) {
+            onStopClick()
+        } else if (sessionContext.entitlementManager.requiresSafetyConsent()) {
+            pendingStartAfterConsent = true
+            showSafetyConsent = true
+        } else {
+            onStartClick()
+        }
+    }
+
     Scaffold(
+        topBar = {
+            if (selectedTab == 0) {
+                TopAppBar(title = { Text("CarANC") })
+            }
+        },
         bottomBar = {
             NavigationBar {
                 tabTitles.forEachIndexed { index, title ->
@@ -345,287 +374,129 @@ fun AncScreen(viewModel: MainViewModel, onStartClick: () -> Unit, onStopClick: (
             }
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(scrollState)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             when (selectedTab) {
-                0 -> {
-                    // P0 消費者體驗核心：狀態感知而非數據監控
-                    // 轉型為「讓一般車主感受到『我現在變安靜了』」
-                    Text(text = "車內主動降噪", style = MaterialTheme.typography.headlineMedium)
-                    Text(
-                        text = "感受安靜的駕駛體驗",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    // Version / channel label. Internal: always lab. Store: clean public label only.
-                    val channelLabel = when {
-                        BuildConfig.IS_STORE -> "公開版"
-                        isDevMode -> "內部測試 · 調校開啟"
-                        else -> "內部建置"
-                    }
-                    Text(
-                        text = "v${BuildConfig.VERSION_NAME} · $channelLabel",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (!BuildConfig.IS_STORE) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        TierButton("輕度", UserTier.LIGHT, currentTier == UserTier.LIGHT) { tier ->
-                            val result = sessionContext.tierManager.setTier(tier)
-                            if (result is TierChangeResult.Clamped) {
-                                Toast.makeText(context, result.reason, Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                        TierButton("中度", UserTier.STANDARD, currentTier == UserTier.STANDARD) { tier ->
-                            val result = sessionContext.tierManager.setTier(tier)
-                            if (result is TierChangeResult.Clamped) {
-                                Toast.makeText(context, result.reason, Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                        TierButton("重度", UserTier.PRO, currentTier == UserTier.PRO) { tier ->
-                            val result = sessionContext.tierManager.setTier(tier)
-                            if (result is TierChangeResult.Clamped) {
-                                Toast.makeText(context, result.reason, Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Full-app health (not only guided script): surfaces silent-failure conditions
-                    SystemHealthCard(
-                        ancRunning = uiState !is AncState.Stopped && uiState !is AncState.Error,
-                        consentOk = !sessionContext.entitlementManager.requiresSafetyConsent(),
-                        loggingOn = AncTestPreferences.isLoggingEnabled(context),
-                        gpsValid = vehicleSpeedValid,
-                        speedKmh = vehicleSpeedKmh,
-                        latencyMs = estimatedLatencyMs,
-                        gain = AncTestPreferences.getUserAncGain(context)
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // P0: 狀態感知卡片 + 環形 Gauge + 放大動態 dB + 使用者價值語言
-                    // 工程術語（延遲/頻帶/模式）預設隱藏在進階
-                    val contextualTitle = when {
-                        uiState is AncState.MusicMode || (uiState is AncState.Running && dominantNoiseBand.contains("MUSIC", ignoreCase = true)) -> "音樂模式：保護音質 + rumble 基礎抵消"
-                        uiState is AncState.DrivingMode || (uiState is AncState.Running && (dominantNoiseBand.contains("ROAD", ignoreCase = true) || dominantNoiseBand.contains("TIRE", ignoreCase = true) || vehicleSpeedKmh > 15f)) -> "低頻路噪抑制中"
-                        uiState is AncState.Running && vehicleSpeedKmh < 8f -> "怠速環境最佳化"
-                        uiState is AncState.Running -> "主動降噪運作中"
-                        uiState is AncState.Learning -> "車廂聲學學習中"
-                        uiState is AncState.Calibrating -> "初始化中"
-                        else -> statusText
-                    }
-
-                    val targetReduction = (rawDb - cancelledDb).coerceAtLeast(0f)
-                    // Note: animate*AsState removed temporarily for compile (BOM/animation module resolution in current env);
-                    // visuals remain dynamic on next state update. Re-add with proper dep for production polish.
-                    val animatedReduction = targetReduction
-                    val reductionColor = when {
-                        targetReduction >= 6f -> Color(0xFF1B5E20)
-                        targetReduction >= 3f -> Color(0xFF2E7D32)
-                        targetReduction >= 1.5f -> Color(0xFF43A047)
-                        targetReduction > 0.5f -> Color(0xFFFFB74D)
-                        else -> Color(0xFF90A4AE)
-                    }
-
-                    val isRunning = uiState !is AncState.Stopped && uiState !is AncState.Error
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(24.dp).fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = contextualTitle,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 18.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                                maxLines = 1
-                            )
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            // P0: 環形進度條 + 中央英雄數字（降噪效果最凸顯）
-                            Box(
-                                modifier = Modifier.size(148.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularArcGauge(
-                                    progress = (animatedReduction / 12f).coerceIn(0f, 1f),
-                                    color = reductionColor,
-                                    modifier = Modifier.size(148.dp)
-                                )
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        text = "-${"%.1f".format(animatedReduction)}",
-                                        fontSize = 46.sp,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
-                                        color = reductionColor,
-                                        maxLines = 1
-                                    )
-                                    Text(
-                                        "dB",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            // 價值回饋：只有降噪明顯時顯示
-                            if (isRunning && animatedReduction > 1.2f) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    "✓ 你現在的車廂更安靜了",
-                                    color = Color(0xFF2E7D32),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            // Smaller raw / processed
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("原始噪音", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("${"%.1f".format(rawDb)} dB", fontSize = 15.sp, maxLines = 1)
-                                }
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("處理後", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("${"%.1f".format(cancelledDb)} dB", fontSize = 15.sp, maxLines = 1)
-                                }
-                            }
-
-                            // P0: 進階資訊收納（Toggle / BottomSheet 建議，現用簡單 toggle）
-                            Spacer(modifier = Modifier.height(6.dp))
-                            TextButton(onClick = { showAdvancedInfo = !showAdvancedInfo }) {
-                                Text(if (showAdvancedInfo) "隱藏進階資訊" else "顯示進階資訊（延遲 / 頻帶）")
-                            }
-
-                            if (showAdvancedInfo) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(text = speedText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                                Text(text = bandText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                                Text(text = latencyText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // P0: 升級為聲學視覺化（貝茲平滑 + 漸層）
-                    Text("聲學視覺化", style = MaterialTheme.typography.titleSmall, modifier = Modifier.align(Alignment.Start))
-                    Box(
-                        modifier = Modifier.fillMaxWidth().height(160.dp).background(Color(0xFF111111), RoundedCornerShape(12.dp)).padding(6.dp)
-                    ) {
-                        SpectrumCanvas(noiseSpectrum, cancelledSpectrum)
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // P0: 單一大型置中主控按鈕（狀態切換即時反映；完整 AnimatedContent 動畫待 dep 穩定後恢復）
-                    val onToggleClick = {
-                        if (isRunning) {
-                            onStopClick()
-                        } else {
-                            if (sessionContext.entitlementManager.requiresSafetyConsent()) {
-                                pendingStartAfterConsent = true
-                                showSafetyConsent = true
-                            } else {
-                                onStartClick()
-                            }
-                        }
-                    }
-
-                    Button(
-                        onClick = onToggleClick,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(68.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                        ),
-                        shape = RoundedCornerShape(34.dp)
-                    ) {
-                        Text(
-                            text = if (isRunning) "停止降噪" else "開始降噪",
-                            fontSize = 20.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                        )
-                    }
-                }
+                0 -> IosStyleStatusTab(
+                    isRunning = isRunning,
+                    statusText = statusText,
+                    versionLabel = "v${BuildConfig.VERSION_NAME} · $channelLabel",
+                    tier = currentTier,
+                    nvhFocus = nvhFocus,
+                    rawDb = rawDb,
+                    antiDb = antiDb,
+                    lowBandKpi = lowBandRumbleReduction,
+                    rumbleAccel = rumbleAccel,
+                    micSpectrum = noiseSpectrum,
+                    antiSpectrum = antiSpectrum,
+                    speedText = speedText,
+                    latencyText = latencyText,
+                    carConnected = carLinkConnected,
+                    carLinkLabel = carLinkLabel,
+                    showAdvanced = showAdvancedInfo,
+                    onShowAdvancedChange = { showAdvancedInfo = it },
+                    maxCancelHz = maxCancelFrequencyHz,
+                    midEnabled = latencyMidEnabled,
+                    highEnabled = latencyHighEnabled,
+                    onToggleAnc = onToggleAnc
+                )
 
                 1 -> {
-                    // 方案 tab：方案切換 + 隱私政策 + 服務條款（目前無獨立網站，使用 GitHub + App 內對話框）
-                    CommercialPanel()
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text("隱私與條款", style = MaterialTheme.typography.titleMedium)
-
-                    Button(
-                        onClick = { showPrivacy = true },
-                        modifier = Modifier.fillMaxWidth()
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(16.dp)
                     ) {
-                        Text("隱私政策")
+                        Text("降噪強度", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "對齊 iOS「方案」分頁：輕度／中度／重度",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TierButton("輕度", UserTier.LIGHT, currentTier == UserTier.LIGHT) { tier ->
+                                val result = sessionContext.tierManager.setTier(tier)
+                                if (result is TierChangeResult.Clamped) {
+                                    Toast.makeText(context, result.reason, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            TierButton("中度", UserTier.STANDARD, currentTier == UserTier.STANDARD) { tier ->
+                                val result = sessionContext.tierManager.setTier(tier)
+                                if (result is TierChangeResult.Clamped) {
+                                    Toast.makeText(context, result.reason, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            TierButton("重度", UserTier.PRO, currentTier == UserTier.PRO) { tier ->
+                                val result = sessionContext.tierManager.setTier(tier)
+                                if (result is TierChangeResult.Clamped) {
+                                    Toast.makeText(context, result.reason, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        CommercialPanel()
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("隱私與條款", style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { showPrivacy = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("隱私政策") }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { showTerms = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("服務條款與免責聲明") }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "提示：方案切換影響降噪強度與功能開放。隱私政策與服務條款以 App 內文字為主（離線可讀）。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(
-                        onClick = { showTerms = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("服務條款與免責聲明")
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "提示：方案切換影響降噪強度與功能開放。隱私政策與服務條款以 App 內文字為主（離線可讀），完整 Markdown 版放在 GitHub（無獨立網站前使用此方式）。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
 
                 2 -> {
-                    // 測試腳本 tab (internal flavor only — tab not listed on store)
                     if (showTuningLab) {
-                        GuidedTestPanel(
-                            onRequestStartAnc = {
-                                if (sessionContext.entitlementManager.requiresSafetyConsent()) {
-                                    pendingStartAfterConsent = true
-                                    showSafetyConsent = true
-                                } else {
-                                    onStartClick()
-                                }
-                            },
-                            onRequestStopAnc = onStopClick
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(16.dp)
+                        ) {
+                            GuidedTestPanel(
+                                onRequestStartAnc = {
+                                    if (sessionContext.entitlementManager.requiresSafetyConsent()) {
+                                        pendingStartAfterConsent = true
+                                        showSafetyConsent = true
+                                    } else {
+                                        onStartClick()
+                                    }
+                                },
+                                onRequestStopAnc = onStopClick
+                            )
+                        }
                     }
                 }
 
                 3 -> {
-                    // 測試平台 tab (internal flavor only)
                     if (showTuningLab) {
-                        TestLogPanel(currentTier = currentTier, isDevMode = isDevMode)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(16.dp)
+                        ) {
+                            TestLogPanel(currentTier = currentTier, isDevMode = isDevMode)
+                        }
                     }
                 }
             }

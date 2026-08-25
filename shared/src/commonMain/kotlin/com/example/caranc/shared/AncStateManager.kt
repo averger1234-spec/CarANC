@@ -43,6 +43,15 @@ class AncStateManager {
     val latencyTrackMs = MutableStateFlow(0f)
     val latencyBlockMs = MutableStateFlow(0f)
 
+    /** iOS StatusTab parity (mic vs anti bars, NVH, IMU). */
+    val antiSpectrum = MutableStateFlow(FloatArray(64))
+    val antiDb = MutableStateFlow(-90f)
+    val nvhFocus = MutableStateFlow("IDLE")
+    val rumbleAccel = MutableStateFlow(0f)
+    val lowBandRumbleReduction = MutableStateFlow(0f)
+    val carLinkConnected = MutableStateFlow(false)
+    val carLinkLabel = MutableStateFlow("local")
+
     /**
      * When the user hits 停止, a leftover AudioEngine block must not flip
      * the UI back to Running after we already set Stopped.
@@ -95,5 +104,25 @@ class AncStateManager {
         cancelledSpectrum.value = cancelled
         rawDb.value = rDb
         cancelledDb.value = cDb
+    }
+
+    fun updateIosParityMetrics(
+        antiSpectrum: FloatArray,
+        antiDb: Float,
+        rumbleAccel: Float,
+        lowBandRumbleReduction: Float,
+        carConnected: Boolean,
+        carLinkLabel: String
+    ) {
+        this.antiSpectrum.value = antiSpectrum
+        this.antiDb.value = antiDb
+        this.rumbleAccel.value = rumbleAccel
+        this.lowBandRumbleReduction.value = lowBandRumbleReduction
+        carLinkConnected.value = carConnected
+        this.carLinkLabel.value = carLinkLabel
+    }
+
+    fun updateNvhFocus(name: String) {
+        nvhFocus.value = name
     }
 }

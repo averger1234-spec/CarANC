@@ -145,15 +145,15 @@ enum CarRoadTuningScript {
             id: "target_road_off",
             title: "①a 路悶 mute anti 艙錄 20s（baseline）",
             instructions: [
-                "45–60 km/h；真 mute anti",
+                "30–60 km/h；真 mute anti",
                 "艙錄達速後 ~20s",
                 "log：antiNoiseDb≤−90、boomPressureOut=0"
             ],
             durationSec: 20,
             suggestedTier: .pro,
             requiresAncRunning: false,
-            checklist: ["anti已mute", "antiDb極低", "達速艙錄", "45+kmh"],
-            minSpeedKmh: 45,
+            checklist: ["anti已mute", "antiDb極低", "達速艙錄", "28+kmh"],
+            minSpeedKmh: 28,
             wallClockOnly: false,
             maxWallSec: 120,
             debugPresets: [
@@ -171,7 +171,7 @@ enum CarRoadTuningScript {
             id: "target_road_ppos",
             title: "①b 路悶 極性+1 艙錄 20s",
             instructions: [
-                "同路段 45–60；forceBoomPolarity=+1",
+                "同路段 30–60；forceBoomPolarity=+1",
                 "艙錄 ~20s；對照 off 的 40–80 與 180–350",
                 "★ 1.2.17：open 短測幅度降低；boomOut≫0；中頻不大增"
             ],
@@ -179,7 +179,7 @@ enum CarRoadTuningScript {
             suggestedTier: .pro,
             requiresAncRunning: true,
             checklist: ["pol=+1", "forced=ROAD", "艙錄~20s", "boomOut≫0?", "中頻無大增?"],
-            minSpeedKmh: 45,
+            minSpeedKmh: 28,
             wallClockOnly: false,
             maxWallSec: 120,
             debugPresets: [
@@ -209,7 +209,7 @@ enum CarRoadTuningScript {
             suggestedTier: .pro,
             requiresAncRunning: true,
             checklist: ["pol=-1", "forced=ROAD", "艙錄~20s", "主觀悶0-10", "中頻無大增?"],
-            minSpeedKmh: 45,
+            minSpeedKmh: 28,
             wallClockOnly: false,
             maxWallSec: 120,
             debugPresets: [
@@ -319,7 +319,8 @@ enum CarRoadTuningScript {
                 "userAncGain": "1.0",
                 "muteAnti": "false",
                 "forceBoomPolarity": "0",
-                "diagToneHz": "0"
+                "diagToneHz": "0",
+                "forceNvhFocus": "auto"
             ]
         )
     ]

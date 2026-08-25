@@ -6,7 +6,7 @@
 
 ---
 
-## 另一台電腦現在請這樣拉（2026-08-24 · 現行）
+## 另一台電腦現在請這樣拉（2026-08-25 · 現行）
 
 > 你有多台電腦：以 **GitHub `main` 為唯一真相**。換機先 pull，改完再 push。
 
@@ -14,8 +14,11 @@
 
 | 平台 | 版號 | App 怎麼對版 |
 |------|------|----------------|
-| Android | **1.2.30 / code 32** | 主畫面 `v1.2.30` |
-| iOS | **1.2.30 (build 31)** | 狀態頁 **`v1.2.30 (31)`**；iPad 同意鈕＋開始降噪不閃；CarPlay 50+80 |
+| Android | **1.2.33 / code 35** | 主畫面 `v1.2.33`（對齊 iOS 狀態頁）· Pixel 已裝 internal |
+| iOS 原始碼 | **1.2.32 (build 33)** | live-tune + boom 閉環（KMP） |
+| iOS IPA | **1.2.30 (build 31)** | Sideloadly 包尚未重編；同意鈕／閃退修復 |
+
+**明天（Pixel）**：拉 `spectrum_kpi` / `plantResidualReductionDb`，依 live-tune 改極性。不要今晚再翻。
 
 ### 1. 拉程式（每台、每次開工）
 
@@ -24,9 +27,9 @@ cd <你的路徑>\CarANC
 git pull origin main
 git log -5 --oneline
 # 近期應能看到例如：
+# feat(anc): 1.2.33 iOS-like Android UI + boom closed-loop live-tune
 # ios: 1.2.30 (31) iPad consent + start-ANC crash
 # ios: rebuild Sideloadly IPA 1.2.30 (29)
-# fix(anc): v1.2.30 forum-backed AA bass path
 ```
 
 ### 2. 依用途選讀文件（多機必讀索引）

@@ -1,7 +1,6 @@
 # iOS CarPlay（對齊 Android Auto）
 
-**本功能自 iOS 1.2.0 起**；現行 **iOS 1.2.30 (build 29)**（對齊 Android 1.2.30 論壇路徑）。  
-狀態頁應顯示 **`v1.2.30 (31)`**。  
+**本功能自 iOS 1.2.0 起**；論壇路徑仍是 **iOS 1.2.30**。預編 IPA 狀態頁 **`v1.2.30 (31)`**；原始碼已到 **1.2.32 (33)**（尚未重編 IPA）。Android 現行 **1.2.33**。  
 雙端車上設定與 log：[`../FORUM_AUDIO_PATH.md`](../FORUM_AUDIO_PATH.md)。
 
 ## 通話結束後車機音樂忽然很大（已修 · build 21）

@@ -72,6 +72,8 @@ final class AncAudioEngine: ObservableObject {
     private let mic200Live = ToneGoertzel(200)
     /// Never call `removeTap` unless we actually installed one (first-start crash).
     private var tapInstalled = false
+    /// 1.2.32 live-tune file mtime (Documents/anc_live_tune.properties)
+    private var lastLiveTuneMtime: TimeInterval = -1
 
     init(model: AncAppModel) {
         self.model = model
@@ -317,6 +319,48 @@ final class AncAudioEngine: ObservableObject {
         SessionLogger.shared.event("force_boom_polarity", [
             "forceBoomPolarity": String(format: "%.0f", polarity)
         ])
+    }
+
+    private func liveTuneFileURL() -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(LiveTuneOverlay.shared.FILE_NAME)
+    }
+
+    /// 1.2.32：Documents/anc_live_tune.properties（對齊 Android filesDir）
+    private func refreshLiveTuneFromDisk() {
+        let url = liveTuneFileURL()
+        let mt = (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)?
+            .timeIntervalSince1970 ?? 0
+        if mt == lastLiveTuneMtime { return }
+        lastLiveTuneMtime = mt
+        if mt == 0 {
+            LiveTuneOverlay.shared.clear()
+            return
+        }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        LiveTuneOverlay.shared.parse(text: text)
+        SessionLogger.shared.event("live_tune_apply", [
+            "forceBoomPolarity": String(format: "%.0f", LiveTuneOverlay.shared.forceBoomPolarity?.floatValue ?? 0),
+            "forceNvhFocus": LiveTuneOverlay.shared.forceNvhFocus ?? "auto",
+            "boomOpenScale": String(format: "%.2f", LiveTuneOverlay.shared.boomOpenScale?.floatValue ?? -1)
+        ])
+    }
+
+    /// Audio-thread: already-parsed overlay (no file I/O).
+    private func applyLiveTuneToProcessor() {
+        if let g = LiveTuneOverlay.shared.userAncGain?.floatValue {
+            userAncGain = g
+        }
+        if let pol = LiveTuneOverlay.shared.forceBoomPolarity?.floatValue {
+            if abs(pol) < 0.01 {
+                kmpProcessor?.setBoomPolarityForced(nil)
+            } else {
+                kmpProcessor?.setBoomPolarityForced(pol)
+            }
+        }
+        if let nvh = LiveTuneOverlay.shared.forceNvhFocus, !nvh.isEmpty {
+            kmpProcessor?.setForcedNvhFocus(nvh)
+        }
     }
 
     var currentSampleRate: Double { sampleRate }
@@ -779,6 +823,7 @@ final class AncAudioEngine: ObservableObject {
             }
         }
 
+        applyLiveTuneToProcessor()
         guard var anti = kmpProcessor?.process(mono: mono) else { return }
         let muted = muteAnti || userAncGain <= 0.001
         let toneHz = muted || pathCheckActive ? 0 : diagToneHz
@@ -923,6 +968,7 @@ final class AncAudioEngine: ObservableObject {
                 model.statusDetail = "KMP · " + focus.displayName
             }
 
+            self.refreshLiveTuneFromDisk()
             // ~2s 一次 running_snapshot + spectrum_kpi（對齊 Android 1.2.6）
             self.uiTickCount += 1
             if self.uiTickCount % 10 == 0, model.isRunning {
@@ -1011,6 +1057,7 @@ final class AncAudioEngine: ObservableObject {
                 let cabinMid = SpectrumAnalyzer.bandRangeEnergyDb(mic, sampleRate: sr, fLo: 180, fHi: 350)
                 self.lastPlantResidualReductionDb = plantRed
                 model.plantResidualReductionDb = plantRed
+                self.kmpProcessor?.reportPlantResidualReductionDb(plantRed)
                 BoomPolarityAbTracker.shared.sample(
                     stepId: SessionLogger.shared.guidedTestStepId,
                     residualReductionDb: plantRed,

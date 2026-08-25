@@ -5,9 +5,9 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**版號**：Android **`version.properties` → 1.2.30 / code 32** · iOS **1.2.30 (31)** · 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+**版號**：Android **`version.properties` → 1.2.33 / code 35** · iOS 原始碼 **1.2.32 (33)**（預編 IPA 仍 **1.2.30 (31)**）· 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 
-**跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-23 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
+**跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-25 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
 
 ### 多機一分鐘流程
@@ -44,15 +44,16 @@ git push origin main
 
 ---
 
-## 最新進度（2026-08-24）— 1.2.30 論壇路徑：AA + CarPlay
+## 最新進度（2026-08-25）— 1.2.33 Android UI 對齊 iOS + boom 閉環
 
-路測／車上設定請看 **[`FORUM_AUDIO_PATH.md`](FORUM_AUDIO_PATH.md)**。
+路測／車上設定請看 **[`FORUM_AUDIO_PATH.md`](FORUM_AUDIO_PATH.md)**。**明天 Pixel 再拉頻譜改極性。**
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| **Android 版號** | **`1.2.30` / code `32`** · 主畫面 `v1.2.30` | ✅ |
+| **Android 版號** | **`1.2.33` / code `35`** · 主畫面對齊 iOS 狀態頁 · Pixel 已裝 internal | ✅ |
+| **1.2.32** | live-tune 檔熱改極性／NVH／openScale；自動翻轉門檻 0.005 | ✅ KMP 雙端 |
+| **1.2.31** | ≥22 km/h 保持 boom（WIND 不關悶）；openBoom 35→22；A/B 有效速 28 | ✅ KMP 雙端 |
 | **1.2.30 Android** | 論壇：LF shelf、50+80Hz、PCM 提醒、不自關 anti、送出 220Hz | ✅ |
-| **1.2.30 iOS** | CarPlay 同套：有線 LPCM、艙麥 50/80、Now Playing、FAIL 仍送 | ✅ |
 | **1.2.29** | AA 50Hz 自檢 FAIL 仍送 anti（行駛不關通道） | ✅ |
 | **1.2.28** | AA 與藍牙都 GAIN + STREAM_MUSIC 拉滿 | ✅ |
 | **1.2.27** | AA 無艙低音就停 anti；Pause 不停 ANC | ✅ |
@@ -61,7 +62,7 @@ git push origin main
 | **1.2.24** | 停止降噪真的會停（禁雙 engine、腳本不再自動重開） | ✅ |
 | **1.2.23** | 修 1.2.22 開 ANC / 腳本閃退（MediaSession NPE） | ✅ |
 | **1.2.22** | MediaSession + AA 關掉 LOW_LATENCY，讓車機走音樂 DAC 出 50Hz | ✅ |
-| **iOS 版號** | **`1.2.30` (build 31)** · 狀態頁 **`v1.2.30 (31)`** · 論壇路徑 + iPad 同意鈕／開始降噪閃退修復 | ✅ |
+| **iOS 版號** | 原始碼 **`1.2.32` (build 33)** · 預編 IPA 仍 **`v1.2.30 (31)`**（同意鈕／閃退修復；未重編 live-tune IPA） | ✅ |
 | **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
 | **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
 | **CarPlay** | 1.2.30 對齊 AA 論壇路徑（見 `iosApp/CARPLAY.md`） | ✅ 程式；圖示需 Apple entitlement |
@@ -80,8 +81,8 @@ git push origin main
 
 ```bash
 git pull origin main
-# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.30
-# iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.30 (31)
+# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.33
+# iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.30 (31)（IPA 尚未跟 1.2.32 原始碼）
 ```
 
 **注意**：plant residual KPI 在 iOS 仍多為代理／`n/a`。Android 路測仍以 USB AA + `lowBandRumbleReduction` 為準。無 GPS 時看 log `speedSource`（hold／imu_proxy 可餵速域，勿當精密 GPS KPI）。

@@ -583,16 +583,16 @@ object CarRoadTuningScript {
             id = "target_road_off",
             title = "①a 路悶 mute anti 艙錄 20s（baseline）",
             instructions = listOf(
-                "45–60 km/h；**真 mute anti**（userAncGain=0，喇叭無 anti）",
+                "30–60 km/h；**真 mute anti**（userAncGain=0，喇叭無 anti）",
                 "艙錄在 **達速後** 才開始 → cabin_target_road_off_*.m4a 約 20s",
-                "有效秒 20（≥45 km/h）；log：muteAnti=true、**antiNoiseDb≤−90**（≈−200）、boomPressureOut=0"
+                "有效秒 20（≥28 km/h）；log：muteAnti=true、**antiNoiseDb≤−90**（≈−200）、boomPressureOut=0"
             ),
             durationSec = 20,
-            minSpeedKmh = 45f,
+            minSpeedKmh = 28f,
             maxWallSec = 120,
             requiresAncRunning = false,
             suggestedTier = UserTier.PRO,
-            checklist = listOf("anti已mute", "antiDb極低", "達速艙錄", "45+kmh"),
+            checklist = listOf("anti已mute", "antiDb極低", "達速艙錄", "28+kmh"),
             logPhases = listOf("cabin_record_start", "cabin_record_stop", "spectrum_kpi", "running_snapshot"),
             debugPresets = mapOf(
                 "tier" to "PRO",
@@ -609,14 +609,14 @@ object CarRoadTuningScript {
             id = "target_road_ppos",
             title = "①b 路悶 極性+1 艙錄 20s",
             instructions = listOf(
-                "同路段 45–60 km/h；**開 ANC**；forceBoomPolarity=+1",
+                "同路段 30–60 km/h；**開 ANC**；forceBoomPolarity=+1",
                 "艙錄達速後 ~20s → cabin_target_road_ppos_*.m4a",
                 "★ log：boomPolarity=+1、plantResidualReductionDb、boomPlantCorr、antiE40_80",
                 "★ 對照 off：40–80 Hz 應 on<off；變響暫記，與 −1 步比較",
                 "主觀悶 0–10"
             ),
             durationSec = 20,
-            minSpeedKmh = 45f,
+            minSpeedKmh = 28f,
             maxWallSec = 120,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
@@ -653,14 +653,14 @@ object CarRoadTuningScript {
             id = "target_road_pneg",
             title = "①c 路悶 極性−1 艙錄 20s",
             instructions = listOf(
-                "同路段 45–60 km/h；**開 ANC**；forceBoomPolarity=−1",
+                "同路段 30–60 km/h；**開 ANC**；forceBoomPolarity=−1",
                 "艙錄達速後 ~20s → cabin_target_road_pneg_*.m4a",
                 "★ 與 ppos / off 對照；**較佳極性**結束時寫入 PlantPathStore",
                 "★ 禁止採信與 off 時長差 >30% 的對",
                 "主觀悶 0–10；純電子噪=FAIL"
             ),
             durationSec = 20,
-            minSpeedKmh = 45f,
+            minSpeedKmh = 28f,
             maxWallSec = 120,
             suggestedTier = UserTier.PRO,
             checklist = listOf(
@@ -798,7 +798,8 @@ object CarRoadTuningScript {
                 "userAncGain" to 1.0f,
                 "muteAnti" to false,
                 "forceBoomPolarity" to 0f,
-                "diagToneHz" to 0f
+                "diagToneHz" to 0f,
+                "forceNvhFocus" to "auto"
             )
         )
     )

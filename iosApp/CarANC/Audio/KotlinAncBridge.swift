@@ -186,6 +186,13 @@ final class KotlinAncBridge {
         processor.applyPersistedBoomPolarity(polarity: polarity)
     }
 
+    /// 1.2.31：vis 頻譜 plant residual 餵回 KMP，讓 boom 極性可閉環翻轉
+    func reportPlantResidualReductionDb(_ db: Float) {
+        lock.lock()
+        defer { lock.unlock() }
+        processor.reportPlantResidualReductionDb(db: db)
+    }
+
     /// 1.2.6：腳本強制 ROAD/TIRE/WIND
     func setForcedNvhFocus(_ name: String?) {
         lock.lock()

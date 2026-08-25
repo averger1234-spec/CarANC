@@ -159,6 +159,11 @@ interface AncProcessorFacade : AudioProcessor {
     fun getNvhTargetHzLabel(): String = ""
     /** Guided script: force NVH focus name or null/auto to clear. */
     fun setForcedNvhFocus(focusName: String?) {}
+    /**
+     * 1.2.31: vis-loop plant residual (mic low − delayed anti mix). Used to auto-flip
+     * boom polarity when corr is stuck near 0.
+     */
+    fun reportPlantResidualReductionDb(db: Float) {}
     /** 5 km/h speed-bin floor for NVH gain table. */
     fun getSpeedNvhBinKmh(): Int = 0
     fun getSpeedNvhLowGain(): Float = 1f

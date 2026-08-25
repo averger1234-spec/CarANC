@@ -178,6 +178,8 @@ class AudioEngine(
     private var lastResidualLowBandDb = -90f
     private var lastPlantResidualLowBandDb = -90f
     private var lastPlantResidualReductionDb = 0f
+    private var lastLiveTuneMtime = -1L
+    private var liveTunePollBlocks = 0L
     private var lastBandE60 = -90f
     private var lastBandE80 = -90f
     private var lastBandE100 = -90f
@@ -999,11 +1001,24 @@ class AudioEngine(
                         }
 
                         // 1.2.12: mute + polarity MUST be applied before process() so boom/notch/KPI match send
-                        val userGain = AncTestPreferences.getUserAncGain(appContext)
+                        liveTunePollBlocks++
+                        if (liveTunePollBlocks % 40L == 0L) {
+                            refreshLiveTuneFromDisk(appContext)
+                        }
+                        val userGain = LiveTuneOverlay.userAncGain
+                            ?: AncTestPreferences.getUserAncGain(appContext)
                         val muteAnti = AncTestPreferences.isMuteAntiOutput(appContext) || userGain <= 0.001f
                         ancProcessor?.setAntiOutputMuted(muteAnti)
-                        val forcePol = AncTestPreferences.getForceBoomPolarity(appContext)
+                        val forcePol = LiveTuneOverlay.forceBoomPolarity
+                            ?: AncTestPreferences.getForceBoomPolarity(appContext)
                         ancProcessor?.setBoomPolarityForced(if (forcePol == 0f) null else forcePol)
+                        // 1.2.31/1.2.32: adb-writable NVH when script is idle (script presets still win).
+                        if (!GuidedTestController.state.value.active) {
+                            val prefFocus = LiveTuneOverlay.forceNvhFocus
+                                ?: AncTestPreferences.getForceNvhFocus(appContext).ifBlank { null }
+                            GuidedNvhOverride.set(prefFocus)
+                            ancProcessor?.setForcedNvhFocus(prefFocus)
+                        }
 
                         val processed = ancProcessor?.process(preprocessed) ?: preprocessed
 
@@ -1339,6 +1354,32 @@ class AudioEngine(
         releaseAudio()
     }
 
+    /** 1.2.32: reload `filesDir/anc_live_tune.properties` when mtime changes. */
+    private fun refreshLiveTuneFromDisk(context: Context) {
+        val f = java.io.File(context.filesDir, LiveTuneOverlay.FILE_NAME)
+        val mt = if (f.exists()) f.lastModified() else 0L
+        if (mt == lastLiveTuneMtime) return
+        lastLiveTuneMtime = mt
+        if (mt == 0L) {
+            LiveTuneOverlay.clear()
+            AncSessionLogger.log(
+                phase = "live_tune_clear",
+                fields = mapOf("note" to "file_removed")
+            )
+            return
+        }
+        runCatching { LiveTuneOverlay.parse(f.readText()) }
+        AncSessionLogger.log(
+            phase = "live_tune_apply",
+            fields = mapOf(
+                "forceBoomPolarity" to (LiveTuneOverlay.forceBoomPolarity ?: 0f),
+                "forceNvhFocus" to (LiveTuneOverlay.forceNvhFocus ?: "auto"),
+                "boomOpenScale" to (LiveTuneOverlay.boomOpenScale ?: -1f),
+                "userAncGain" to (LiveTuneOverlay.userAncGain ?: -1f)
+            )
+        )
+    }
+
     private fun scaleSamplesInto(samples: ShortArray, size: Int, gain: Float, target: ShortArray): ShortArray {
         for (i in 0 until size) {
             val scaled = samples[i] * gain
@@ -1669,6 +1710,7 @@ class AudioEngine(
         lastPlantResidualLowBandDb = sa.computeLowBandRmsDb(visPlantResidual, sr, 150f)
         lastPlantResidualReductionDb =
             (lastRawLowBandDb - lastPlantResidualLowBandDb).coerceIn(-30f, 40f)
+        ancProcessor?.reportPlantResidualReductionDb(lastPlantResidualReductionDb)
         lastBandE60 = PlantAlignedResidual.bandEnergyDb(visInputSlice, sr, 60f, 0, size)
         lastBandE80 = PlantAlignedResidual.bandEnergyDb(visInputSlice, sr, 80f, 0, size)
         lastBandE100 = PlantAlignedResidual.bandEnergyDb(visInputSlice, sr, 100f, 0, size)
@@ -1679,6 +1721,14 @@ class AudioEngine(
         val lowBandReductionDb = computeLowBandReductionDb(rawSpectrum, cancelledSpectrum, sr)
 
         val speed = vehicleSpeedProvider?.currentSnapshot() ?: VehicleSpeedSnapshot.invalid()
+        sessionContext.stateManager.updateIosParityMetrics(
+            antiSpectrum = sa.computeMagnitudeSpectrum(visOutputSlice),
+            antiDb = antiNoiseDb,
+            rumbleAccel = speed.linearAccelMagnitude,
+            lowBandRumbleReduction = lowBandReductionDb,
+            carConnected = isAAConnected(),
+            carLinkLabel = if (isAAConnected()) "usb aa" else "local"
+        )
 
         // In-app multi-band spectrum KPI every ~2s — primary analysis source (no external m4a required)
         val nowKpi = System.currentTimeMillis()
@@ -1743,9 +1793,12 @@ class AudioEngine(
                     "diagToneHz" to AncTestPreferences.getDiagToneHz(appContext),
                     "muteAnti" to AncTestPreferences.isMuteAntiOutput(appContext),
                     "antiSendMuted" to AncTestPreferences.isMuteAntiOutput(appContext),
-                    "userAncGain" to AncTestPreferences.getUserAncGain(appContext),
-                    "forceBoomPolarity" to AncTestPreferences.getForceBoomPolarity(appContext),
-                    "note" to "1.2.14_open_boom; cabin_polarity; mute_kpi; antiE_*=send"
+                    "userAncGain" to (LiveTuneOverlay.userAncGain
+                        ?: AncTestPreferences.getUserAncGain(appContext)),
+                    "forceBoomPolarity" to (LiveTuneOverlay.forceBoomPolarity
+                        ?: AncTestPreferences.getForceBoomPolarity(appContext)),
+                    "liveTuneOpenScale" to (LiveTuneOverlay.boomOpenScale ?: -1f),
+                    "note" to "1.2.32_live_tune; open_boom; antiE_*=send"
                 )
             )
         }
@@ -1784,6 +1837,9 @@ class AudioEngine(
         }
         ancProcessor?.applyClassifierResult(classification)
         sessionContext.stateManager.updateDominantNoiseBand(classification.dominantBand.name)
+        sessionContext.stateManager.updateNvhFocus(
+            ancProcessor?.getNvhFocus() ?: classification.nvhFocus.name
+        )
         lastDominant = classification.dominantBand  // persist for force MUSIC_DOMINANT_RUMBLE bypass in hot read loop (when MUSIC_BROAD)
 
         val limits = ancProcessor?.getLatencyBandLimits()

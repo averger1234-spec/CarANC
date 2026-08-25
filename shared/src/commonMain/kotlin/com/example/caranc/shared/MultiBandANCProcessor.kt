@@ -209,6 +209,9 @@ class MultiBandANCProcessor(
     private var antiOutputMuted = false
     /** 1.2.14: open-boom energy floor active (KPI). */
     private var lastOpenBoom = false
+    /** 1.2.31: vis-loop plant residual (mic low − plant-mixed low). Negative = anti adding. */
+    private var lastPlantResidualReductionDb = 0f
+    private var plantWorseSamples = 0
     private var lastProbeRejected = false
     private var lastProbeRejectMs = 0f
     private var learningCaptured = false
@@ -362,6 +365,21 @@ class MultiBandANCProcessor(
         boomPolarity = if (polarity >= 0f) 1f else -1f
     }
 
+    /**
+     * 1.2.31: AudioEngine / iOS vis loop pushes plant residual every ~2s so boom
+     * can auto-flip when corr is stuck near 0 (boom was gated off).
+     */
+    override fun reportPlantResidualReductionDb(db: Float) {
+        lastPlantResidualReductionDb = db.coerceIn(-30f, 40f)
+    }
+
+    /** Guided TIRE/WIND A/B must not mix boom; classifier WIND at cruise still should. */
+    private fun guidedHoldsBoomOff(): Boolean {
+        val n = (forcedNvhFocus?.name ?: com.example.caranc.shared.GuidedNvhOverride.forcedFocusName)
+            ?.uppercase()
+        return n == "TIRE_NOISE" || n == "WIND_SHEAR"
+    }
+
     fun consumePolarityFlipLog(): Pair<Float, Float>? {
         val v = pendingPolarityFlipLog
         pendingPolarityFlipLog = null
@@ -445,7 +463,7 @@ class MultiBandANCProcessor(
 
         if (boomPolarityFlipCooldown > 0) boomPolarityFlipCooldown--
         // 1.2.12/1.2.14: auto-flip on plant-lag OR sustained short-lag negative (skip if forced)
-        if (boomPolarityForced == null && vehicleSpeedKmh >= 40f) {
+        if (boomPolarityForced == null && vehicleSpeedKmh >= 22f) {
             if (lastBoomPlantCorr < -0.05f) {
                 boomNegCorrSamples += 4
             } else if (lastBoomPlantCorr > 0.05f) {
@@ -456,13 +474,21 @@ class MultiBandANCProcessor(
             } else if (shortCorr > 0.05f) {
                 shortLagNegSamples = 0
             }
+            // Spectrum closed-loop: plant residual louder for ~2s while boom is actually on.
+            if (lastOpenBoom && lastBoomPressureOut > 0.005f && lastPlantResidualReductionDb < -1.5f) {
+                plantWorseSamples += 4
+            } else if (lastPlantResidualReductionDb > 0.3f) {
+                plantWorseSamples = 0
+            }
             val flipByPlant = boomNegCorrSamples >= (sampleRate * 3 / 4)
             val flipByShort = shortLagNegSamples >= (sampleRate / 2)
-            if ((flipByPlant || flipByShort) && boomPolarityFlipCooldown <= 0) {
+            val flipByResidual = plantWorseSamples >= sampleRate * 2
+            if ((flipByPlant || flipByShort || flipByResidual) && boomPolarityFlipCooldown <= 0) {
                 val before = boomPolarity
                 boomPolarity = -boomPolarity
                 boomNegCorrSamples = 0
                 shortLagNegSamples = 0
+                plantWorseSamples = 0
                 boomPlantCorrEma = 0f
                 lastBoomPlantCorr = 0f
                 boomPolarityFlipCooldown = sampleRate * 6
@@ -471,6 +497,7 @@ class MultiBandANCProcessor(
         } else {
             boomNegCorrSamples = 0
             shortLagNegSamples = 0
+            plantWorseSamples = 0
         }
     }
 
@@ -1310,15 +1337,14 @@ class MultiBandANCProcessor(
                 weakDriveHiss -> combined * 0.45f
                 else -> combined
             }
-            // Boom speaker LPF / pressure: ROAD rumble (and driving rumble), NOT tire/wind focus.
+            // Boom speaker LPF / pressure. 1.2.31: keep boom at driving speed even when the
+            // classifier says TIRE/WIND (highway 悶 is still 40–80). Guided TIRE/WIND steps
+            // still hold boom off so their notches are A/B-clean.
             // 1.2.12: never mix boom while muted (road_off) — KPI must match silent send.
-            val boomFocusOut = !antiOutputMuted && (
-                lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE ||
-                    (lastEffectiveRumbleMode &&
-                        lastNvhFocus != com.example.caranc.shared.model.NvhFocusClass.TIRE_NOISE &&
-                        lastNvhFocus != com.example.caranc.shared.model.NvhFocusClass.WIND_SHEAR &&
-                        vehicleSpeedKmh >= 22f)
-                )
+            val boomFocusOut = !antiOutputMuted &&
+                !guidedHoldsBoomOff() &&
+                vehicleSpeedValid &&
+                vehicleSpeedKmh >= 22f
             // Notch boomPriority only for ROAD — tire/wind steps must run their notches (1.2.11)
             val notchBoomPriority =
                 !antiOutputMuted && lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE
@@ -1335,13 +1361,18 @@ class MultiBandANCProcessor(
 
             val activePolarity = boomPolarityForced ?: boomPolarity
             val polarityForced = boomPolarityForced != null
-            // 1.2.16: open only for forced A/B short-test OR unlocked corr — but amplitude capped
-            val openBoom = boomFocusOut && vehicleSpeedValid && vehicleSpeedKmh >= 35f &&
-                (polarityForced || lastBoomPlantCorr < 0.05f)
+            // 1.2.31: 22 km/h (was 35) so city 25–40 A/B actually drives LF.
+            // Starved pressure also opens — corr never unlocks if boomOut stayed ~0.
+            val boomStarved = kotlin.math.abs(lastBoomPressureOut) < 0.012f
+            val openBoom = boomFocusOut && vehicleSpeedValid && vehicleSpeedKmh >= 22f &&
+                (polarityForced || lastBoomPlantCorr < 0.05f || boomStarved)
             lastOpenBoom = openBoom && !antiOutputMuted
             // corr unlocked → 25%; script forced polarity short-test → 30%; locked → full via corrGate
+            // 1.2.32: live_tune boomOpenScale overrides while open.
+            val overlayScale = LiveTuneOverlay.boomOpenScale
             val openScale = when {
                 !openBoom -> 1f
+                overlayScale != null -> overlayScale
                 lastBoomPlantCorr >= 0.05f -> 1f
                 polarityForced -> 0.30f
                 else -> 0.25f

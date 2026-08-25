@@ -216,6 +216,26 @@ object AncTestPreferences {
         prefs(context).edit().putFloat(KEY_PERSONAL_RUMBLE_BIAS, bias.coerceIn(0.7f, 1.3f)).apply()
     }
 
+    /**
+     * 1.2.31: live NVH override via adb / TestLogPanel when guided script is not active.
+     * Empty / auto / none = classifier.
+     */
+    fun getForceNvhFocus(context: Context): String =
+        prefs(context).getString("force_nvh_focus", "").orEmpty().trim()
+
+    fun setForceNvhFocus(context: Context, name: String?) {
+        val raw = name?.trim().orEmpty()
+        val stored = if (raw.isEmpty() ||
+            raw.equals("auto", true) ||
+            raw.equals("none", true)
+        ) {
+            ""
+        } else {
+            raw.uppercase()
+        }
+        prefs(context).edit().putString("force_nvh_focus", stored).apply()
+    }
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 }

@@ -11,7 +11,8 @@ package com.example.caranc.shared
  */
 object BoomPolarityAbTracker {
     const val DEFAULT_POLARITY = -1f
-    const val MIN_SPEED_KMH = 45f
+    /** 1.2.31: 28 (was 45) — city 30–40 km/h A/B was all discarded. */
+    const val MIN_SPEED_KMH = 28f
     /** Weight of mid-band (180–350) in cabin score — mid boost hurts more subjectively. */
     const val MID_WEIGHT = 0.80f
 
