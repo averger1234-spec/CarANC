@@ -15,8 +15,7 @@
 | 平台 | 版號 | App 怎麼對版 |
 |------|------|----------------|
 | Android | **1.2.33 / code 35** | 主畫面 `v1.2.33`（對齊 iOS 狀態頁）· Pixel 已裝 internal |
-| iOS 原始碼 | **1.2.32 (build 33)** | live-tune + boom 閉環（KMP） |
-| iOS IPA | **1.2.30 (build 31)** | Sideloadly 包尚未重編；同意鈕／閃退修復 |
+| iOS | **1.2.32 (build 33)** | `dist/CarANC-ios-kmp-debug.ipa` 已重編；狀態頁 `v1.2.32 (33)` |
 
 **明天（Pixel）**：拉 `spectrum_kpi` / `plantResidualReductionDb`，依 live-tune 改極性。不要今晚再翻。
 
@@ -41,7 +40,7 @@ git log -5 --oneline
 | **AA / CarPlay 低音路徑（1.2.30）** | `FORUM_AUDIO_PATH.md` |
 | 專案總覽 / iOS+Android 現況 | `README.md` →「最新進度」 |
 | Android 日常裝機 / 拉 log | `scripts/README.md` |
-| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md`（對版 **1.2.30 (31)**；舊 IPA 不要用） |
+| **Windows 裝 iPhone（Sideloadly）** | `dist/WINDOWS_INSTALL_SIDELOADLY.md`（對版 **1.2.32 (33)**；舊 IPA 不要用） |
 | iOS 專案 / CarPlay / 路測 | `iosApp/README.md`、`iosApp/CARPLAY.md`、`iosApp/ROAD_TEST_VERIFY.md` |
 | Play 上架 / store vs internal | `DISTRIBUTION.md`、`PLAY_RELEASE_CHECKLIST.md` |
 | Play 資料安全怎麼填 | `DATA_SAFETY.md` |

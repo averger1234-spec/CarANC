@@ -15,7 +15,7 @@ SwiftUI + AVAudioEngine 本機主動降噪 App，對齊 Android 產品策略（�
 | `iosApp/` | **iOS only** | Xcode / SwiftUI / 本機 AVAudioEngine |
 | `shared/` | **共用 KMP** | 演算法與 commercial；Android 完整、iosMain 有 actual |
 | `version.properties` | Android 版號 | 目前 **1.2.33 / code 35** · 主畫面 `v1.2.33`（對齊 iOS 狀態頁） |
-| `iosApp/.../Info.plist` + Xcode | iOS 版號 | 原始碼 **1.2.32 (33)** · 預編 IPA 仍 **1.2.30 (31)** |
+| `iosApp/.../Info.plist` + Xcode | iOS 版號 | **1.2.32 (33)** · `dist/*.ipa` 已重編 |
 
 推 GitHub 時 **一次 push 兩邊都在**；改 iOS 不影響 Android APK 建置，反之亦然。  
 Commit 訊息建議標前綴：`ios:` / `android:` / `shared:`。
@@ -40,7 +40,7 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 
 | 能力 | iOS 現況 | Android |
 |------|----------|---------|
-| 版號顯示 | ✅ 狀態頁 `v1.2.30 (31)`（IPA）；原始碼 1.2.32 (33) | ✅ 主畫面 `v1.2.33` |
+| 版號顯示 | ✅ 狀態頁 `v1.2.32 (33)` | ✅ 主畫面 `v1.2.33` |
 | 無車速備用 | ✅ gps_hold + imu_proxy | ✅ 同 `VehicleSpeedFusion` |
 | 多頻段 DSP | ✅ **KMP `MultiBandANCProcessor`** + SpeedScheduled | ✅ 同核心 |
 | `speedNvh*` / boom / antiE / mute / 極性 / 真LF / openBoom / live-tune | ✅ 1.2.32 原始碼 | ✅ 1.2.33 |
@@ -51,7 +51,7 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 | Android Auto / CarPlay | ✅ 見 `CARPLAY.md`（含通話結束音量修復） | ✅ AA |
 | 通話中斷保護 | ✅ pause + session restore + 增益漸升 | ✅ MODE_IN_CALL bypass |
 | 本機喇叭 duplex | ✅ AVAudioEngine + 50Hz tone | ✅ |
-| 預編 IPA | ✅ `dist/…ipa`（路測請對狀態頁 **v1.2.30 (31)**） | — |
+| 預編 IPA | ✅ `dist/…ipa`（路測請對狀態頁 **v1.2.32 (33)**） | — |
 | 開機不閃退 | ✅ Embed `CarANCShared`（build 23+；勿用 22） | — |
 | 開始降噪不閃退 | ✅ build 31：修 snapshot 重複 key；build 28：有 tap 才 `removeTap` | — |
 | iPad 同意鈕 | ✅ build 31：全螢幕 + 底部固定「我已閱讀並同意」 | — |
@@ -59,8 +59,8 @@ xcrun devicectl device install app --device <UDID> build/Debug-iphoneos/CarANC.a
 
 ### 路測對版（必看）
 
-1. 打開 App → **狀態** 頁右上角 / 副標：**`v1.2.30 (31)`**（**勿裝 build 22**）  
-2. Session log 開頭：`appVersion=1.2.30` `build=31`  
+1. 打開 App → **狀態** 頁右上角 / 副標：**`v1.2.32 (33)`**（**勿裝 build 22**）  
+2. Session log 開頭：`appVersion=1.2.32` `build=33`  
 3. 腳本結束：寫入 **`Documents/anc_logs/`**（`anc_session_*.log`、`anc_guided_export_*.log`、`cabin_*.wav`），並彈出**分享檔案**（對齊 Android）  
 4. 可用「檔案」App 查看（UIFileSharingEnabled）  
 5. 重編 IPA 必須確認 Embed `CarANCShared`，且 **刪除舊 IPA 再打包**

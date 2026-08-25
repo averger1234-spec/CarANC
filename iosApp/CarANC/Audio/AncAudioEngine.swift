@@ -339,11 +339,16 @@ final class AncAudioEngine: ObservableObject {
         }
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
         LiveTuneOverlay.shared.parse(text: text)
-        SessionLogger.shared.event("live_tune_apply", [
-            "forceBoomPolarity": String(format: "%.0f", LiveTuneOverlay.shared.forceBoomPolarity?.floatValue ?? 0),
-            "forceNvhFocus": LiveTuneOverlay.shared.forceNvhFocus ?? "auto",
-            "boomOpenScale": String(format: "%.2f", LiveTuneOverlay.shared.boomOpenScale?.floatValue ?? -1)
-        ])
+        let pol = LiveTuneOverlay.shared.forceBoomPolarity?.floatValue ?? 0
+        let nvh = LiveTuneOverlay.shared.forceNvhFocus ?? "auto"
+        let scale = LiveTuneOverlay.shared.boomOpenScale?.floatValue ?? -1
+        Task { @MainActor in
+            SessionLogger.shared.event("live_tune_apply", [
+                "forceBoomPolarity": String(format: "%.0f", pol),
+                "forceNvhFocus": nvh,
+                "boomOpenScale": String(format: "%.2f", scale)
+            ])
+        }
     }
 
     /// Audio-thread: already-parsed overlay (no file I/O).

@@ -4,7 +4,7 @@
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.33 / code 35** · iOS 原始碼 **1.2.32 (33)** · IPA 仍 **1.2.30 (31)** |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.33 / code 35** · iOS **1.2.32 (33)** IPA 已重編 |
 | **AA / CarPlay 論壇路徑** | `FORUM_AUDIO_PATH.md` |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |

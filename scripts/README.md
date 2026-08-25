@@ -2,7 +2,7 @@
 
 這些腳本是為了讓你「改程式 → 裝到手機 → 測試 → 拿 log 回來分析」這一整套動作變快很多。
 
-現行路測版：**Android 1.2.33 / code 35** · **iOS IPA 1.2.30 (31)**（原始碼 1.2.32 (33) 尚未重編 IPA）。AA / CarPlay 低音路徑見 repo 根 [`FORUM_AUDIO_PATH.md`](../FORUM_AUDIO_PATH.md)。
+現行路測版：**Android 1.2.33 / code 35** · **iOS IPA 1.2.32 (33)**。AA / CarPlay 低音路徑見 repo 根 [`FORUM_AUDIO_PATH.md`](../FORUM_AUDIO_PATH.md)。
 
 注意：腳本輸出訊息已改為英文（純 ASCII），以避免在繁體中文 Windows 上因編碼問題導致 PowerShell 解析錯誤（missing }）或閃退。功能完全相同。
 
@@ -79,7 +79,7 @@ winget install --id iOSGods.Sideloadly -e --accept-package-agreements --accept-s
 
 **怎麼用**：
 
-1. `git pull` 拿到最新 `dist\*.ipa`（現行 **iOS 1.2.30 (31)**，狀態頁 `v1.2.30 (31)`）
+1. `git pull` 拿到最新 `dist\*.ipa`（現行 **iOS 1.2.32 (33)**，狀態頁 `v1.2.32 (33)`）
 2. iPhone USB 接電腦 → 信任此電腦
 3. 雙擊 `scripts\install-ios-sideloadly.bat`（會開 Sideloadly 並複製 IPA 路徑）
 4. 選裝置、貼 IPA、登入 Apple ID → Start

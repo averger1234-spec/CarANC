@@ -21,7 +21,9 @@
 
 Android 主畫面原本是行銷風（大圓環 dB、標題「感受安靜的駕駛體驗」、狀態頁切等級）。iOS `StatusTabView` 比較好用：運作中圓點、版本膠囊、NVH、藥丸 KPI、麥克風／反噪兩條頻譜、一個開始鈕。
 
-此版 Android **狀態**分頁改成同一套；等級改到「方案」（對齊 iOS）；主題固定 iOS 藍，不再跟 Material You 跑掉。DSP 仍是 1.2.32 live-tune。iOS marketing 仍 **1.2.32 (33)**（IPA 尚未重編，Sideloadly 包仍是 1.2.30 (31)）。
+此版 Android **狀態**分頁改成同一套；等級改到「方案」（對齊 iOS）；主題固定 iOS 藍，不再跟 Material You 跑掉。DSP 仍是 1.2.32 live-tune。
+
+**iOS IPA**：2026-08-25 已重編 Debug `dist/CarANC-ios-kmp-debug.ipa` → **v1.2.32 (33)**，Embed `CarANCShared` ~7.2MB、get-task-allow。Lu的 iPad 當時 **offline**，尚未 `devicectl install`。
 
 **Pixel 10 Pro Fold**：2026-08-25 已 `adb install` **1.2.33-internal / code 35**。`files/anc_live_tune.properties` 仍是 `forceBoomPolarity=1`、`boomOpenScale=0.45`、`forceNvhFocus=ROAD_RUMBLE`。**明天再拉頻譜改極性**（不要今晚再翻）。
 
