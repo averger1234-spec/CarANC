@@ -212,6 +212,11 @@ class MultiBandANCProcessor(
     /** 1.2.31: vis-loop plant residual (mic low − plant-mixed low). Negative = anti adding. */
     private var lastPlantResidualReductionDb = 0f
     private var plantWorseSamples = 0
+    /** 1.2.34: residual loop may unlock live-tune polarity and walk plant D by 10 ms. */
+    private var closedLoopUnlockedPolarity = false
+    private var closedLoopFlipCount = 0
+    private var residualDelayNudgeSamples = 0
+    private var delayNudgeCooldown = 0
     private var lastProbeRejected = false
     private var lastProbeRejectMs = 0f
     private var learningCaptured = false
@@ -373,6 +378,8 @@ class MultiBandANCProcessor(
         lastPlantResidualReductionDb = db.coerceIn(-30f, 40f)
     }
 
+    override fun shouldIgnoreForcedBoomPolarity(): Boolean = closedLoopUnlockedPolarity
+
     /** Guided TIRE/WIND A/B must not mix boom; classifier WIND at cruise still should. */
     private fun guidedHoldsBoomOff(): Boolean {
         val n = (forcedNvhFocus?.name ?: com.example.caranc.shared.GuidedNvhOverride.forcedFocusName)
@@ -462,8 +469,10 @@ class MultiBandANCProcessor(
             .coerceIn(-1f, 1f)
 
         if (boomPolarityFlipCooldown > 0) boomPolarityFlipCooldown--
-        // 1.2.12/1.2.14: auto-flip on plant-lag OR sustained short-lag negative (skip if forced)
-        if (boomPolarityForced == null && vehicleSpeedKmh >= 22f) {
+        if (delayNudgeCooldown > 0) delayNudgeCooldown--
+        // 1.2.34: live-tune force is an initial guess. If residual stays worse while boom
+        // is on, unlock and flip once, then walk plant D by ~10 ms (½ cycle @ 50 Hz).
+        if (vehicleSpeedKmh >= 22f) {
             if (lastBoomPlantCorr < -0.05f) {
                 boomNegCorrSamples += 4
             } else if (lastBoomPlantCorr > 0.05f) {
@@ -474,7 +483,6 @@ class MultiBandANCProcessor(
             } else if (shortCorr > 0.05f) {
                 shortLagNegSamples = 0
             }
-            // Spectrum closed-loop: plant residual louder for ~2s while boom is actually on.
             if (lastOpenBoom && lastBoomPressureOut > 0.005f && lastPlantResidualReductionDb < -1.5f) {
                 plantWorseSamples += 4
             } else if (lastPlantResidualReductionDb > 0.3f) {
@@ -484,15 +492,29 @@ class MultiBandANCProcessor(
             val flipByShort = shortLagNegSamples >= (sampleRate / 2)
             val flipByResidual = plantWorseSamples >= sampleRate * 2
             if ((flipByPlant || flipByShort || flipByResidual) && boomPolarityFlipCooldown <= 0) {
-                val before = boomPolarity
-                boomPolarity = -boomPolarity
+                if (closedLoopFlipCount == 0) {
+                    val before = boomPolarity
+                    boomPolarity = -boomPolarity
+                    boomPolarityForced = null
+                    closedLoopUnlockedPolarity = true
+                    closedLoopFlipCount = 1
+                    pendingPolarityFlipLog = before to boomPolarity
+                } else if (delayNudgeCooldown <= 0) {
+                    val step = (sampleRate * 0.010f).toInt().coerceAtLeast(48)
+                    residualDelayNudgeSamples += step
+                    if (residualDelayNudgeSamples > (sampleRate * 0.040f).toInt()) {
+                        residualDelayNudgeSamples = 0
+                    }
+                    delayNudgeCooldown = sampleRate * 4
+                    closedLoopUnlockedPolarity = true
+                    boomPolarityForced = null
+                }
                 boomNegCorrSamples = 0
                 shortLagNegSamples = 0
                 plantWorseSamples = 0
                 boomPlantCorrEma = 0f
                 lastBoomPlantCorr = 0f
-                boomPolarityFlipCooldown = sampleRate * 6
-                pendingPolarityFlipLog = before to boomPolarity
+                boomPolarityFlipCooldown = sampleRate * 4
             }
         } else {
             boomNegCorrSamples = 0
@@ -509,7 +531,8 @@ class MultiBandANCProcessor(
     private fun boomDelaySamples(): Int {
         val fromMeasured = (measuredLatencyMs * 0.85f * sampleRate / 1000f).toInt()
         val fromPlant = plantElectricalDelaySamples
-        return maxOf(fromPlant, fromMeasured).coerceIn(64, MAX_PLANT_DELAY_SAMPLES)
+        return (maxOf(fromPlant, fromMeasured) + residualDelayNudgeSamples)
+            .coerceIn(64, MAX_PLANT_DELAY_SAMPLES)
     }
 
     private fun updateLatencyStrategy() {
@@ -1345,9 +1368,10 @@ class MultiBandANCProcessor(
                 !guidedHoldsBoomOff() &&
                 vehicleSpeedValid &&
                 vehicleSpeedKmh >= 22f
-            // Notch boomPriority only for ROAD — tire/wind steps must run their notches (1.2.11)
-            val notchBoomPriority =
-                !antiOutputMuted && lastNvhFocus == com.example.caranc.shared.model.NvhFocusClass.ROAD_RUMBLE
+            // Cabin boom notches (~39–74 Hz). Follow boom mix, not classifier:
+            // WIND at 65+ was zeroing roadBoomWeight while 悶 is still in cabin.
+            // Guided TIRE/WIND steps still hold boom off via guidedHoldsBoomOff().
+            val notchBoomPriority = boomFocusOut
             var totalScale = lastSpeedTotalAnti.coerceIn(0.05f, 1.45f)
             if (boomFocusOut && vehicleSpeedKmh >= 18f) {
                 // 1.2.16: high-lat LMS even quieter (0.72→0.50) — fair B still +4 dB mid
@@ -1370,13 +1394,22 @@ class MultiBandANCProcessor(
             // corr unlocked → 25%; script forced polarity short-test → 30%; locked → full via corrGate
             // 1.2.32: live_tune boomOpenScale overrides while open.
             val overlayScale = LiveTuneOverlay.boomOpenScale
-            val openScale = when {
+            val baseOpenScale = when {
                 !openBoom -> 1f
                 overlayScale != null -> overlayScale
                 lastBoomPlantCorr >= 0.05f -> 1f
                 polarityForced -> 0.30f
                 else -> 0.25f
             }
+            // If plant residual says we are adding boom, do not keep dumping LF.
+            val residualDuck = when {
+                !openBoom -> 1f
+                lastPlantResidualReductionDb < -4f -> 0.35f
+                lastPlantResidualReductionDb < -1.5f -> 0.55f
+                lastPlantResidualReductionDb > 0.5f -> 1f
+                else -> 0.80f
+            }
+            val openScale = (baseOpenScale * residualDuck).coerceIn(0.15f, 1f)
             // ★ Cabin boom pressure (+ scaled open floor)
             val boomPress = boomPressure.process(
                 plantDelaySamples = boomDelaySamples(),

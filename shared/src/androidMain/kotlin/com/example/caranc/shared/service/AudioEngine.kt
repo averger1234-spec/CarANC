@@ -1011,7 +1011,11 @@ class AudioEngine(
                         ancProcessor?.setAntiOutputMuted(muteAnti)
                         val forcePol = LiveTuneOverlay.forceBoomPolarity
                             ?: AncTestPreferences.getForceBoomPolarity(appContext)
-                        ancProcessor?.setBoomPolarityForced(if (forcePol == 0f) null else forcePol)
+                        if (ancProcessor?.shouldIgnoreForcedBoomPolarity() == true) {
+                            ancProcessor?.setBoomPolarityForced(null)
+                        } else {
+                            ancProcessor?.setBoomPolarityForced(if (forcePol == 0f) null else forcePol)
+                        }
                         // 1.2.31/1.2.32: adb-writable NVH when script is idle (script presets still win).
                         if (!GuidedTestController.state.value.active) {
                             val prefFocus = LiveTuneOverlay.forceNvhFocus

@@ -164,6 +164,8 @@ interface AncProcessorFacade : AudioProcessor {
      * boom polarity when corr is stuck near 0.
      */
     fun reportPlantResidualReductionDb(db: Float) {}
+    /** 1.2.34: closed-loop unlocked live-tune polarity so residual can flip/nudge D. */
+    fun shouldIgnoreForcedBoomPolarity(): Boolean = false
     /** 5 km/h speed-bin floor for NVH gain table. */
     fun getSpeedNvhBinKmh(): Int = 0
     fun getSpeedNvhLowGain(): Float = 1f

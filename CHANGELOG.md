@@ -17,6 +17,16 @@
 
 ---
 
+## [1.2.34] — 2026-08-26 · Android code 36 · 停車即時裝：共鳴 notch 不隨 WIND 關、殘差閉環
+
+路測主觀：路悶／共鳴沒變。KPI：路徑 mixp:0 對；高速 `WIND` 把 **39–74 Hz 共鳴 notch** 關掉；極性強制後閉環不能翻；`plantResidual` 常負（anti 加能量）；能量 0.45 太小、1.0 在高速把悶打更響。
+
+- 共鳴 notch 跟 boom 走（WIND 65+ 不再 `roadBoomWeight=0`）
+- live-tune 極性只當初值：殘差變差先翻一次，再以 10 ms 走 plant D
+- `plantResidual < −1.5 dB` 自動把 boom 能量關掉一半以上（避免越打越響）
+
+---
+
 ## [1.2.33] — 2026-08-25 · Android code 35 · 狀態頁對齊 iOS
 
 Android 主畫面原本是行銷風（大圓環 dB、標題「感受安靜的駕駛體驗」、狀態頁切等級）。iOS `StatusTabView` 比較好用：運作中圓點、版本膠囊、NVH、藥丸 KPI、麥克風／反噪兩條頻譜、一個開始鈕。

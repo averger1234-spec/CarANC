@@ -356,7 +356,9 @@ final class AncAudioEngine: ObservableObject {
         if let g = LiveTuneOverlay.shared.userAncGain?.floatValue {
             userAncGain = g
         }
-        if let pol = LiveTuneOverlay.shared.forceBoomPolarity?.floatValue {
+        if kmpProcessor?.shouldIgnoreForcedBoomPolarity() == true {
+            kmpProcessor?.setBoomPolarityForced(nil)
+        } else if let pol = LiveTuneOverlay.shared.forceBoomPolarity?.floatValue {
             if abs(pol) < 0.01 {
                 kmpProcessor?.setBoomPolarityForced(nil)
             } else {
