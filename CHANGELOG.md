@@ -17,6 +17,15 @@
 
 ---
 
+## [1.2.36] — 2026-08-26 · Android code 38 · 低頻聲要出得來
+
+路測：低頻聲不夠出來。1.2.34 殘差保護在 `plantResidual<−1.5` 時把 boom 能量乘到 0.35–0.55，live-tune 拉滿也會被吃掉。
+
+- 有 `boomOpenScale` live-tune 時**不再殘差 duck**
+- 熱調已設 `boomOpenScale=1.0`、極性 −1、ROAD 共鳴
+
+---
+
 ## [1.2.35] — 2026-08-26 · Android code 37 · 輪噪 + 車廂共鳴可同時打
 
 路測：輪噪、車廂共鳴都沒改善。根因在 `AdaptiveNarrowbandBank`：`tireRun = tireOn && !boomPriority`——**一打 39–74 Hz 共鳴就把輪噪 notch 關掉**。WIND 時 tireOn 也不含 WIND。

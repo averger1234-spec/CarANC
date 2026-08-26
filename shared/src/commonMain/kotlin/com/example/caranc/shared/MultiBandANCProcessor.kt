@@ -1401,9 +1401,11 @@ class MultiBandANCProcessor(
                 polarityForced -> 0.30f
                 else -> 0.25f
             }
-            // If plant residual says we are adding boom, do not keep dumping LF.
+            // Live-tune boomOpenScale is a host request for audible LF — do not duck it.
+            // Un-tuned path still ducks when plant residual says anti is adding.
             val residualDuck = when {
                 !openBoom -> 1f
+                overlayScale != null -> 1f
                 lastPlantResidualReductionDb < -4f -> 0.35f
                 lastPlantResidualReductionDb < -1.5f -> 0.55f
                 lastPlantResidualReductionDb > 0.5f -> 1f
