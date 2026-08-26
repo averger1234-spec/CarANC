@@ -80,12 +80,8 @@ class AdaptiveNarrowbandBank(
                 focus == NvhFocusClass.MIXED_CABIN ||
                 (boomPriority && focus != NvhFocusClass.IDLE)
             )
-        // Tire notches: run on TIRE + ROAD drive (classification often sticks ROAD)
-        val tireOn = spdOk && speedKmh >= 32f && (
-            focus == NvhFocusClass.TIRE_NOISE ||
-                focus == NvhFocusClass.ROAD_RUMBLE ||
-                focus == NvhFocusClass.MIXED_CABIN
-            )
+        // Tire notches: any driving focus ≥32 km/h. WIND used to drop tire (user: 輪噪沒改善).
+        val tireOn = spdOk && speedKmh >= 32f && focus != NvhFocusClass.IDLE
         // Wind: always try when WIND or highway; high-lat uses weight-gated adaptive only (no open-loop)
         val windOn = spdOk && speedKmh >= 55f && (
             focus == NvhFocusClass.WIND_SHEAR ||
@@ -138,8 +134,9 @@ class AdaptiveNarrowbandBank(
         }
         lastRoadWeightEnergy = roadW
 
-        // Tire/wind: off when boom-priority drive — keep speaker energy on 悶, not electronic mid/HF
-        val tireRun = tireOn && !boomPriority
+        // 1.2.35: tire + cabin boom together. Old `!boomPriority` zeroed 輪噪 whenever 共鳴 was on.
+        val tireRun = tireOn
+        val tireMix = if (boomPriority) 0.65f else 1f
         if (tireRun) {
             val freqs = tireFrequenciesHz(speedKmh)
             lastTireF0Hz = freqs[0]
@@ -150,7 +147,7 @@ class AdaptiveNarrowbandBank(
                 val we = abs(tire[i].w1) + abs(tire[i].w2)
                 val gate = (we / 0.10f).coerceIn(0f, 1f)
                 val y = yAdapt * gate
-                anti += -y * tireGain(i)
+                anti += -y * tireGain(i) * tireMix
                 tireE += abs(y)
             }
         } else {
@@ -161,7 +158,8 @@ class AdaptiveNarrowbandBank(
             }
         }
 
-        val windRun = windOn && !boomPriority
+        val windRun = windOn
+        val windMix = if (boomPriority) 0.45f else 1f
         if (windRun) {
             val nWind = if (highLatency) 3 else wind.size
             val mu = if (highLatency) 0.0055f else 0.007f
@@ -172,7 +170,7 @@ class AdaptiveNarrowbandBank(
                 val we = abs(wind[i].w1) + abs(wind[i].w2)
                 val gate = (we / gateDen).coerceIn(0f, 1f)
                 val y = yAdapt * gate
-                anti += -y * windGain(i) * (if (highLatency) 1.15f else 1f)
+                anti += -y * windGain(i) * (if (highLatency) 1.15f else 1f) * windMix
                 val ay = abs(y)
                 windE += ay
                 if (ay > 1e-5f) windN++

@@ -17,6 +17,15 @@
 
 ---
 
+## [1.2.35] — 2026-08-26 · Android code 37 · 輪噪 + 車廂共鳴可同時打
+
+路測：輪噪、車廂共鳴都沒改善。根因在 `AdaptiveNarrowbandBank`：`tireRun = tireOn && !boomPriority`——**一打 39–74 Hz 共鳴就把輪噪 notch 關掉**。WIND 時 tireOn 也不含 WIND。
+
+- 行駛 ≥32 km/h 輪噪 notch 與共鳴一起跑（共鳴優先時輪噪 ×0.65）
+- 風切 notch 不再被 boomPriority 整段關（×0.45）
+
+---
+
 ## [1.2.34] — 2026-08-26 · Android code 36 · 停車即時裝：共鳴 notch 不隨 WIND 關、殘差閉環
 
 路測主觀：路悶／共鳴沒變。KPI：路徑 mixp:0 對；高速 `WIND` 把 **39–74 Hz 共鳴 notch** 關掉；極性強制後閉環不能翻；`plantResidual` 常負（anti 加能量）；能量 0.45 太小、1.0 在高速把悶打更響。
