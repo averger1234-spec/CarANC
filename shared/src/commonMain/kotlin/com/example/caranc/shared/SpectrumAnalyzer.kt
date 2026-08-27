@@ -45,6 +45,42 @@ class SpectrumAnalyzer {
         return downsampleToBins(magnitudes, binCount)
     }
 
+    /**
+     * Strongest FFT bin in [fLo, fHi]. 0 if the band is flat (no tonal peak).
+     * 1.2.39: cabin vs send F0 alignment KPI.
+     */
+    fun peakHzInBand(samples: ShortArray, sampleRate: Int, fLo: Float, fHi: Float): Float {
+        if (samples.size < 256 || sampleRate <= 0 || fHi <= fLo) return 0f
+        val n = FftUtils.nextPowerOfTwo(samples.size.coerceIn(2048, 8192))
+        val fftInput = FloatArray(n * 2)
+        val nUse = minOf(samples.size, n)
+        val last = (nUse - 1).coerceAtLeast(1)
+        for (i in 0 until nUse) {
+            val window = (0.5f * (1.0 - cos(2.0 * PI * i / last))).toFloat()
+            fftInput[i * 2] = (samples[i] / 32768f) * window
+        }
+        FftUtils.complexForward(fftInput)
+        val binHz = sampleRate.toFloat() / n
+        val i0 = (fLo / binHz).toInt().coerceIn(1, n / 2 - 2)
+        val i1 = (fHi / binHz).toInt().coerceIn(i0 + 1, n / 2 - 1)
+        var bestI = i0
+        var best = 0f
+        var sum = 0.0
+        for (i in i0..i1) {
+            val re = fftInput[i * 2]
+            val im = fftInput[i * 2 + 1]
+            val m = re * re + im * im
+            sum += m
+            if (m > best) {
+                best = m
+                bestI = i
+            }
+        }
+        val mean = (sum / (i1 - i0 + 1)).toFloat()
+        if (best < mean * 3.5f) return 0f
+        return bestI * binHz
+    }
+
     fun computeRmsDb(samples: ShortArray): Float {
         if (samples.isEmpty()) return -90f
         var sumSq = 0.0

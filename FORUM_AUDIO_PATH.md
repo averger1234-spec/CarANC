@@ -1,6 +1,6 @@
 # 1.2.30 論壇音訊路徑（Android Auto + CarPlay）
 
-對版：**Android `v1.2.33` / code 35**（路徑仍 1.2.30 論壇做法；1.2.31–32 是 boom 閉環）· **iOS IPA `v1.2.32 (33)`**  
+對版：**Android `v1.2.40` / code 42**（路徑仍 1.2.30 論壇做法；1.2.40 是追 D + 艙麥峰值）· **iOS IPA 仍 `v1.2.32 (33)`**（原始碼 1.2.40 未進 IPA）  
 改版細節：[`CHANGELOG.md`](CHANGELOG.md) · CarPlay：[`iosApp/CARPLAY.md`](iosApp/CARPLAY.md)
 
 Skoda Octavia 2019（MIB2）在 **USB Android Auto / CarPlay 沒低音、純藍牙有**，論壇與協定都對得上。1.2.30 不是放棄投影，是按那些做法繼續推 anti。

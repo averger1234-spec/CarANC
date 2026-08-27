@@ -17,6 +17,75 @@
 
 ---
 
+## [1.2.40] — 2026-08-27 · Android code 42 · iOS marketing 1.2.40 / build 37 · 追 D、對齊艙麥峰值（路悶＋輪噪＋風切）
+
+目標：Skoda 48–80 Hz **量得到下降**，且輪噪 150–400、風切 500+ 也要改善。D **追**不鎖。
+
+- plant D 每 ~0.4 s hill-climb（±4 ms 步進，−50…+80 ms），殘差**相對最佳值**變差才反向；到邊界反轉。**不再 +40 ms 繞回 0**
+- 追 D **不清 live-tune 極性**（先前每 0.4 s 把 forceBoomPolarity 清掉）
+- 極性只在追 D 反轉多次仍消不了時才翻一次
+- 艙麥峰值對齊：**boom + 有峰才開的輪噪／風切**（不再用車速估範圍當振盪器）
+- AA 高延遲：輪噪／風切改 **峰值帶通 × 追到的 D 再反相**（LMS 在 120 ms 鎖不了 250/800 Hz）
+- 錯相（該帶 residual<−2）：該帶 **闭嘴**；90 Hz LPF 只打 boom，不吃掉輪噪／風切
+- 送出 LPF：有對齊輪噪升到 ~480 Hz，有風切升到 ~2600 Hz（並放寬 AA LPF 係數上限）
+
+**Android**：2026-08-27 Pixel 10 Pro Fold 已裝 **1.2.40-internal / code 42**（須再按開始降噪）。艙內 48–80 下降**尚未實車量到**。
+
+**iOS**：原始碼 marketing **1.2.40**、build **37**（CarPlay 送出 LPF 對齊 live-tune `sendLpfHz` / `shelfBoost`）。共用 KMP DSP（追 D、峰值對齊、delay-invert）在 `shared/`，**下次重編 IPA 才會進 iPad**。`dist/CarANC-ios-kmp-debug.ipa` 仍是 **v1.2.32 (33)**，這次沒重編。
+
+---
+
+## [1.2.39] — 2026-08-27 · Android code 41 · 艙麥峰值鎖 F0、錯相不灌地板
+
+「低頻壓過高頻」只是送出沒噴沙，不是頻率對了。輪噪／風切原本是**車速估的頻率範圍**，沒對艙麥峰值。
+
+- 艙麥 FFT 鎖 **boom F0（35–110 Hz）**；輪噪／風切只在自己的 focus，且**必須有艙麥峰值**才開 notch
+- `plantResidual < −2 dB`：**禁止 openBoom 能量地板**（不送錯相合成 50 Hz）
+- KPI：`cabinBoomPeakHz` / `micPeakHz40_110` / `antiPeakHz40_110` / `lockedBoomF0Hz`
+
+---
+
+## [1.2.38] — 2026-08-26 · Android code 40 · 熱改 DSP 不必重開 App
+
+路測要邊開邊修，不能每次 `adb install` 再按開始降噪。1.2.32 熱調只有極性／能量／NVH／gain。
+
+`filesDir/anc_live_tune.properties`（約 40 block 內生效）新增：
+
+| key | 作用 |
+|-----|------|
+| `sendLpfHz` | AA 送出 LPF（70–400，預設 160） |
+| `shelfBoost` | LF shelf（0–4） |
+| `highLatMs` | 高延遲門檻（60–250，預設 100） |
+| `muteSand` | 1=關 Wiener/FDAF/fixed bank |
+| `lfSendOnly` | 1=ROAD 再經 90 Hz 共鳴 LPF |
+
+程式碼級改動仍要裝 APK（會殺掉 process）。**這些路徑參數寫檔即可，不必重開 App。**
+
+---
+
+## [1.2.37] — 2026-08-26 · Android code 39 · 對準車艙共鳴、殺掉高頻沙
+
+路測：頻率一直對不到，喇叭是比較高頻的吵雜聲，不是 40–80 Hz 悶。`182441` mixp:0 對，但：
+
+| 項目 | 實測 | 問題 |
+|------|------|------|
+| `estimatedLatencyMs` | **119.5** | 門檻 120 → 策略 **NORMAL** |
+| `RoadNoiseWiener` | 解鎖正弦到 **320 Hz** | 頻率跟車艙無關 → 沙 |
+| `fdafMix` | NORMAL **0.45** | 1.2.13 已定性：AA 上 FDAF=沙 |
+| notch | ROAD 仍打 150–2400 | 1.2.35「一起打」變成錯頻 |
+| 路徑 | `MIC_NO_50HZ` | 車機吃 50 Hz，人只聽到沙 |
+
+修：
+
+- 高延遲門檻 **120→100 ms**（119 ms AA 走 `HIGH_LAT`，關 Wiener/FDAF/fixed bank）
+- Wiener **只留低頻共鳴線**，拿掉 80–320 解鎖泛音
+- ROAD 只打 32–110 Hz 共鳴（校準峰值優先）；輪噪/風切只在自己的 focus
+- notch 權重從 0 開閘（不再 0.35 地板把錯頻振盪送出去）
+- 送出 **160 Hz LPF + 80 Hz shelf**；ROAD 混音再單次 90 Hz×4（不再 3 次共用 IIR）
+- 共鳴壓力地板加大、`boomOpenScale` 上限 2.0、熱調 **1.6 / 極性 −1 / ROAD**
+
+---
+
 ## [1.2.36] — 2026-08-26 · Android code 38 · 低頻聲要出得來
 
 路測：低頻聲不夠出來。1.2.34 殘差保護在 `plantResidual<−1.5` 時把 boom 能量乘到 0.35–0.55，live-tune 拉滿也會被吃掉。

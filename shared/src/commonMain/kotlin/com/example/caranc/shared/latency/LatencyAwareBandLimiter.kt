@@ -48,8 +48,8 @@ object LatencyAwareBandLimiter {
         val lowGain = 1f
         // P0: at high measured latency, mid/high adaptive disabled (FF handles low rumble).
         val midGain = when {
-            // 1.2.11: align with HIGH_LATENCY_MS=120 — AA ~130–160 ms must not adapt mid
-            latencyMs >= 120f -> 0f
+            // 1.2.37: align with HIGH_LATENCY_MS=100 — AA ~119 ms was NORMAL and leaked sand
+            latencyMs >= 100f -> 0f
             maxHz < 120f -> 0f
             maxHz < 180f -> 0.25f
             maxHz < 250f -> 0.55f

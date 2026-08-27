@@ -11,7 +11,7 @@ import kotlin.math.sqrt
  *
  * 1.2.11: delay = total AA RTT; no uncontrolled soft-boost.
  * 1.2.14: **openBoom** — when corr unlocked / polarity forced, enforce min LF drive
- * so boomPressureOut is audible (40–80 via dual ~85 Hz LPF). Without this,
+ * so boomPressureOut is audible (40–120 via dual ~90 Hz LPF). Without this,
  * `y = −delayed·gain` stays ≈0 whenever delayed mic sample is tiny (1.2.13 road FAIL).
  *
  * Mechanism:
@@ -29,11 +29,12 @@ class CabinBoomPressure(
     private var write = 0
     private var count = 0
 
-    // Low LPF (~55 Hz) — boom band only; kill 180–350 electronic (1.2.16)
+    // Dual ~90 Hz — pass cabin 74–80 Hz (HU often HPF'd 50). Dual pole still
+    // knocks 180–350 ~−15 dB; 55 Hz was also burying 74 Hz 共鳴.
     private var lp1 = 0f
     private var lp2 = 0f
     private val lpCoeff: Float =
-        (2.0 * kotlin.math.PI * 55.0 / sampleRate).toFloat().coerceIn(0.004f, 0.08f)
+        (2.0 * kotlin.math.PI * 90.0 / sampleRate).toFloat().coerceIn(0.004f, 0.10f)
 
     var lastOutput = 0f
         private set
@@ -73,7 +74,9 @@ class CabinBoomPressure(
         freeze: Boolean,
         polarity: Float = 1f,
         openBoom: Boolean = false,
-        openScale: Float = 1f
+        openScale: Float = 1f,
+        /** 1.2.39: false when plant residual is adding — no synthetic F0 at wrong D. */
+        allowOpenFloor: Boolean = true
     ): Float {
         lastUsedOpenFloor = false
         if (!boomPriority || speedKmh < 16f || count < 8) {
@@ -89,14 +92,18 @@ class CabinBoomPressure(
         val delayed = ring[idx]
 
         val speedNorm = ((speedKmh - 12f) / 65f).coerceIn(0.20f, 1.35f)
-        val scale = openScale.coerceIn(0.15f, 1.0f)
+        val scale = openScale.coerceIn(
+            com.example.caranc.shared.LiveTuneOverlay.MIN_BOOM_OPEN_SCALE,
+            com.example.caranc.shared.LiveTuneOverlay.MAX_BOOM_OPEN_SCALE
+        )
+        // 1.2.37: louder open floor — 1.2.36 scale=1.0 still boomOut~0.02 / antiE40~−26.
         val energyFloor = when {
-            speedKmh >= 50f -> 0.14f
-            speedKmh >= 35f -> 0.10f
-            else -> 0.06f
+            speedKmh >= 50f -> 0.28f
+            speedKmh >= 35f -> 0.20f
+            else -> 0.12f
         } * scale
         // 1.2.14/1.2.16: open boom min drive (scaled down when corr unlocked / short-test)
-        val drive = if (openBoom && abs(delayed) < energyFloor) {
+        val drive = if (openBoom && allowOpenFloor && abs(delayed) < energyFloor) {
             lastUsedOpenFloor = true
             val s = if (abs(delayed) > 1e-8f) sign(delayed) else 1f
             s * energyFloor
@@ -104,7 +111,10 @@ class CabinBoomPressure(
             // Do not floor scale at 0.5 — that undoes 1.2.16 short-test 0.25/0.30.
             delayed * (if (openBoom) scale else 1f)
         }
-        val energy = abs(drive).coerceIn(if (openBoom) energyFloor else 0.02f, 0.90f)
+        val energy = abs(drive).coerceIn(
+            if (openBoom && allowOpenFloor) energyFloor else 0.02f,
+            0.90f
+        )
         val gain = (0.90f + 0.70f * speedNorm) * (0.55f + 1.20f * energy)
             .coerceIn(0.55f, 1.55f)
         // 1.2.15: openBoom must NOT freeze gain at 0 (sonif freeze left lastGain=0 → boomOut≈0
@@ -118,7 +128,7 @@ class CabinBoomPressure(
         var y = -drive * lastGain
         val pol = if (polarity >= 0f) 1f else -1f
         y *= pol
-        // Dual 1-pole ~85 Hz → 40–80 dominant, kill mid hiss
+        // Dual 1-pole ~90 Hz → 40–120 (cabin 74/80) dominant, still kill mid hiss
         lp1 += lpCoeff * (y - lp1)
         lp2 += lpCoeff * (lp1 - lp2)
         // openBoom: nudge LPF state so first blocks aren't silent after long freeze
@@ -126,7 +136,7 @@ class CabinBoomPressure(
             lp1 = 0.55f * lp1 + 0.45f * y
             lp2 = 0.55f * lp2 + 0.45f * lp1
         }
-        y = lp2.coerceIn(-0.95f, 0.95f)
+        y = lp2.coerceIn(-1.15f, 1.15f)
         lastOutput = y
         accumulate(y)
         return y

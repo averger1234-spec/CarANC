@@ -1,5 +1,6 @@
 package com.example.caranc.shared
 
+import com.example.caranc.shared.model.NvhFocusClass
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -476,6 +477,24 @@ class MultiBandANCProcessorTest {
         )
     }
 
+    /** 1.2.37: real AA ~119 ms must NOT stay NORMAL (unlocked Wiener sand). */
+    @Test
+    fun aa119ms_usesHighLatStrategy() {
+        val proc = createProcessor()
+        proc.setMeasuredLatencyBreakdown(40f, 42.7f, 1.3f, 0.5f, 35f) // ~119.5 ms
+        proc.setVehicleSpeed(70f, true)
+        proc.setRumbleAccel(1.0f)
+        proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+        warmUp(proc, generateTone(50f, 512, 0.4f), 4)
+        val strategy = proc.getLatencyStrategy()
+        assertTrue(
+            strategy.contains("HIGH_LAT"),
+            "119ms AA must be HIGH_LAT after threshold 100 (got $strategy)"
+        )
+        val limits = proc.getLatencyBandLimits()
+        assertFalse(limits.midEnabled, "mid must be off at AA ~119ms")
+    }
+
     /** 1.2.11: AA ~137 ms enters high-lat strategy (Wiener path gated). */
     @Test
     fun aa137ms_usesHighLatStrategy() {
@@ -495,29 +514,95 @@ class MultiBandANCProcessorTest {
     }
 
     /**
-     * 1.2.13: under AA high-lat ROAD, anti must not pass mid (180–350) the way 320 Hz road LPF did.
-     * Drive 250 Hz tone; output energy should be far below a 50 Hz tone case.
+     * 1.2.37/1.2.40: under AA ROAD with a 50 Hz cabin tone, 50 Hz emits;
+     * 250 Hz sand (Wiener/FDAF/unlocked tire) must die because no tire peak.
      */
     @Test
-    fun highLatRoad_terminalLpf_killsMidVsLow() {
-        fun drive(freq: Float): Double {
-            val proc = createProcessor()
-            proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f) // ~137 ms
-            proc.setVehicleSpeed(80f, true)
-            proc.setRumbleAccel(1.2f)
-            proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
-            proc.setBoomPolarityForced(1f)
-            val tone = generateTone(freq, 2048, 0.6f)
-            warmUp(proc, tone, 40)
-            return rmsLinear(proc.process(tone))
-        }
-        val low = drive(50f)
-        val mid = drive(250f)
-        assertTrue(low > 1e-5, "50 Hz anti should still emit (got $low)")
+    fun highLatRoad_lfEmits_andMidSandDies() {
+        val proc = createProcessor()
+        proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f) // ~137 ms
+        proc.setVehicleSpeed(80f, true)
+        proc.setRumbleAccel(1.2f)
+        proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+        proc.setForcedNvhFocus("ROAD_RUMBLE")
+        proc.setBoomPolarityForced(1f)
+        val tone = generateTone(50f, 2048, 0.6f)
+        warmUp(proc, tone, 40)
+        val out = proc.process(tone)
+        val e50 = goertzelEnergy(out, 50f)
+        val e250 = goertzelEnergy(out, 250f)
+        assertTrue(e50 > 1e-8, "50 Hz anti should still emit (got $e50)")
         assertTrue(
-            mid < low * 0.55,
-            "250 Hz anti under high-lat ROAD must be attenuated vs 50 Hz (mid=$mid low=$low)"
+            proc.getCabinTirePeakHz() < 140f,
+            "pure 50 Hz cabin must not lock a tire peak (got ${proc.getCabinTirePeakHz()})"
         )
+        assertTrue(
+            e250 < e50,
+            "250 Hz sand must not exceed 50 Hz boom send (e250=$e250 e50=$e50)"
+        )
+    }
+
+    /** 1.2.40: cabin 250 Hz peak → aligned tire delay-invert on AA, not a 50 Hz oscillator. */
+    @Test
+    fun highLat_peakAlignedTire_emitsAtCabinF0() {
+        val proc = createProcessor()
+        proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f)
+        proc.setVehicleSpeed(80f, true)
+        proc.setRumbleAccel(1.0f)
+        proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+        proc.setForcedNvhFocus("ROAD_RUMBLE")
+        proc.setBoomPolarityForced(-1f)
+        val tone = generateTone(250f, 2048, 0.6f)
+        warmUp(proc, tone, 50)
+        val out = proc.process(tone)
+        val tireHz = proc.getCabinTirePeakHz()
+        assertTrue(tireHz in 200f..320f, "cabin tire peak should lock ~250 Hz, got $tireHz")
+        val e250 = goertzelEnergy(out, 250f)
+        assertTrue(e250 > 1e-7, "aligned 250 Hz anti should emit (e250=$e250)")
+    }
+
+    /** 1.2.40: cabin 800 Hz peak at highway speed → aligned wind delay-invert. */
+    @Test
+    fun highLat_peakAlignedWind_emitsAtCabinF0() {
+        val proc = createProcessor()
+        proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f)
+        proc.setVehicleSpeed(90f, true)
+        proc.setRumbleAccel(1.0f)
+        proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+        proc.setForcedNvhFocus("ROAD_RUMBLE")
+        proc.setBoomPolarityForced(-1f)
+        val tone = generateTone(800f, 2048, 0.55f)
+        warmUp(proc, tone, 50)
+        val out = proc.process(tone)
+        val windHz = proc.getCabinWindPeakHz()
+        assertTrue(windHz in 650f..1000f, "cabin wind peak should lock ~800 Hz, got $windHz")
+        val e800 = goertzelEnergy(out, 800f)
+        assertTrue(e800 > 1e-7, "aligned 800 Hz anti should emit (e800=$e800)")
+    }
+
+    /** 1.2.40: chase D moves; live-tune polarity is not cleared. */
+    @Test
+    fun chasePlantDelay_nudgesAndKeepsForcedPolarity() {
+        val proc = createProcessor()
+        proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f)
+        proc.setVehicleSpeed(80f, true)
+        proc.setRumbleAccel(1.0f)
+        proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+        proc.setForcedNvhFocus("ROAD_RUMBLE")
+        proc.setBoomPolarityForced(-1f)
+        val tone = generateTone(55f, 2048, 0.55f)
+        warmUp(proc, tone, 20)
+        proc.reportPlantResidualReductionDb(-6f)
+        warmUp(proc, tone, 30)
+        val nudge1 = proc.getDelayNudgeMs()
+        proc.reportPlantResidualReductionDb(0.8f)
+        warmUp(proc, tone, 30)
+        val nudge2 = proc.getDelayNudgeMs()
+        assertTrue(
+            kotlin.math.abs(nudge1) > 0.5f || kotlin.math.abs(nudge2) > 0.5f,
+            "chase D must move plant delay (nudge1=$nudge1 nudge2=$nudge2)"
+        )
+        assertEquals(-1f, proc.getBoomPolarity(), "chase D must not clear forced polarity")
     }
 
     /** 1.2.13: forced polarity must allow boom mix even when corr≈0. */
@@ -805,7 +890,146 @@ class MultiBandANCProcessorTest {
         assertEquals(0.5f, LiveTuneOverlay.boomOpenScale)
         assertEquals("ROAD_RUMBLE", LiveTuneOverlay.forceNvhFocus)
         assertEquals(0.8f, LiveTuneOverlay.userAncGain)
+        LiveTuneOverlay.parse("boomOpenScale=1.6")
+        assertEquals(1.6f, LiveTuneOverlay.boomOpenScale)
+        LiveTuneOverlay.parse("boomOpenScale=3")
+        assertEquals(2.0f, LiveTuneOverlay.boomOpenScale)
+        LiveTuneOverlay.parse(
+            """
+            sendLpfHz=140
+            shelfBoost=2.2
+            highLatMs=100
+            muteSand=1
+            lfSendOnly=true
+            """.trimIndent()
+        )
+        assertEquals(140f, LiveTuneOverlay.sendLpfHz)
+        assertEquals(2.2f, LiveTuneOverlay.shelfBoost)
+        assertEquals(100f, LiveTuneOverlay.highLatMs)
+        assertEquals(1f, LiveTuneOverlay.muteSand)
+        assertEquals(1f, LiveTuneOverlay.lfSendOnly)
         LiveTuneOverlay.clear()
         assertEquals(null, LiveTuneOverlay.forceBoomPolarity)
+        assertEquals(null, LiveTuneOverlay.muteSand)
+    }
+
+    @Test
+    fun peakHzInBand_locksToTone() {
+        val sa = SpectrumAnalyzer()
+        val tone = generateTone(55f, 8192, 0.6f)
+        val peak = sa.peakHzInBand(tone, sampleRate, 35f, 110f)
+        assertTrue(peak in 48f..62f, "55 Hz tone peak got $peak")
+    }
+
+    @Test
+    fun cabinBoomPressure_noFloorWhenResidualAdding() {
+        val boom = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
+        val delay = 2000
+        repeat(delay + 64) { boom.push(0f) }
+        var y = 0f
+        repeat(256) {
+            boom.push(0f)
+            y = boom.process(
+                plantDelaySamples = delay,
+                speedKmh = 70f,
+                boomPriority = true,
+                freeze = false,
+                polarity = -1f,
+                openBoom = true,
+                openScale = 1f,
+                allowOpenFloor = false
+            )
+        }
+        assertTrue(abs(y) < 0.03f, "no synthetic floor when residual adding, got $y")
+        assertFalse(boom.lastUsedOpenFloor)
+    }
+
+    @Test
+    fun liveCabinPeak_locksBoomF0() {
+        val bank = com.example.caranc.shared.latency.AdaptiveNarrowbandBank(sampleRate)
+        bank.setLivePeaks(74f, 0f, 0f)
+        val f = bank.roadBoomHz(70f)
+        assertTrue(abs(f[0] - 74f) < 0.5f, "live boom F0 ${f[0]}")
+        bank.setLivePeaks(0f, 220f, 0f)
+        val t = bank.tireFrequenciesHz(70f)
+        assertTrue(abs(t[0] - 220f) < 0.5f, "live tire F0 ${t[0]}")
+        bank.setLivePeaks(74f, 220f, 0f)
+        bank.process(0.2f, NvhFocusClass.ROAD_RUMBLE, 70f, true, false, false, true, true)
+        assertTrue(abs(bank.lastTireF0Hz - 220f) < 0.5f, "ROAD+live tire peak must run aligned tire")
+        bank.setLivePeaks(74f, 0f, 0f)
+        bank.process(0.2f, NvhFocusClass.ROAD_RUMBLE, 70f, true, false, false, true, true)
+        assertTrue(bank.lastTireF0Hz == 0f, "no tire oscillator without cabin peak")
+    }
+
+    /** 1.2.37: scale>1 must actually raise LF drive (cap used to be 1.0). */
+    @Test
+    fun cabinBoomPressure_scaleAboveOne_louderThanUnity() {
+        val delay = 2000
+        fun drive(scale: Float): Float {
+            val boom = com.example.caranc.shared.latency.CabinBoomPressure(sampleRate)
+            repeat(delay + 64) { boom.push(0f) }
+            var y = 0f
+            repeat(256) {
+                boom.push(0f)
+                y = boom.process(delay, 70f, true, false, -1f, openBoom = true, openScale = scale)
+            }
+            return abs(y)
+        }
+        val y1 = drive(1f)
+        val y16 = drive(1.6f)
+        assertTrue(y1 > 0.04f, "unity open boom silent, y1=$y1")
+        assertTrue(y16 > y1 * 1.15f, "scale 1.6 should be louder: y1=$y1 y16=$y16")
+    }
+
+    /**
+     * 1.2.37: 80 Hz (HU can play; 50 often HPF) must survive to send.
+     * Old 55 Hz ×12 terminal LPF on the mix buried 74–80 Hz 共鳴.
+     */
+    @Test
+    fun openBoom_eightyHzSurvivesToSend() {
+        LiveTuneOverlay.clear()
+        LiveTuneOverlay.parse(
+            """
+            forceBoomPolarity=-1
+            boomOpenScale=1.0
+            forceNvhFocus=ROAD_RUMBLE
+            """.trimIndent()
+        )
+        try {
+            val proc = MultiBandANCProcessor(sampleRate, bufferSize, UserTier.PRO)
+            proc.setMeasuredLatencyBreakdown(40f, 60f, 1.3f, 1f, 35f)
+            proc.setVehicleSpeed(70f, true)
+            proc.setRumbleAccel(1.0f)
+            proc.setProcessingMode(AncProcessingMode.ROAD_NOISE_GPS)
+            proc.setForcedNvhFocus("ROAD_RUMBLE")
+            proc.setBoomPolarityForced(-1f)
+            proc.setAntiOutputMuted(false)
+            val tone = generateTone(80f, 512, 0.45f)
+            warmUp(proc, tone, 24)
+            val out = proc.process(generateTone(80f, 2048, 0.45f))
+            val e80 = goertzelEnergy(out, 80f)
+            val e400 = goertzelEnergy(out, 400f)
+            val peak = out.maxOf { abs(it.toInt()) }
+            assertTrue(proc.isOpenBoomActive(), "openBoom should be on")
+            assertTrue(peak > 800, "80 Hz send peak too small: $peak")
+            assertTrue(
+                e80 > e400 * 6.0,
+                "80 Hz must dominate 400 Hz hiss after mix (e80=$e80 e400=$e400)"
+            )
+        } finally {
+            LiveTuneOverlay.clear()
+        }
+    }
+
+    private fun goertzelEnergy(samples: ShortArray, freqHz: Float): Double {
+        var re = 0.0
+        var im = 0.0
+        val w = 2.0 * kotlin.math.PI * freqHz / sampleRate
+        for (i in samples.indices) {
+            val x = samples[i] / 32768.0
+            re += x * kotlin.math.cos(w * i)
+            im += x * kotlin.math.sin(w * i)
+        }
+        return (re * re + im * im) / samples.size.coerceAtLeast(1)
     }
 }

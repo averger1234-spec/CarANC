@@ -57,9 +57,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.32</string>
+	<string>1.2.40</string>
 	<key>CFBundleVersion</key>
-	<string>33</string>
+	<string>37</string>
 	<key>AVInitialRouteSharingPolicy</key>
 	<string>LongFormAudio</string>
 	<key>CPSupportsDashboardNavigationScene</key>

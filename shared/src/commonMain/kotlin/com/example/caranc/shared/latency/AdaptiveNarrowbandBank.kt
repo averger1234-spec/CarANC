@@ -54,6 +54,37 @@ class AdaptiveNarrowbandBank(
     var lastRoadWeightEnergy: Float = 0f
         private set
 
+    /** Cabin calibration peaks in 32–110 Hz — lock notches to the car, not a speed guess. */
+    private var cabinBoomHz: FloatArray? = null
+    /** Live mic FFT peaks (1.2.39). 0 = no lock yet. */
+    private var liveBoomHz: Float = 0f
+    private var liveTireHz: Float = 0f
+    private var liveWindHz: Float = 0f
+    var lastLockedBoomHz: Float = 0f
+        private set
+
+    @Keep
+    fun setCabinBoomHz(peaksHz: List<Float>) {
+        val inBand = peaksHz.filter { it in 32f..110f }.sorted()
+        cabinBoomHz = when {
+            inBand.size >= 3 -> floatArrayOf(inBand[0], inBand[1], inBand[2])
+            inBand.size == 2 -> floatArrayOf(inBand[0], (inBand[0] + inBand[1]) * 0.5f, inBand[1])
+            inBand.size == 1 -> floatArrayOf(
+                inBand[0],
+                (inBand[0] * 1.22f).coerceAtMost(110f),
+                (inBand[0] * 1.45f).coerceAtMost(110f)
+            )
+            else -> null
+        }
+    }
+
+    @Keep
+    fun setLivePeaks(boomHz: Float, tireHz: Float, windHz: Float) {
+        liveBoomHz = if (boomHz in 35f..110f) boomHz else 0f
+        liveTireHz = if (tireHz in 140f..420f) tireHz else 0f
+        liveWindHz = if (windHz in 500f..2400f) windHz else 0f
+    }
+
     private var tireEnergyEma = 0f
     private var windEnergyEma = 0f
     private var roadEnergyEma = 0f
@@ -76,17 +107,19 @@ class AdaptiveNarrowbandBank(
         val spdOk = speedValid && speedKmh >= 15f
         val roadOn = spdOk && (
             focus == NvhFocusClass.ROAD_RUMBLE ||
-                focus == NvhFocusClass.TIRE_NOISE ||
                 focus == NvhFocusClass.MIXED_CABIN ||
-                (boomPriority && focus != NvhFocusClass.IDLE)
+                (boomPriority && focus != NvhFocusClass.IDLE &&
+                    focus != NvhFocusClass.TIRE_NOISE &&
+                    focus != NvhFocusClass.WIND_SHEAR)
             )
-        // Tire notches: any driving focus ≥32 km/h. WIND used to drop tire (user: 輪噪沒改善).
-        val tireOn = spdOk && speedKmh >= 32f && focus != NvhFocusClass.IDLE
-        // Wind: always try when WIND or highway; high-lat uses weight-gated adaptive only (no open-loop)
-        val windOn = spdOk && speedKmh >= 55f && (
-            focus == NvhFocusClass.WIND_SHEAR ||
-                (speedKmh >= 70f && focus != NvhFocusClass.IDLE)
-            )
+        // 1.2.40: tire/wind whenever cabin mic shows a peak (aligned F0), not speed-range
+        // oscillators. LMS only when plant D is short; AA high-lat uses delay-invert instead.
+        val tireOn = spdOk && speedKmh >= 32f &&
+            (focus != NvhFocusClass.IDLE) && liveTireHz in 140f..420f
+        val windOn = spdOk && speedKmh >= 55f &&
+            (focus != NvhFocusClass.IDLE) && liveWindHz in 500f..2400f
+        val tireLms = tireOn && !highLatency
+        val windLms = windOn && !highLatency
 
         var anti = 0f
         var tireE = 0f
@@ -101,6 +134,7 @@ class AdaptiveNarrowbandBank(
         // 1.2.7: softer weight gate + higher gain so boom actually moves cabin SPL (not silent).
         if (roadOn) {
             val freqs = roadBoomHz(speedKmh)
+            lastLockedBoomHz = freqs[0]
             val mu = when {
                 boomPriority && highLatency -> 0.018f
                 boomPriority -> 0.015f
@@ -114,13 +148,8 @@ class AdaptiveNarrowbandBank(
                 val yAdapt = stepChannel(road[i], freqs[i], errorSample, mu, leak, freeze, true, wClip)
                 val we = abs(road[i].w1) + abs(road[i].w2)
                 roadW += we
-                // Soft gate: high-lat must NOT floor at 0.35 (blind mid/LF sand → cabin louder).
-                // 1.2.13: highLatency+boomPriority → gate from 0 when weights tiny.
-                val gate = when {
-                    boomPriority && highLatency -> (we / 0.12f).coerceIn(0f, 1f)
-                    boomPriority -> (0.35f + 0.65f * (we / 0.12f)).coerceIn(0.35f, 1f)
-                    else -> (we / 0.06f).coerceIn(0f, 1f)
-                }
+                // Never floor gate at 0.35 — unlocked oscillator at the wrong F0 is 吵雜.
+                val gate = (we / 0.12f).coerceIn(0f, 1f)
                 val ol = olBase * if (i == 0) 1f else 0.7f
                 val y = (yAdapt + ol * sin(road[i].phase)) * gate
                 anti += -y * roadGain(i, boomPriority)
@@ -135,12 +164,11 @@ class AdaptiveNarrowbandBank(
         lastRoadWeightEnergy = roadW
 
         // 1.2.35: tire + cabin boom together. Old `!boomPriority` zeroed 輪噪 whenever 共鳴 was on.
-        val tireRun = tireOn
-        val tireMix = if (boomPriority) 0.65f else 1f
-        if (tireRun) {
+        lastTireF0Hz = if (tireOn) liveTireHz else 0f
+        val tireMix = if (boomPriority) 0.55f else 1f
+        if (tireLms) {
             val freqs = tireFrequenciesHz(speedKmh)
-            lastTireF0Hz = freqs[0]
-            val mu = if (highLatency) 0.006f else 0.008f
+            val mu = 0.008f
             val leak = 0.9988f
             for (i in tire.indices) {
                 val yAdapt = stepChannel(tire[i], freqs[i], errorSample, mu, leak, freeze, true, 1.2f)
@@ -151,22 +179,22 @@ class AdaptiveNarrowbandBank(
                 tireE += abs(y)
             }
         } else {
-            lastTireF0Hz = 0f
             for (ch in tire) {
                 ch.w1 *= 0.994f
                 ch.w2 *= 0.994f
             }
         }
 
-        val windRun = windOn
-        val windMix = if (boomPriority) 0.45f else 1f
-        if (windRun) {
+        val windMix = if (boomPriority) 0.40f else 1f
+        if (windLms) {
             val nWind = if (highLatency) 3 else wind.size
             val mu = if (highLatency) 0.0055f else 0.007f
             val leak = 0.9985f
             val gateDen = if (highLatency) 0.06f else 0.10f
+            val fWind = liveWindHz
             for (i in 0 until nWind) {
-                val yAdapt = stepChannel(wind[i], WIND_HZ[i], errorSample, mu, leak, freeze, true, 1.2f)
+                val f = (fWind * (1f + i * 0.28f)).coerceIn(500f, 2400f)
+                val yAdapt = stepChannel(wind[i], f, errorSample, mu, leak, freeze, true, 1.2f)
                 val we = abs(wind[i].w1) + abs(wind[i].w2)
                 val gate = (we / gateDen).coerceIn(0f, 1f)
                 val y = yAdapt * gate
@@ -205,7 +233,7 @@ class AdaptiveNarrowbandBank(
         lastRoadNotchEnergy = roadEnergyEma
         lastTireNotchEnergy = tireEnergyEma
         lastWindNotchEnergy = windEnergyEma
-        lastWindActiveCount = windN
+        lastWindActiveCount = if (windLms) windN else if (windOn) 1 else 0
         return anti
     }
 
@@ -243,8 +271,17 @@ class AdaptiveNarrowbandBank(
         return y
     }
 
-    /** Boom lines from field rec (2026-08-14 noise m4a peaks ~39/49/59/74 Hz). */
+    /** Boom lines: live cabin peak, else calibration, else speed prior. */
     fun roadBoomHz(speedKmh: Float): FloatArray {
+        val live = liveBoomHz
+        if (live in 35f..110f) {
+            return floatArrayOf(
+                live,
+                (live * 1.22f).coerceAtMost(110f),
+                (live * 1.45f).coerceAtMost(110f)
+            )
+        }
+        cabinBoomHz?.let { return it }
         val v = speedKmh.coerceIn(15f, 130f)
         val f0 = (36f + v * 0.12f).coerceIn(35f, 55f)
         val f1 = (48f + v * 0.16f).coerceIn(45f, 68f)
@@ -253,6 +290,14 @@ class AdaptiveNarrowbandBank(
     }
 
     fun tireFrequenciesHz(speedKmh: Float): FloatArray {
+        val live = liveTireHz
+        if (live in 140f..420f) {
+            return floatArrayOf(
+                live,
+                (live * 1.35f).coerceAtMost(400f),
+                (live * 1.70f).coerceAtMost(400f)
+            )
+        }
         val v = speedKmh.coerceIn(20f, 130f)
         val f0 = (100f + v * 1.25f).coerceIn(150f, 260f)
         val f1 = (145f + v * 1.75f).coerceIn(190f, 330f)

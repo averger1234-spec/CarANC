@@ -49,3 +49,6 @@ iosApp/**/xcuserdata/
 shared/build/
 .kotlin/
 .konan/
+
+# Accidental `swift file.swift` dump (filename starts with dash)
+/-frontend

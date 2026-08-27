@@ -1,6 +1,6 @@
 # iOS 實車驗證與 Log 指南
 
-**現行對版**：**iOS IPA 狀態頁 `v1.2.32 (33)`** · Android **`v1.2.33` / code 35** · 腳本仍 `car_road_tuning_v1`  
+**現行對版**：**iOS IPA 仍 `v1.2.32 (33)`** · iOS 原始碼 **1.2.40 (37)**（未進 IPA）· Android **`v1.2.40` / code 42** · 腳本仍 `car_road_tuning_v1`  
 **CarPlay / AA 低音路徑**：[`../FORUM_AUDIO_PATH.md`](../FORUM_AUDIO_PATH.md)  
 **Log 欄位名與 Android `running_snapshot` 同一套**（見 `shared/.../AncRunningSnapshotSchema.kt`、`ANDROID_REUSE.md`）。  
 缺能力填 `n/a`，不改名。
@@ -9,7 +9,7 @@
 
 | 驗證目標 | Log 欄位（Android 同名） | 怎麼判 |
 |----------|--------------------------|--------|
-| **裝對版本** | `appVersion`、`build` | 應為 **1.2.30** / **29**（與狀態頁一致） |
+| **裝對版本** | `appVersion`、`build` | 現裝 IPA 應為 **1.2.32** / **33**（與狀態頁一致）。1.2.40 要等重編 IPA |
 | 有在播反噪 | `outputPathActive`、`antiNoiseDb` | antiNoiseDb 不應長期 -90；outputPathActive=true |
 | 低頻路噪 KPI | `lowBandRumbleReduction` | 主 KPI；看趨勢（`kpiSource=ios_spectrum_proxy` 時勿硬比 Android 絕對值） |
 | 速域增益 1.1.0 | `speedNvhBinKmh`、`speedNvhTotalAnti`、`speedNvhTableId` | 行駛時 bin 隨速跳；table 非 none |

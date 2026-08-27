@@ -44,7 +44,7 @@ final class AncAudioEngine: ObservableObject {
     private var diagToneHz: Float = 0
     private var diagTonePhase: Double = 0
     private var diagTonePhase80: Double = 0
-    /// 對齊 Android 1.2.30：車機 LF shelf + 220Hz 送出 LPF
+    /// 對齊 Android 1.2.37：車機 LF shelf + 160Hz 送出 LPF
     private var sendLp1: Float = 0
     private var sendLp2: Float = 0
     private var sendShelfLp: Float = 0
@@ -1113,16 +1113,17 @@ final class AncAudioEngine: ObservableObject {
         }
     }
 
-    /// Car send shaper（對齊 Android 1.2.30 Wavelet shelf）：
-    /// 本機 70Hz 2-pole；CarPlay/車機 +8 dB @ 90Hz 再 220Hz，讓 80–200Hz 悶出得去。
+    /// Car send shaper（對齊 Android 1.2.37 Wavelet shelf）：
+    /// 本機 70Hz 2-pole；CarPlay/車機 +~10 dB @ 80Hz 再 160Hz，殺沙、留 50–110 共鳴。
     private func shapeCarSend(_ samples: inout [Float]) {
         guard sampleRate > 0, !samples.isEmpty else { return }
         let car = preferCarAudio
-        let lpfHz: Double = car ? 220 : 70
+        let overlayLpf = LiveTuneOverlay.shared.sendLpfHz?.floatValue ?? 160
+        let lpfHz: Double = car ? Double(overlayLpf) : 70
         let maxCoeff: Float = car ? 0.22 : 0.08
         let coeff = min(max(Float(2.0 * Double.pi * lpfHz / sampleRate), 0.003), maxCoeff)
-        let shelfBoost: Float = car ? 1.5 : 0
-        let shelfCoeff = min(max(Float(2.0 * Double.pi * 90.0 / sampleRate), 0.003), 0.12)
+        let shelfBoost: Float = car ? (LiveTuneOverlay.shared.shelfBoost?.floatValue ?? 2.0) : 0
+        let shelfCoeff = min(max(Float(2.0 * Double.pi * 80.0 / sampleRate), 0.003), 0.12)
         for i in 0..<samples.count {
             var x = samples[i]
             if car {

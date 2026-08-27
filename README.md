@@ -5,9 +5,9 @@
 CarANC 以 **Android 為主力**（麥克風 + 喇叭 / **Android Auto**），並提供 **iOS 開發／路測版**（本機 AVAudioEngine + **KMP 共用 DSP**）。目標使用者為通勤族、二手車或無原廠 ANC 的車主。
 
 **GitHub**：https://github.com/averger1234-spec/CarANC.git  
-**版號**：Android **`version.properties` → 1.2.34 / code 36** · iOS **1.2.32 (33)**（`dist/*.ipa` 已重編）· 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
+**版號**：Android **`version.properties` → 1.2.40 / code 42** · iOS 原始碼 **1.2.40 (37)** · 預編 IPA 仍 **1.2.32 (33)**（未重編）· 改版見 **[`CHANGELOG.md`](CHANGELOG.md)**  
 
-**跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-25 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
+**跨機器（必讀）**：`MULTI_MACHINE_SYNC.md` 最上方「2026-08-27 · 現行」— 多台電腦 **pull / push**、Android／iOS／Play 指令與文件索引。  
 （深度履歷可再看 `GROK_RESUME_CONTEXT.md`。）
 
 ### 多機一分鐘流程
@@ -44,30 +44,23 @@ git push origin main
 
 ---
 
-## 最新進度（2026-08-25）— 1.2.33 Android UI 對齊 iOS + boom 閉環
+## 最新進度（2026-08-27）— 1.2.40 追 D + 艙麥峰值對齊
 
-路測／車上設定請看 **[`FORUM_AUDIO_PATH.md`](FORUM_AUDIO_PATH.md)**。**明天 Pixel 再拉頻譜改極性。**
+路測／車上設定請看 **[`FORUM_AUDIO_PATH.md`](FORUM_AUDIO_PATH.md)**。細節 **[`CHANGELOG.md`](CHANGELOG.md)**。
 
 | 項目 | 說明 | 狀態 |
 |------|------|------|
-| **Android 版號** | **`1.2.33` / code `35`** · 主畫面對齊 iOS 狀態頁 · Pixel 已裝 internal | ✅ |
-| **1.2.32** | live-tune 檔熱改極性／NVH／openScale；自動翻轉門檻 0.005 | ✅ KMP 雙端 |
-| **1.2.31** | ≥22 km/h 保持 boom（WIND 不關悶）；openBoom 35→22；A/B 有效速 28 | ✅ KMP 雙端 |
-| **1.2.30 Android** | 論壇：LF shelf、50+80Hz、PCM 提醒、不自關 anti、送出 220Hz | ✅ |
-| **1.2.29** | AA 50Hz 自檢 FAIL 仍送 anti（行駛不關通道） | ✅ |
-| **1.2.28** | AA 與藍牙都 GAIN + STREAM_MUSIC 拉滿 | ✅ |
-| **1.2.27** | AA 無艙低音就停 anti；Pause 不停 ANC | ✅ |
-| **1.2.26** | AA 優先 mixp:0 48kHz 音樂埠（避開 16kHz 語音） | ✅ |
-| **1.2.25** | AA 連上自動測路徑（submix vs 喇叭 + 麥 50Hz） | ✅ |
-| **1.2.24** | 停止降噪真的會停（禁雙 engine、腳本不再自動重開） | ✅ |
-| **1.2.23** | 修 1.2.22 開 ANC / 腳本閃退（MediaSession NPE） | ✅ |
-| **1.2.22** | MediaSession + AA 關掉 LOW_LATENCY，讓車機走音樂 DAC 出 50Hz | ✅ |
-| **iOS 版號** | **`1.2.32` (build 33)** · `dist/CarANC-ios-kmp-debug.ipa` 已重編（狀態頁 `v1.2.32 (33)`） | ✅ |
-| **共用 DSP** | KMP MultiBand + `SpeedScheduledNvhGains` + `speedNvh*` | ✅ |
-| **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none`（`VehicleSpeedFusion`） | ✅ 雙端 |
-| **CarPlay** | 1.2.30 對齊 AA 論壇路徑（見 `iosApp/CARPLAY.md`） | ✅ 程式；圖示需 Apple entitlement |
-| **Log schema** | 同 Android 欄位名 + `speedSource` 等 | ✅ |
-| **Windows 裝 iPhone** | 預編 IPA + Sideloadly | ✅ |
+| **Android 版號** | **`1.2.40` / code `42`** · Pixel 10 Pro Fold 已裝 internal | ✅ 已裝；艙內下降尚未實車量到 |
+| **1.2.40 DSP** | 追 plant D（不鎖）；艙麥峰值對齊 boom／輪噪／風切；AA 上 delay-invert；錯相閉嘴 | ✅ KMP `shared/` |
+| **1.2.38** | live-tune 熱改 `sendLpfHz` / `muteSand` / `highLatMs`（不必重開 App） | ✅ KMP |
+| **1.2.37** | AA HIGH_LAT 門檻 100 ms；Wiener 只留 LF；ROAD 160 Hz 送出 | ✅ |
+| **1.2.33** | Android 狀態頁對齊 iOS | ✅ |
+| **iOS 原始碼** | marketing **1.2.40** / build **37**（送出 LPF 對齊 live-tune） | ✅ 原始碼 |
+| **iOS IPA** | `dist/*.ipa` 仍是 **v1.2.32 (33)** | ⚠️ **未重編**；iPad 不會有 1.2.40 DSP |
+| **共用 DSP** | KMP MultiBand + 追 D + `CabinPeakTracker` + `PeakAlignedDelayCancel` | ✅ 下次 IPA 才進 iOS |
+| **無車速備用** | `gps` → `gps_hold`（≤25s）→ `imu_proxy` → `none` | ✅ 雙端 |
+| **CarPlay** | 1.2.30 論壇路徑；送出 LPF 1.2.40 原始碼可熱調 | ✅ 程式；圖示需 Apple entitlement |
+| **Windows 裝 iPhone** | 預編 IPA + Sideloadly（對版仍 1.2.32） | ✅ |
 
 | 路徑 | 用途 |
 |------|------|
@@ -81,8 +74,8 @@ git push origin main
 
 ```bash
 git pull origin main
-# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.33
-# iOS：見 iosApp/README.md 或 dist/*.ipa → 狀態頁看 v1.2.32 (33)
+# Android：.\scripts\install-debug.ps1  → 主畫面看 v1.2.40
+# iOS IPA：dist/*.ipa 仍是 v1.2.32 (33)；原始碼已 1.2.40 (37)，要新 DSP 須重編 IPA
 ```
 
 **注意**：plant residual KPI 在 iOS 仍多為代理／`n/a`。Android 路測仍以 USB AA + `lowBandRumbleReduction` 為準。無 GPS 時看 log `speedSource`（hold／imu_proxy 可餵速域，勿當精密 GPS KPI）。
@@ -93,9 +86,9 @@ git pull origin main
 
 | 類型 | 約略頻段 | AA 手機 ANC 策略 |
 |------|----------|------------------|
-| **路噪** | 40–200 Hz | **主力**：IMU + road model + low FF/bank（最有機會） |
-| **輪噪** | 80–350 Hz（Skoda 常 200–350） | **次主力**：mid-low + structural FF；延遲高時相位難 |
-| **風切** | 多在 **>500 Hz** | **不追消**：高頻 adaptive 關閉（追了只會吱吱/電報聲） |
+| **路噪／路悶** | **48–80 Hz**（艙共鳴） | **主力**：艙麥峰值鎖 F0 + 追 plant D + boom 壓力 |
+| **輪噪** | **150–400 Hz** | 艙麥**有真峰才開**；AA 上 delay-invert（LMS 120 ms 鎖不了） |
+| **風切** | **500+ Hz** | 同上；殘差仍在加 → 該帶閉嘴（不灌沙） |
 
 **車速增益表（每 5 km/h）**：`SpeedScheduledNvhGains` — 依 `nvhFocus` + 車速對 low/mid/**totalAnti** 插值排程（mic 高延遲對不齊時的主增益路徑）。風切表會 **壓 totalAnti**，不會加 high。  
 Log：`nvhFocus`、`nvhTargetHz`、`speedNvhBinKmh`、`speedNvhLowGain`、`speedNvhMidGain`、`speedNvhTotalAnti`、`speedNvhTableId`。

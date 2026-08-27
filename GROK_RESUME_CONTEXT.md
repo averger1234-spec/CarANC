@@ -1,10 +1,10 @@
-# 最新多機同步索引（2026-08-25）
+# 最新多機同步索引（2026-08-27）
 
-**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 Android **1.2.33 / code 35**）。
+**請先讀**：`MULTI_MACHINE_SYNC.md` + **`CHANGELOG.md`**（現行 Android **1.2.40 / code 42**）。
 
 | 區塊 | 文件 |
 |------|------|
-| **改版紀錄** | `CHANGELOG.md` · Android **1.2.33 / code 35** · iOS **1.2.32 (33)** IPA 已重編 |
+| **改版紀錄** | `CHANGELOG.md` · Android **1.2.40 / code 42** · iOS 原始碼 **1.2.40 (37)** · IPA 仍 **1.2.32 (33)** |
 | **AA / CarPlay 論壇路徑** | `FORUM_AUDIO_PATH.md` |
 | 多機 pull/push + 指令 | `MULTI_MACHINE_SYNC.md` |
 | 總覽 | `README.md` |
@@ -12,7 +12,8 @@
 | Windows→iPhone | `dist/WINDOWS_INSTALL_SIDELOADLY.md` |
 | 腳本 | `scripts/README.md` |
 
-**1.2.33 重點**：Android 狀態頁對齊 iOS（藥丸 KPI、雙頻譜、藍主題）；Pixel 已裝。**明天再拉頻譜改極性。**  
+**1.2.40 重點**：追 plant D（不鎖、不清極性）；艙麥峰值對齊 boom／輪噪／風切；AA 上 delay-invert；錯相閉嘴。Pixel 已裝。iOS **IPA 未重編**。  
+**1.2.33 重點**：Android 狀態頁對齊 iOS（藥丸 KPI、雙頻譜、藍主題）。  
 **1.2.32 重點**：`anc_live_tune.properties` 熱改極性／NVH／openScale；自動翻轉 `boomOut>0.005`。  
 **1.2.31 重點**：≥22 km/h 保持 boom（分類 WIND 不關悶）；openBoom 35→22；A/B 有效速 28。  
 **1.2.30 重點**：論壇路徑：AA LF shelf + 50/80Hz；iOS CarPlay 同套。**build 31**：iPad 同意鈕全螢幕；`runningSnapshot` 重複 key 閃退（Debug trap）。  

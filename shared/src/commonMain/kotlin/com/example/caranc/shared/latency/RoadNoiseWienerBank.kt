@@ -44,23 +44,16 @@ class RoadNoiseWienerBank(
 
         envelopeEma = 0.992f * envelopeEma + 0.008f * kotlin.math.abs(micLowBand)
         val energy = roadRef.roadEnergyScale(speedKmh)
-        val fLow = (35f + speedKmh * 0.35f).coerceIn(35f, 120f)
-        val fMid = (fLow * 2.2f).coerceIn(80f, 220f)
-        val fHigh = (fLow * 3.8f).coerceIn(140f, 320f)
-
+        // 1.2.37: low boom only. Old fMid 80–220 + fHigh 140–320 were free-running
+        // (phase unlocked) → 頻率對不到、高頻吵雜.
+        val fLow = (35f + speedKmh * 0.35f).coerceIn(35f, 90f)
         phaseA += twoPi * fLow / sampleRate
-        phaseB += twoPi * fMid / sampleRate
-        phaseC += twoPi * fHigh / sampleRate
         if (phaseA > twoPi) phaseA -= twoPi
-        if (phaseB > twoPi) phaseB -= twoPi
-        if (phaseC > twoPi) phaseC -= twoPi
+        phaseB = 0.0
+        phaseC = 0.0
 
         val gain = (0.08f + 0.22f * energy) * (0.5f + envelopeEma * 4f)
-        val synth = gain * (
-            0.55f * sin(phaseA).toFloat() +
-                0.30f * sin(phaseB).toFloat() +
-                0.15f * sin(phaseC).toFloat()
-            )
+        val synth = gain * (0.85f * sin(phaseA).toFloat())
         lastOutput = (-synth).coerceIn(-0.7f, 0.7f)
         return lastOutput
     }

@@ -2,7 +2,7 @@
 
 這些腳本是為了讓你「改程式 → 裝到手機 → 測試 → 拿 log 回來分析」這一整套動作變快很多。
 
-現行路測版：**Android 1.2.33 / code 35** · **iOS IPA 1.2.32 (33)**。AA / CarPlay 低音路徑見 repo 根 [`FORUM_AUDIO_PATH.md`](../FORUM_AUDIO_PATH.md)。
+現行路測版：**Android 1.2.40 / code 42** · **iOS 原始碼 1.2.40 (37)** · **iOS IPA 仍 1.2.32 (33)（未重編）**。AA / CarPlay 低音路徑見 repo 根 [`FORUM_AUDIO_PATH.md`](../FORUM_AUDIO_PATH.md)。
 
 注意：腳本輸出訊息已改為英文（純 ASCII），以避免在繁體中文 Windows 上因編碼問題導致 PowerShell 解析錯誤（missing }）或閃退。功能完全相同。
 
@@ -18,6 +18,30 @@
 - 開 PowerShell 或終端機
 - 輸入 `adb devices`
 - 手機上允許偵錯後，應該會看到你的裝置。
+
+### 0b. compare_witness_spectrum.py （電腦麥克風 / 艙錄 wav vs 手機頻譜）
+
+獨立聽證：本機 Mic 或 `cabin_*.wav`，用 **跟 App 同一套** `bandRangeEnergyDb` + FFT 峰值，對 `spectrum_kpi` 的 `antiE*`。
+
+```
+python3 scripts/compare_witness_spectrum.py --record 8 --phone-log log/latest.jsonl
+python3 scripts/compare_witness_spectrum.py cabin.wav anc_session.jsonl
+```
+
+Mac 要在 **同一車艙**（或聽得到喇叭）才有意義。電腦在家、手機在車上會變成對空氣。
+
+### 0c. auto_road_watch.py （開車時自動監控／比較／熱調）
+
+不需要駕駛回覆。每 N 秒連 adb、拉最近 `spectrum_kpi`，對鎖死的 **48–80 Hz** 標準，必要時改 `files/anc_live_tune.properties`（約 40 block 內生效）。
+
+不能代替按 **開始降噪**（服務未 export）。**1.2.38 起**寫 `sendLpfHz` / `muteSand` / `highLatMs` 等也會熱生效，不必重開 App。
+
+```
+python3 scripts/auto_road_watch.py --once
+python3 scripts/auto_road_watch.py --loop --hours 14 --interval 10
+```
+
+決策 log：`log/witness/auto_watch.jsonl`
 
 ## 三個主要工具
 
@@ -79,7 +103,7 @@ winget install --id iOSGods.Sideloadly -e --accept-package-agreements --accept-s
 
 **怎麼用**：
 
-1. `git pull` 拿到最新 `dist\*.ipa`（現行 **iOS 1.2.32 (33)**，狀態頁 `v1.2.32 (33)`）
+1. `git pull` 拿到最新 `dist\*.ipa`（IPA 仍 **iOS 1.2.32 (33)**；1.2.40 DSP 要等 Mac 重編 IPA）
 2. iPhone USB 接電腦 → 信任此電腦
 3. 雙擊 `scripts\install-ios-sideloadly.bat`（會開 Sideloadly 並複製 IPA 路徑）
 4. 選裝置、貼 IPA、登入 Apple ID → Start

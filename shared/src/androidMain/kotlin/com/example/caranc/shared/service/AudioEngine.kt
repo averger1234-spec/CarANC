@@ -1379,7 +1379,12 @@ class AudioEngine(
                 "forceBoomPolarity" to (LiveTuneOverlay.forceBoomPolarity ?: 0f),
                 "forceNvhFocus" to (LiveTuneOverlay.forceNvhFocus ?: "auto"),
                 "boomOpenScale" to (LiveTuneOverlay.boomOpenScale ?: -1f),
-                "userAncGain" to (LiveTuneOverlay.userAncGain ?: -1f)
+                "userAncGain" to (LiveTuneOverlay.userAncGain ?: -1f),
+                "sendLpfHz" to (LiveTuneOverlay.sendLpfHz ?: -1f),
+                "shelfBoost" to (LiveTuneOverlay.shelfBoost ?: -1f),
+                "highLatMs" to (LiveTuneOverlay.highLatMs ?: -1f),
+                "muteSand" to (LiveTuneOverlay.muteSand ?: -1f),
+                "lfSendOnly" to (LiveTuneOverlay.lfSendOnly ?: -1f)
             )
         )
     }
@@ -1749,6 +1754,10 @@ class AudioEngine(
             lastRawLowBandDb = sa.bandRangeEnergyDb(mic, sr, 40f, 80f)
             val eMicWind = sa.bandRangeEnergyDb(mic, sr, 500f, 2000f)
             val ePlantWind = sa.bandRangeEnergyDb(plant, sr, 500f, 2000f)
+            ancProcessor?.reportBandPlantResiduals(
+                eMicTire - ePlantTire,
+                eMicWind - ePlantWind
+            )
             val gs = com.example.caranc.shared.test.GuidedTestController.state.value
             // 1.2.8: anti send-path bands (before AA) — proves App emits correct frequencies
             val antiSlice = ShortArray(antiKpiAccum.size)
@@ -1802,7 +1811,18 @@ class AudioEngine(
                     "forceBoomPolarity" to (LiveTuneOverlay.forceBoomPolarity
                         ?: AncTestPreferences.getForceBoomPolarity(appContext)),
                     "liveTuneOpenScale" to (LiveTuneOverlay.boomOpenScale ?: -1f),
-                    "note" to "1.2.32_live_tune; open_boom; antiE_*=send"
+                    "cabinBoomPeakHz" to ((ancProcessor as? MultiBandANCProcessor)?.getCabinBoomPeakHz() ?: 0f),
+                    "cabinTirePeakHz" to ((ancProcessor as? MultiBandANCProcessor)?.getCabinTirePeakHz() ?: 0f),
+                    "cabinWindPeakHz" to ((ancProcessor as? MultiBandANCProcessor)?.getCabinWindPeakHz() ?: 0f),
+                    "lockedBoomF0Hz" to ((ancProcessor as? MultiBandANCProcessor)?.getLockedBoomF0Hz() ?: 0f),
+                    "antiPeakHz40_110" to sa.peakHzInBand(antiSlice, sr, 40f, 110f),
+                    "antiPeakHz150_400" to sa.peakHzInBand(antiSlice, sr, 150f, 400f),
+                    "antiPeakHz500_2400" to sa.peakHzInBand(antiSlice, sr, 500f, 2400f),
+                    "micPeakHz40_110" to sa.peakHzInBand(mic, sr, 40f, 110f),
+                    "openFloorAllowed" to ((ancProcessor as? MultiBandANCProcessor)?.isOpenFloorAllowed() == true),
+                    "delayNudgeMs" to ((ancProcessor as? MultiBandANCProcessor)?.getDelayNudgeMs() ?: 0f),
+                    "sendLpfHintHz" to ((ancProcessor as? MultiBandANCProcessor)?.getSendLpfHintHz() ?: 160f),
+                    "note" to "1.2.40_chase_D; peak_align_delay_invert"
                 )
             )
         }
@@ -2297,10 +2317,10 @@ class AudioEngine(
     }
 
     /**
-     * Car send shaper (r/AndroidAuto Wavelet + our 1.2.18 hiss LPF):
+     * Car send shaper (r/AndroidAuto Wavelet + hiss LPF):
      * - Local: 70 Hz 2-pole (garage hiss).
-     * - AA/A2DP: +~8 dB LF shelf @ 90 Hz, then 220 Hz 2-pole so 80–200 Hz rumble
-     *   actually leaves the phone (70 Hz LPF was killing the band the HU can play).
+     * - AA/A2DP: +~10 dB LF shelf @ 80 Hz, then 160 Hz 2-pole.
+     *   300 Hz (1.2.37 draft) passed Wiener/FDAF sand. 70 Hz killed HU-playable 80 Hz.
      */
     private fun shapeCarSendInPlace(
         output: ShortArray,
@@ -2308,11 +2328,25 @@ class AudioEngine(
         sampleRate: Int,
         carPath: Boolean
     ) {
-        val lpfHz = if (carPath) 220.0 else 70.0
-        val maxCoeff = if (carPath) 0.22f else 0.08f
+        val lpfHz = if (carPath) {
+            val hint = (ancProcessor as? MultiBandANCProcessor)?.getSendLpfHintHz() ?: 160f
+            val overlay = LiveTuneOverlay.sendLpfHz ?: 160f
+            maxOf(overlay, hint).toDouble()
+        } else {
+            70.0
+        }
+        val maxCoeff = if (carPath) {
+            when {
+                lpfHz >= 1500.0 -> 0.55f
+                lpfHz >= 350.0 -> 0.32f
+                else -> 0.22f
+            }
+        } else {
+            0.08f
+        }
         val coeff = (2.0 * Math.PI * lpfHz / sampleRate).toFloat().coerceIn(0.003f, maxCoeff)
-        val shelfBoost = if (carPath) 1.5f else 0f
-        val shelfCoeff = (2.0 * Math.PI * 90.0 / sampleRate).toFloat().coerceIn(0.003f, 0.12f)
+        val shelfBoost = if (carPath) (LiveTuneOverlay.shelfBoost ?: 2.0f) else 0f
+        val shelfCoeff = (2.0 * Math.PI * 80.0 / sampleRate).toFloat().coerceIn(0.003f, 0.12f)
         for (i in 0 until size) {
             var x = output[i] / 32768f
             if (carPath) {

@@ -3,7 +3,8 @@
 ## 重要
 
 - **Windows 不能編譯 iOS**，只能安裝 **Mac 已編好的 .ipa**
-- 本檔 `CarANC-ios-kmp-debug.ipa` 為 **Development 簽名（免費 Team）**
+- 本檔 `CarANC-ios-kmp-debug.ipa` 為 **Development 簽名（免費 Team）**，對版仍 **v1.2.32 (33)**
+- 原始碼已到 **1.2.40 (37)**，但這顆 IPA **沒重編**，沒有追 D / 艙麥峰值 DSP
 - 通常 **約 7 天過期**，過期後需 Mac 重簽再裝
 - 安裝時建議用 **同一個 Apple ID**（簽 ipa 的帳號）
 
